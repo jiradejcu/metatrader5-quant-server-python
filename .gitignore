@@ -92,3 +92,5 @@ logs
 
 # Database
 *.sqlite3
+
+config/

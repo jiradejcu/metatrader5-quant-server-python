@@ -11,6 +11,9 @@ RUN mkdir -p /config/.wine && \
     chown -R abc:abc /config/.wine && \
     chmod -R 755 /config/.wine
 
+# Comment out the backports entry
+RUN sed -i '/bullseye-backports/s/^/#/' /etc/apt/sources.list /etc/apt/sources.list.d/*.list || true
+
 # Update package lists and upgrade packages
 RUN apt-get update && apt-get upgrade -y
 
