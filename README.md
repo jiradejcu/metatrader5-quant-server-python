@@ -1,7 +1,5 @@
 # MetaTrader 5 Docker Setup
 
-![Banner](https://github.com/user-attachments/assets/6b5101ea-275b-4ae4-8f65-6a4fc30f30bf)
-
 ## Table of Contents
 
 - [MetaTrader 5 Docker Setup](#metatrader-5-docker-setup)
