@@ -444,12 +444,47 @@ services:
     profiles:
       - monitor
 
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    container_name: n8n
+    restart: always
+    labels:
+      <<: *default-labels
+      traefik.enable: true
+      traefik.docker.network: traefik-public
+
+      traefik.http.routers.n8n-mt5-http.rule: Host(`${N8N_DOMAIN}`)
+      traefik.http.routers.n8n-mt5-http.entrypoints: http
+      traefik.http.routers.n8n-mt5-http.middlewares: https-redirect
+
+      traefik.http.routers.n8n-mt5-https.rule: Host(`${N8N_DOMAIN}`)
+      traefik.http.routers.n8n-mt5-https.entrypoints: https
+      traefik.http.routers.n8n-mt5-https.tls: true
+      traefik.http.routers.n8n-mt5-https.tls.certresolver: le
+      traefik.http.routers.n8n-mt5-https.service: n8n-mt5-service
+
+      traefik.http.services.n8n-mt5-service.loadbalancer.server.port: 5678
+    env_file:
+      - .env
+    ports:
+      - 5678:5678
+    links:
+      - postgres
+    volumes:
+      - n8n_storage:/home/node/.n8n
+    networks:
+      - default
+      - traefik-public
+    depends_on:
+      - postgres
+
 volumes:
-  traefik-public-certificates: # Persistent volume for certificates
+  traefik-public-certificates:
   grafana-data: {}
   prometheus-data: {}
   postgres-data: {}
   static_volume: {}
+  n8n_storage:
 
 networks:
   default:
