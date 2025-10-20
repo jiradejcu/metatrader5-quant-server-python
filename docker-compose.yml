@@ -127,6 +127,8 @@ services:
       - postgres-data:/var/lib/postgresql/data
     networks:
       - default
+    ports:
+      - "5432:5432"
     labels:
       <<: *default-labels
     logging: *default-logging
