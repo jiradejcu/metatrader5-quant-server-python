@@ -466,6 +466,8 @@ services:
       traefik.http.services.n8n-mt5-service.loadbalancer.server.port: 5678
     env_file:
       - .env
+    environment:
+      - CODE_ENABLE_STDOUT=true
     ports:
       - 5678:5678
     links:
