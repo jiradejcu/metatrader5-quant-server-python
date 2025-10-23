@@ -467,6 +467,7 @@ services:
     env_file:
       - .env
     environment:
+      - WEBHOOK_URL=https://${N8N_DOMAIN}/
       - CODE_ENABLE_STDOUT=true
     ports:
       - 5678:5678
