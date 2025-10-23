@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from flask import Flask
 from dotenv import load_dotenv
 import MetaTrader5 as mt5
@@ -17,6 +18,19 @@ from routes.history import history_bp
 from routes.error import error_bp
 
 load_dotenv()
+
+LOG_LEVEL = logging.INFO 
+LOG_FORMAT = '%(asctime)s [%(levelname)s] (%(name)s): %(message)s'
+
+# 3. Apply the configuration
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format=LOG_FORMAT,
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
