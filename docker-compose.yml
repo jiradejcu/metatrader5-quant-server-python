@@ -228,8 +228,6 @@ services:
     labels:
       <<: *default-labels
     logging: *default-logging
-    profiles:
-      - monitor
 
   grafana:
     image: grafana/grafana:${GRAFANA_VERSION:-11.0.0}
