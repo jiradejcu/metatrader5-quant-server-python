@@ -92,6 +92,7 @@ INSTALLED_APPS = [
     'django_extensions',
     'app.nexus',
     'app.quant',
+    # 'app.binance',
 ]
 
 REST_FRAMEWORK = {
