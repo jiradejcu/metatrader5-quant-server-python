@@ -2,6 +2,7 @@ import os
 import logging
 import asyncio
 from django.core.management.base import BaseCommand
+
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,
     DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL,
@@ -19,15 +20,26 @@ configuration_ws_streams = ConfigurationWebSocketStreams(
 
 client = DerivativesTradingUsdsFutures(config_ws_streams=configuration_ws_streams)
 
-async def individual_symbol_ticker_streams():
+BEST_BID = None
+BEST_ASK = None
+
+async def individual_symbol_book_ticker_streams():
     connection = None
     try:
         connection = await client.websocket_streams.create_connection()
 
-        stream = await connection.individual_symbol_ticker_streams(
+        stream = await connection.individual_symbol_book_ticker_streams(
             symbol="paxgusdt",
         )
-        stream.on("message", lambda data: print(f"{data}"))
+
+        def handle_message(data):
+            global BEST_BID, BEST_ASK
+            logging.info(data)
+            BEST_BID = data.b  # Best bid price
+            BEST_ASK = data.a  # Best ask price
+            logging.info(f"Best Bid: {BEST_BID}, Best Ask: {BEST_ASK}")
+
+        stream.on("message", handle_message)
 
         while True:
             await asyncio.sleep(1)
@@ -35,7 +47,7 @@ async def individual_symbol_ticker_streams():
     except asyncio.CancelledError:
         logging.info("WebSocket task cancelled. Closing connection.")
     except Exception as e:
-        logging.error(f"individual_symbol_ticker_streams() error: {e}")
+        logging.error(f"individual_symbol_book_ticker_streams() error: {e}")
     finally:
         if connection:
             logging.info("Closing WebSocket connection...")
@@ -45,4 +57,4 @@ async def individual_symbol_ticker_streams():
 class Command(BaseCommand):
     def handle(self, *args, **options):
         logger.info(self.style.SUCCESS("Connecting to Binance WebSocket for individual symbol ticker streams..."))
-        asyncio.run(individual_symbol_ticker_streams())
+        asyncio.run(individual_symbol_book_ticker_streams())

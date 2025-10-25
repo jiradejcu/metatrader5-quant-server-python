@@ -4,6 +4,7 @@ import asyncio
 import pandas as pd
 from dotenv import load_dotenv
 from django.core.management.base import BaseCommand
+
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,
     DERIVATIVES_TRADING_USDS_FUTURES_WS_API_PROD_URL,
@@ -11,15 +12,12 @@ from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futur
 )
 
 load_dotenv()
-api_key = os.environ.get('API_KEY_BINANCE')
-api_secret = os.environ.get('API_SECRET_BINANCE')
-
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 configuration_ws_api = ConfigurationWebSocketAPI(
-    api_key=api_key,
-    api_secret=api_secret,
+    api_key=os.environ.get('API_KEY_BINANCE'),
+    api_secret=os.environ.get('API_SECRET_BINANCE'),
     stream_url=os.getenv(
         "STREAM_URL", DERIVATIVES_TRADING_USDS_FUTURES_WS_API_PROD_URL
     ),
