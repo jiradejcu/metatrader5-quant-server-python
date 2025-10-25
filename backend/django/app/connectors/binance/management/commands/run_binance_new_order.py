@@ -9,12 +9,14 @@ from app.connectors.binance.api.order import new_order
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+symbol = "PAXGUSDT"
+
 class Command(BaseCommand):
     def handle(self, *args, **options):
         logging.info(self.style.SUCCESS("Connecting to Binance WebSocket for ticker stream..."))
 
         websocket_thread = threading.Thread(target=asyncio.run,
-                                            args=(ticker_stream.subscribe_symbol_ticker(),),
+                                            args=(ticker_stream.subscribe_symbol_ticker(symbol),),
                                             daemon=True)
         websocket_thread.start()
 
@@ -24,6 +26,6 @@ class Command(BaseCommand):
                 time.sleep(0.1)
             
             logging.info(self.style.SUCCESS("Placing new order on Binance..."))
-            new_order("paxgusdt", 0.002, ticker_stream.BEST_BID, 'BUY')
+            new_order(symbol, 0.002, ticker_stream.BEST_BID, 'BUY')
         except KeyboardInterrupt:
             logging.error(self.style.ERROR("Keyboard Interrupt received."))

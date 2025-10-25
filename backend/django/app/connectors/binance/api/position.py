@@ -24,7 +24,9 @@ configuration_ws_api = ConfigurationWebSocketAPI(
 
 client = DerivativesTradingUsdsFutures(config_ws_api=configuration_ws_api)
 
-async def subscribe_position_information():
+SYMBOL_POSITION = None
+
+async def subscribe_position_information(symbol: str):
     connection = None
     try:
         connection = await client.websocket_api.create_connection()
@@ -55,7 +57,13 @@ async def subscribe_position_information():
 
             logging.info("Open Positions Only:")
             if not open_positions.empty:
+                global SYMBOL_POSITION
                 print(open_positions[existing_relevant_columns])
+                symbol_position_df = open_positions[open_positions['symbol'] == symbol]
+                if not symbol_position_df.empty:
+                    SYMBOL_POSITION = symbol_position_df.iloc[0].to_dict()
+                else:
+                    SYMBOL_POSITION = None
             else:
                 logging.info("No open positions found.")
 

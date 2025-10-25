@@ -9,4 +9,4 @@ logging.basicConfig(level=logging.INFO)
 class Command(BaseCommand):
     def handle(self, *args, **options):
         logger.info(self.style.SUCCESS("Connecting to Binance WebSocket for position information..."))
-        asyncio.run(subscribe_position_information())
+        asyncio.run(subscribe_position_information("PAXGUSDT"))

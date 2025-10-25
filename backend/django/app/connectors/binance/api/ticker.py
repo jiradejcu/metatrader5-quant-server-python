@@ -22,13 +22,13 @@ client = DerivativesTradingUsdsFutures(config_ws_streams=configuration_ws_stream
 BEST_BID = None
 BEST_ASK = None
 
-async def subscribe_symbol_ticker():
+async def subscribe_symbol_ticker(symbol: str):
     connection = None
     try:
         connection = await client.websocket_streams.create_connection()
 
         stream = await connection.individual_symbol_book_ticker_streams(
-            symbol="paxgusdt",
+            symbol=symbol,
         )
 
         def handle_message(data):
