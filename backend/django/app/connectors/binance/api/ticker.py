@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+from app.connectors.redis_client import get_redis_connection
 
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,
@@ -9,7 +10,6 @@ from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futur
 )
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 configuration_ws_streams = ConfigurationWebSocketStreams(
     stream_url=os.getenv(
@@ -18,9 +18,6 @@ configuration_ws_streams = ConfigurationWebSocketStreams(
 )
 
 client = DerivativesTradingUsdsFutures(config_ws_streams=configuration_ws_streams)
-
-BEST_BID = None
-BEST_ASK = None
 
 async def subscribe_symbol_ticker(symbol: str):
     connection = None
@@ -32,10 +29,10 @@ async def subscribe_symbol_ticker(symbol: str):
         )
 
         def handle_message(data):
-            global BEST_BID, BEST_ASK
-            BEST_BID = data.b  # Best bid price
-            BEST_ASK = data.a  # Best ask price
-            logger.info(f"Best Bid: {BEST_BID}, Best Ask: {BEST_ASK}")
+            redis_conn = get_redis_connection()
+            redis_key = f"ticker:{symbol}"
+            redis_conn.hset(redis_key, mapping={"best_bid": data.b, "best_ask": data.a})
+            logger.debug(f"Updated Redis {redis_key} -> Best Bid: {data.b}, Best Ask: {data.a}")
 
         stream.on("message", handle_message)
 

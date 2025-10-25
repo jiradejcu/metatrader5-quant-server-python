@@ -57,22 +57,37 @@ LOGGING = {
     },
     'handlers': {
         'console': {
+            'level': 'DEBUG',
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
         'file': {
+            'level': 'INFO',
             'class': 'logging.FileHandler',
             'filename': os.path.join(BASE_DIR, 'logs/quant.log'),
             'formatter': 'verbose',
         },
     },
+    'root': {
+        'handlers': ['console', 'file'],
+        'level': 'WARNING',
+    },
     'loggers': {
-        'quant': {
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': os.getenv('DJANGO_LOG_LEVEL', 'INFO'),
+            'propagate': False,
+        },
+        'app': {
             'handlers': ['console', 'file'],
             'level': 'INFO',
-            'propagate': True,
+            'propagate': False,
         },
-        # ... other loggers ...
+        'binance_sdk_derivatives_trading_usds_futures': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
     },
 }
 
@@ -91,7 +106,7 @@ INSTALLED_APPS = [
     'celery',
     'django_extensions',
     'app.nexus',
-    'app.quant',
+    'app.quant.apps.QuantConfig',
     'app.connectors.binance',
 ]
 

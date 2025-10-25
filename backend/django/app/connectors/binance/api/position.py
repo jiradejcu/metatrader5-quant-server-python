@@ -2,6 +2,8 @@ import os
 import logging
 import asyncio
 import pandas as pd
+import json
+from app.connectors.redis_client import get_redis_connection
 from dotenv import load_dotenv
 
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
@@ -12,7 +14,6 @@ from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futur
 
 load_dotenv()
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 configuration_ws_api = ConfigurationWebSocketAPI(
     api_key=os.environ.get('API_KEY_BINANCE'),
@@ -24,8 +25,6 @@ configuration_ws_api = ConfigurationWebSocketAPI(
 
 client = DerivativesTradingUsdsFutures(config_ws_api=configuration_ws_api)
 
-SYMBOL_POSITION = None
-
 async def subscribe_position_information(symbol: str):
     connection = None
     try:
@@ -35,7 +34,7 @@ async def subscribe_position_information(symbol: str):
             response = await connection.position_information()
 
             rate_limits = response.rate_limits
-            logging.info(f"position_information() rate limits: {rate_limits}")
+            logger.debug(f"position_information() rate limits: {rate_limits}")
 
             positions_list = response.data().result
             positions_as_dicts = [p.to_dict() for p in positions_list]
@@ -55,25 +54,27 @@ async def subscribe_position_information(symbol: str):
             df['positionAmt'] = pd.to_numeric(df['positionAmt'])
             open_positions = df[df['positionAmt'] != 0]
 
-            logging.info("Open Positions Only:")
             if not open_positions.empty:
-                global SYMBOL_POSITION
-                print(open_positions[existing_relevant_columns])
+                # print(open_positions[existing_relevant_columns])
                 symbol_position_df = open_positions[open_positions['symbol'] == symbol]
+                redis_conn = get_redis_connection()
+                redis_key = f"position:{symbol}"
                 if not symbol_position_df.empty:
-                    SYMBOL_POSITION = symbol_position_df.iloc[0].to_dict()
+                    position_data = symbol_position_df.iloc[0].to_dict()
+                    redis_conn.set(redis_key, json.dumps(position_data))
+                    logger.debug(f"Updated Redis {redis_key} with position data.")
                 else:
-                    SYMBOL_POSITION = None
+                    redis_conn.delete(redis_key) # No position, so remove the key
             else:
-                logging.info("No open positions found.")
+                logger.info("No open positions found.")
 
             await asyncio.sleep(1)
 
     except asyncio.CancelledError:
-        logging.info("WebSocket task cancelled. Closing connection.")
+        logger.info("WebSocket task cancelled. Closing connection.")
     except Exception as e:
-        logging.error(f"position_information() error: {e}")
+        logger.error(f"position_information() error: {e}")
     finally:
         if connection:
-            logging.info("Closing WebSocket connection...")
+            logger.info("Closing WebSocket connection...")
             await connection.close_connection(close_session=True)

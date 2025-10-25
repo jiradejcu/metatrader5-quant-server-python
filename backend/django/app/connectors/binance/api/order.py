@@ -14,7 +14,6 @@ from binance_sdk_derivatives_trading_usds_futures.rest_api.models import (
 
 load_dotenv()
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 configuration_rest_api = ConfigurationRestAPI(
     api_key=os.environ.get('API_KEY_BINANCE'),
@@ -38,9 +37,9 @@ def new_order(symbol, quantity, price, side):
         )
 
         rate_limits = response.rate_limits
-        logging.info(f"new_order() rate limits: {rate_limits}")
+        logger.info(f"new_order() rate limits: {rate_limits}")
 
         data = response.data()
-        logging.info(f"new_order() response: {data}")
+        logger.info(f"new_order() response: {data}")
     except Exception as e:
-        logging.error(f"new_order() error: {e}")
+        logger.error(f"new_order() error: {e}")

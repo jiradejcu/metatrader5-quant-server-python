@@ -1,31 +1,38 @@
 import logging
 import time
-import asyncio
-import threading
 from django.core.management.base import BaseCommand
-import app.connectors.binance.api.ticker as ticker_stream
 from app.connectors.binance.api.order import new_order
+from app.connectors.redis_client import get_redis_connection
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 symbol = "PAXGUSDT"
 
 class Command(BaseCommand):
     def handle(self, *args, **options):
-        logging.info(self.style.SUCCESS("Connecting to Binance WebSocket for ticker stream..."))
-
-        websocket_thread = threading.Thread(target=asyncio.run,
-                                            args=(ticker_stream.subscribe_symbol_ticker(symbol),),
-                                            daemon=True)
-        websocket_thread.start()
+        logger.info(f"Attempting to place a test order for {symbol}...")
 
         try:
-            while ticker_stream.BEST_BID is None or ticker_stream.BEST_ASK is None:
-                logging.info("Waiting for BEST_BID and BEST_ASK to be set...")
-                time.sleep(0.1)
-            
-            logging.info(self.style.SUCCESS("Placing new order on Binance..."))
-            new_order(symbol, 0.002, ticker_stream.BEST_BID, 'BUY')
+            redis_conn = get_redis_connection()
+            redis_key = f"ticker:{symbol}"
+
+            for _ in range(20):
+                ticker_data = redis_conn.hgetall(redis_key)
+                if ticker_data:
+                    break
+                logger.info(f"Waiting for ticker data in Redis key '{redis_key}'...")
+                time.sleep(0.5)
+
+            price_to_buy = ticker_data.get(b'best_bid')
+            if not price_to_buy:
+                logger.error(f"Could not find 'best_bid' price in Redis for {symbol}. Aborting.")
+                return
+
+            price_str = price_to_buy.decode('utf-8')
+            logger.info(f"Found best bid price: {price_str}. Placing new order on Binance...")
+            new_order(symbol, 0.002, price_str, 'BUY')
+            logger.info("Order command sent successfully.")
         except KeyboardInterrupt:
-            logging.error(self.style.ERROR("Keyboard Interrupt received."))
+            logger.error("Command cancelled by user.")
+        except Exception as e:
+            logger.error(f"An error occurred: {e}")
