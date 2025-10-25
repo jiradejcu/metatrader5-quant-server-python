@@ -2,92 +2,54 @@ import os
 import logging
 import time
 import json
+import asyncio
 from dotenv import load_dotenv
 from django.core.management.base import BaseCommand
-from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClient
+from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
+    DerivativesTradingUsdsFutures,
+    DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL,
+    ConfigurationWebSocketStreams,
+)
 
 load_dotenv()
 api_key = os.environ.get('API_KEY_BINANCE')
 api_secret = os.environ.get('API_SECRET_BINANCE')
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
-def message_handler(_, message):
-    """
-    General message handler that routes messages to specific handlers
-    based on the stream name.
-    """
+configuration_ws_streams = ConfigurationWebSocketStreams(
+    stream_url=os.getenv(
+        "STREAM_URL", DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL
+    )
+)
+
+client = DerivativesTradingUsdsFutures(config_ws_streams=configuration_ws_streams)
+
+async def all_book_tickers_stream():
+    connection = None
     try:
-        data = json.loads(message)
-        stream = data.get('stream')
-        payload = data.get('data', {})
+        connection = await client.websocket_streams.create_connection()
 
-        if not stream:
-            logger.warning(f"Received message without a stream name: {message}")
-            return
+        stream = await connection.all_book_tickers_stream()
+        stream.on("message", lambda data: print(f"{data}"))
 
-        if '@depth' in stream:
-            handle_orderbook_message(payload)
-        elif '@trade' in stream:
-            handle_trade_message(payload)
-        else:
-            logger.info(f"Received message from unhandled stream '{stream}'")
-
-    except json.JSONDecodeError:
-        logger.error(f"Error decoding JSON message: {message}")
+        await asyncio.sleep(5)
+        await stream.unsubscribe()
     except Exception as e:
-        logger.error(f"An unexpected error occurred in message_handler: {e}")
-
-
-def handle_orderbook_message(data):
-    """Handles and logs incoming order book (depth) messages."""
-    symbol = data.get('s', 'UNKNOWN')
-    best_bid = data.get('b', [['']])[0][0]
-    best_ask = data.get('a', [['']])[0][0]
-    logger.info(f"[{symbol:^10}] ORDER BOOK | Best Bid: {best_bid:<15} Best Ask: {best_ask}")
-
-
-def handle_trade_message(data):
-    """Handles and logs incoming trade messages."""
-    symbol = data.get('s', 'UNKNOWN')
-    price = data.get('p')
-    quantity = data.get('q')
-    side = "SELL" if data.get('m', False) else "BUY"
-    logger.info(f"[{symbol:^10}] NEW TRADE  | Side: {side:<4}  Price: {price:<15} Quantity: {quantity}")
+        logging.error(f"all_book_tickers_stream() error: {e}")
+    finally:
+        if connection:
+            await connection.close_connection(close_session=True)
 
 
 class Command(BaseCommand):
-    help = 'Connects to Binance USD-M Futures WebSocket and subscribes to order book and trade streams for given symbols.'
-
-    def add_arguments(self, parser):
-        parser.add_argument(
-            '--symbol',
-            nargs='+',
-            type=str,
-            required=True,
-            help='One or more trading symbols to subscribe to (e.g., btcusdt ethusdt).',
-        )
+    help = 'Connects to Binance USD-M Futures WebSocket and subscribes to the all book tickers stream.'
 
     def handle(self, *args, **options):
-        symbols = [s.lower() for s in options['symbol']]
-        self.stdout.write(self.style.SUCCESS(f"Connecting to Binance WebSocket for symbols: {', '.join(symbols)}"))
-
-        client = UMFuturesWebsocketClient(on_message=message_handler)
-
-        # Subscribe to multiple streams: order book (diff_book_depth) and trades (trade)
-        streams = []
-        for symbol in symbols:
-            streams.append(f"{symbol}@depth")
-            streams.append(f"{symbol}@trade")
-
-        client.subscribe(stream=streams)
-        self.stdout.write(self.style.SUCCESS(f"Successfully subscribed to streams: {', '.join(streams)}"))
-        self.stdout.write("Receiving updates... Press CTRL+C to stop.")
-
+        logger.info(self.style.SUCCESS("Connecting to Binance WebSocket..."))
         try:
-            while True:
-                time.sleep(1)
+            asyncio.run(all_book_tickers_stream())
         except KeyboardInterrupt:
-            self.stdout.write(self.style.WARNING("\nKeyboard Interrupt received. Closing WebSocket connection."))
-            client.stop()
-            self.stdout.write(self.style.SUCCESS("Connection closed."))
+            logging.error(self.style.ERROR("Keyboard Interrupt received. Closing WebSocket connection."))
+            logging.error(self.style.ERROR("Connection closed."))
