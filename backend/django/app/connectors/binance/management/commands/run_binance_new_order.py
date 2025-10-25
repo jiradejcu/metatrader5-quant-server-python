@@ -24,6 +24,6 @@ class Command(BaseCommand):
                 time.sleep(0.1)
             
             logging.info(self.style.SUCCESS("Placing new order on Binance..."))
-            new_order(ticker_stream.BEST_BID)
+            new_order("paxgusdt", 0.002, ticker_stream.BEST_BID, 'BUY')
         except KeyboardInterrupt:
             logging.error(self.style.ERROR("Keyboard Interrupt received."))

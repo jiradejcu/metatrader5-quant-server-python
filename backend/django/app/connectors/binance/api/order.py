@@ -26,13 +26,13 @@ configuration_rest_api = ConfigurationRestAPI(
 
 client = DerivativesTradingUsdsFutures(config_rest_api=configuration_rest_api)
 
-def new_order(price):
+def new_order(symbol, quantity, price, side):
     try:
         response = client.rest_api.new_order(
-            symbol="paxgusdt",
-            quantity=0.002,
+            symbol=symbol,
+            quantity=quantity,
             price=price,
-            side=NewOrderSideEnum["BUY"].value,
+            side=NewOrderSideEnum[side].value,
             type="LIMIT",
             time_in_force=NewOrderTimeInForceEnum["GTC"].value,
         )
