@@ -34,10 +34,9 @@ async def individual_symbol_book_ticker_streams():
 
         def handle_message(data):
             global BEST_BID, BEST_ASK
-            logging.info(data)
             BEST_BID = data.b  # Best bid price
             BEST_ASK = data.a  # Best ask price
-            logging.info(f"Best Bid: {BEST_BID}, Best Ask: {BEST_ASK}")
+            logger.info(f"Best Bid: {BEST_BID}, Best Ask: {BEST_ASK}")
 
         stream.on("message", handle_message)
 
@@ -45,12 +44,12 @@ async def individual_symbol_book_ticker_streams():
             await asyncio.sleep(1)
 
     except asyncio.CancelledError:
-        logging.info("WebSocket task cancelled. Closing connection.")
+        logger.info("WebSocket task cancelled. Closing connection.")
     except Exception as e:
-        logging.error(f"individual_symbol_book_ticker_streams() error: {e}")
+        logger.error(f"individual_symbol_book_ticker_streams() error: {e}")
     finally:
         if connection:
-            logging.info("Closing WebSocket connection...")
+            logger.info("Closing WebSocket connection...")
             await connection.close_connection(close_session=True)
 
 
