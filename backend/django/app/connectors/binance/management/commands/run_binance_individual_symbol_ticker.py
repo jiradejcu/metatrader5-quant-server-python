@@ -1,19 +1,12 @@
 import os
 import logging
-import time
-import json
 import asyncio
-from dotenv import load_dotenv
 from django.core.management.base import BaseCommand
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,
     DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL,
     ConfigurationWebSocketStreams,
 )
-
-load_dotenv()
-api_key = os.environ.get('API_KEY_BINANCE')
-api_secret = os.environ.get('API_SECRET_BINANCE')
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -51,5 +44,5 @@ async def individual_symbol_ticker_streams():
 
 class Command(BaseCommand):
     def handle(self, *args, **options):
-        logger.info(self.style.SUCCESS("Connecting to Binance WebSocket..."))
+        logger.info(self.style.SUCCESS("Connecting to Binance WebSocket for individual symbol ticker streams..."))
         asyncio.run(individual_symbol_ticker_streams())
