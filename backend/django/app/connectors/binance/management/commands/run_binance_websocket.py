@@ -26,30 +26,30 @@ configuration_ws_streams = ConfigurationWebSocketStreams(
 
 client = DerivativesTradingUsdsFutures(config_ws_streams=configuration_ws_streams)
 
-async def all_book_tickers_stream():
+async def individual_symbol_ticker_streams():
     connection = None
     try:
         connection = await client.websocket_streams.create_connection()
 
-        stream = await connection.all_book_tickers_stream()
+        stream = await connection.individual_symbol_ticker_streams(
+            symbol="paxgusdt",
+        )
         stream.on("message", lambda data: print(f"{data}"))
 
-        await asyncio.sleep(5)
-        await stream.unsubscribe()
+        while True:
+            await asyncio.sleep(1)
+
+    except asyncio.CancelledError:
+        logging.info("WebSocket task cancelled. Closing connection.")
     except Exception as e:
-        logging.error(f"all_book_tickers_stream() error: {e}")
+        logging.error(f"individual_symbol_ticker_streams() error: {e}")
     finally:
         if connection:
+            logging.info("Closing WebSocket connection...")
             await connection.close_connection(close_session=True)
 
 
 class Command(BaseCommand):
-    help = 'Connects to Binance USD-M Futures WebSocket and subscribes to the all book tickers stream.'
-
     def handle(self, *args, **options):
         logger.info(self.style.SUCCESS("Connecting to Binance WebSocket..."))
-        try:
-            asyncio.run(all_book_tickers_stream())
-        except KeyboardInterrupt:
-            logging.error(self.style.ERROR("Keyboard Interrupt received. Closing WebSocket connection."))
-            logging.error(self.style.ERROR("Connection closed."))
+        asyncio.run(individual_symbol_ticker_streams())
