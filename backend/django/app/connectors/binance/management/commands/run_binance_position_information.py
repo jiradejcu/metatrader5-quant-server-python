@@ -32,36 +32,36 @@ async def position_information():
     try:
         connection = await client.websocket_api.create_connection()
 
-        response = await connection.position_information()
-
-        rate_limits = response.rate_limits
-        logging.info(f"position_information() rate limits: {rate_limits}")
-
-        positions_list = response.data().result
-        positions_as_dicts = [p.to_dict() for p in positions_list]
-        df = pd.DataFrame(positions_as_dicts)
-
-        relevant_columns = [
-            'symbol',
-            'positionAmt',
-            'entryPrice',
-            'markPrice',
-            'unRealizedProfit',
-            'leverage',
-            'liquidationPrice'
-        ]
-
-        existing_relevant_columns = [col for col in relevant_columns if col in df.columns]
-        df['positionAmt'] = pd.to_numeric(df['positionAmt'])
-        open_positions = df[df['positionAmt'] != 0]
-
-        logging.info("Open Positions Only:")
-        if not open_positions.empty:
-            print(open_positions[existing_relevant_columns])
-        else:
-            logging.info("No open positions found.")
-
         while True:
+            response = await connection.position_information()
+
+            rate_limits = response.rate_limits
+            logging.info(f"position_information() rate limits: {rate_limits}")
+
+            positions_list = response.data().result
+            positions_as_dicts = [p.to_dict() for p in positions_list]
+            df = pd.DataFrame(positions_as_dicts)
+
+            relevant_columns = [
+                'symbol',
+                'positionAmt',
+                'entryPrice',
+                'markPrice',
+                'unRealizedProfit',
+                'leverage',
+                'liquidationPrice'
+            ]
+
+            existing_relevant_columns = [col for col in relevant_columns if col in df.columns]
+            df['positionAmt'] = pd.to_numeric(df['positionAmt'])
+            open_positions = df[df['positionAmt'] != 0]
+
+            logging.info("Open Positions Only:")
+            if not open_positions.empty:
+                print(open_positions[existing_relevant_columns])
+            else:
+                logging.info("No open positions found.")
+
             await asyncio.sleep(1)
 
     except asyncio.CancelledError:
