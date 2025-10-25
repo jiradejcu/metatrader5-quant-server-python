@@ -1,7 +1,6 @@
 import os
 import logging
 import asyncio
-from django.core.management.base import BaseCommand
 
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,
@@ -23,7 +22,7 @@ client = DerivativesTradingUsdsFutures(config_ws_streams=configuration_ws_stream
 BEST_BID = None
 BEST_ASK = None
 
-async def individual_symbol_book_ticker_streams():
+async def subscribe_symbol_ticker():
     connection = None
     try:
         connection = await client.websocket_streams.create_connection()
@@ -51,9 +50,3 @@ async def individual_symbol_book_ticker_streams():
         if connection:
             logger.info("Closing WebSocket connection...")
             await connection.close_connection(close_session=True)
-
-
-class Command(BaseCommand):
-    def handle(self, *args, **options):
-        logger.info(self.style.SUCCESS("Connecting to Binance WebSocket for individual symbol ticker streams..."))
-        asyncio.run(individual_symbol_book_ticker_streams())
