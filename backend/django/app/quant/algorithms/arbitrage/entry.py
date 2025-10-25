@@ -6,16 +6,25 @@ from app.connectors.redis_client import get_redis_connection
 
 logger = logging.getLogger(__name__)
 
-TARGET_POSITION_SIZE = Decimal('1.00')
+TARGET_POSITION_SIZE = Decimal('0.002')
 
 def arbitrage_entry_algorithm(alert_data: dict):
     """
     Analyzes an arbitrage opportunity from an alert and places a Binance order
     if the current position size is below a specific threshold.
     """
-    symbol = alert_data.get('symbol')
-    side = alert_data.get('side', 'BUY').upper()
+    side = None
 
+    if alert_data.get('condition') == 'Crossing Down' and alert_data.get('threshold') <= -0.2:
+            side = 'BUY'
+    elif alert_data.get('condition') == 'Crossing Up' and alert_data.get('threshold') >= 0.2:
+            side = 'SELL'
+
+    if side is None:
+        logger.info("Arbitrage entry: No valid crossing condition met.")
+        return
+
+    symbol = alert_data.get('symbol')
     if not symbol:
         logger.error("Arbitrage entry: 'symbol' not found in alert data.")
         return
@@ -25,21 +34,24 @@ def arbitrage_entry_algorithm(alert_data: dict):
 
         # Get current position size from Redis
         position_data_raw = redis_conn.get(f"position:{symbol}")
-        current_position_amt = Decimal('0')
+        current_position_amt = None
         if position_data_raw:
             position_data = json.loads(position_data_raw)
-            current_position_amt = Decimal(position_data.get('positionAmt', '0'))
+            current_position_amt = Decimal(position_data.get('positionAmt'))
+        else:
+            logger.warning(f"Could not find position data for {symbol} in Redis. Skipping.")
+            return
 
         # Get latest price from Redis
         ticker_data = redis_conn.hgetall(f"ticker:{symbol}")
-        price_to_buy = ticker_data.get(b'best_ask') # Buy at the ask price
+        price = ticker_data.get(b'best_bid') if side == 'BUY' else ticker_data.get(b'best_ask')
 
-        if not price_to_buy:
+        if not price:
             logger.warning(f"Could not find ticker price for {symbol} in Redis. Skipping.")
             return
 
-        if current_position < TARGET_POSITION_SIZE:
-            new_order(symbol=symbol, quantity=0.002, price=price_to_buy.decode('utf-8'), side=side)
+        if current_position_amt < TARGET_POSITION_SIZE:
+            new_order(symbol=symbol, quantity=0.002, price=price.decode('utf-8'), side=side)
         else:
             logger.info(f"Position size for {symbol} is already at or above target. No action taken.")
 
