@@ -1,0 +1,7 @@
+services:
+  django:
+    command: sh -c "mkdir -p /app/logs && chmod -R 777 /app/logs && python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - ./backend/django:/app
+    ports:
+      - "8000:8000"
