@@ -205,17 +205,17 @@ CELERY_BROKER_CONNECTION_RETRY = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True  # To retain existing behavior
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://redis:6379/0')
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://redis:6379/0')
-CELERY_BEAT_SCHEDULE = {
-    'run-quant-entry-algorithm': {
-        'task': 'quant.tasks.run_quant_entry_algorithm',  # This should match the @shared_task name
-        'schedule': 60.0 * 1,
-    },
-    'run-quant-trailing-stop-algorithm': {
-        'task': 'quant.tasks.run_quant_trailing_stop_algorithm',  # This should match the @shared_task name
-        'schedule': 15,
-    },
-    'run-quant-close-algorithm': {
-        'task': 'quant.tasks.run_quant_close_algorithm',  # This should match the @shared_task name
-        'schedule': 15,
-    },
-}
+# CELERY_BEAT_SCHEDULE = {
+#     'run-quant-entry-algorithm': {
+#         'task': 'quant.tasks.run_quant_entry_algorithm',  # This should match the @shared_task name
+#         'schedule': 60.0 * 1,
+#     },
+#     'run-quant-trailing-stop-algorithm': {
+#         'task': 'quant.tasks.run_quant_trailing_stop_algorithm',  # This should match the @shared_task name
+#         'schedule': 15,
+#     },
+#     'run-quant-close-algorithm': {
+#         'task': 'quant.tasks.run_quant_close_algorithm',  # This should match the @shared_task name
+#         'schedule': 15,
+#     },
+# }

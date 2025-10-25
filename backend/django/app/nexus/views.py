@@ -10,6 +10,7 @@ from .models import Trade, TradeClosePricesMutation
 from .serializers import TradeSerializer, TradeClosePricesMutationSerializer
 
 from app.utils.api.order import send_market_order, modify_sl_tp
+from app.quant.tasks import process_price_alert_task
 
 class TradeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Trade.objects.all()
@@ -71,7 +72,6 @@ class SendMarketOrderView(views.APIView):
         except Trade.DoesNotExist:
             return Response({'error': 'Trade created but not found in database.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
 class ModifySLTPView(views.APIView):
     permission_classes = [IsAuthenticated]
 
@@ -104,3 +104,12 @@ class ModifySLTPView(views.APIView):
             return Response({'mutation': mutation_serializer.data}, status=status.HTTP_201_CREATED)
         except TradeClosePricesMutation.DoesNotExist:
             return Response({'error': 'Mutation created but not found in database.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class PriceAlertView(views.APIView):    
+    def post(self, request):
+        data = request.data
+        if not data or 'symbol' not in data:
+            return Response({'error': 'Invalid alert data. "symbol" are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        process_price_alert_task(data)
+        return Response({'message': 'Price alert received and queued for processing.'}, status=status.HTTP_202_ACCEPTED)

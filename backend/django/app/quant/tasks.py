@@ -7,6 +7,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from app.quant.algorithms.mean_reversion.entry import entry_algorithm
 from app.quant.algorithms.mean_reversion.trailing import trailing_stop_algorithm
 from app.quant.algorithms.close.close import close_algorithm
+from app.quant.algorithms.arbitrage.entry import arbitrage_entry_algorithm
 
 logger = logging.getLogger(__name__)
 
@@ -40,3 +41,13 @@ def run_quant_close_algorithm():
     except Exception as e:
         logger.error(f"Error in quant close algorithm: {e}")
 
+@shared_task(name='quant.tasks.process_price_alert_task', max_retries=1)
+def process_price_alert_task(alert_data: dict):
+    """
+    Processes an incoming price alert to decide whether to open a position.
+    """
+    try:
+        logger.info(f"Processing price alert: {alert_data}")
+        arbitrage_entry_algorithm(alert_data)
+    except Exception as e:
+        logger.error(f"Error processing price alert task: {e}")
