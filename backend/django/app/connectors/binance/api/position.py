@@ -24,6 +24,7 @@ configuration_ws_api = ConfigurationWebSocketAPI(
 )
 
 client = DerivativesTradingUsdsFutures(config_ws_api=configuration_ws_api)
+redis_conn = get_redis_connection()
 
 async def subscribe_position_information(symbol: str):
     connection = None
@@ -53,7 +54,6 @@ async def subscribe_position_information(symbol: str):
             df['positionAmt'] = pd.to_numeric(df['positionAmt'])
             symbol_open_position_df = df[(df['symbol'] == symbol) & (df['positionAmt'] != 0)]
 
-            redis_conn = get_redis_connection()
             redis_key = f"position:{symbol}"
 
             if not symbol_open_position_df.empty:
@@ -76,3 +76,10 @@ async def subscribe_position_information(symbol: str):
         if connection:
             logger.info("Closing WebSocket connection...")
             await connection.close_connection(close_session=True)
+
+def get_position(symbol: str):
+    redis_key = f"position:{symbol}"
+    position_data = redis_conn.get(redis_key)
+    if position_data:
+        return json.loads(position_data)
+    return None
