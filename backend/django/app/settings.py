@@ -51,7 +51,7 @@ LOGGING = {
             'style': '{',
         },
         'simple': {
-            'format': '{levelname} {name} {message}',
+            'format': '{levelname} {asctime} {name} {message}',
             'style': '{',
         },
     },
@@ -59,7 +59,8 @@ LOGGING = {
         'console': {
             'level': 'DEBUG',
             'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
+            'formatter': 'simple',
+            'stream': 'ext://sys.stdout', 
         },
         'file': {
             'level': 'INFO',

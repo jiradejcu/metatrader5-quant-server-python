@@ -50,23 +50,21 @@ async def subscribe_position_information(symbol: str):
                 'liquidationPrice'
             ]
 
-            existing_relevant_columns = [col for col in relevant_columns if col in df.columns]
             df['positionAmt'] = pd.to_numeric(df['positionAmt'])
-            open_positions = df[df['positionAmt'] != 0]
+            symbol_open_position_df = df[(df['symbol'] == symbol) & (df['positionAmt'] != 0)]
 
-            if not open_positions.empty:
-                # print(open_positions[existing_relevant_columns])
-                symbol_position_df = open_positions[open_positions['symbol'] == symbol]
-                redis_conn = get_redis_connection()
-                redis_key = f"position:{symbol}"
-                if not symbol_position_df.empty:
-                    position_data = symbol_position_df.iloc[0].to_dict()
-                    redis_conn.set(redis_key, json.dumps(position_data))
-                    logger.debug(f"Updated Redis {redis_key} with position data.")
-                else:
-                    redis_conn.delete(redis_key) # No position, so remove the key
+            redis_conn = get_redis_connection()
+            redis_key = f"position:{symbol}"
+
+            if not symbol_open_position_df.empty:
+                logger.debug(symbol_open_position_df[relevant_columns].to_json(orient='records'))
+                position_data = symbol_open_position_df.iloc[0].to_dict()
+                redis_conn.set(redis_key, json.dumps(position_data))
+                logger.debug(f"Updated Redis {redis_key} with position data.")
             else:
-                logger.info("No open positions found.")
+                if redis_conn.exists(redis_key):
+                    redis_conn.delete(redis_key)
+                    logger.debug(f"Deleted Redis key {redis_key} as no open position found for {symbol}.")
 
             await asyncio.sleep(1)
 
