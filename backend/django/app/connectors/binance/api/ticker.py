@@ -24,6 +24,7 @@ async def subscribe_symbol_ticker(symbol: str):
     connection = None
     try:
         connection = await client.websocket_streams.create_connection()
+        logger.info("WebSocket connection for symbol ticker established.")
 
         stream = await connection.individual_symbol_book_ticker_streams(
             symbol=symbol,

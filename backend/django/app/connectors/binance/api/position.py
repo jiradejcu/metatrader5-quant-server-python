@@ -30,6 +30,7 @@ async def subscribe_position_information(symbol: str):
     connection = None
     try:
         connection = await client.websocket_api.create_connection()
+        logger.info("WebSocket connection for position information established.")
 
         while True:
             response = await connection.position_information()
@@ -60,6 +61,7 @@ async def subscribe_position_information(symbol: str):
                 logger.debug(symbol_open_position_df[relevant_columns].to_json(orient='records'))
                 position_data = symbol_open_position_df.iloc[0].to_dict()
                 redis_conn.set(redis_key, json.dumps(position_data))
+                redis_conn.publish(redis_key, json.dumps(position_data))
                 logger.debug(f"Updated Redis {redis_key} with position data.")
             else:
                 if redis_conn.exists(redis_key):
@@ -71,7 +73,7 @@ async def subscribe_position_information(symbol: str):
     except asyncio.CancelledError:
         logger.info("WebSocket task cancelled. Closing connection.")
     except Exception as e:
-        logger.error(f"position_information() error: {e}")
+        logger.error(f"Position information subscription error: {e}")
     finally:
         if connection:
             logger.info("Closing WebSocket connection...")

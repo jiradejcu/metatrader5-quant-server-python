@@ -7,3 +7,6 @@ class QuantConfig(AppConfig):
     def ready(self):
         from .algorithms.arbitrage import subscribe
         subscribe.start_subscriptions()
+        
+        from .algorithms.arbitrage import position_sync
+        position_sync.start_position_sync()
