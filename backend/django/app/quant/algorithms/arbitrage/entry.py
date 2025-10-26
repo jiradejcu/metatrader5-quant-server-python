@@ -1,10 +1,12 @@
+import json
 import logging
 from decimal import Decimal
-import json
 from app.connectors.binance.api.order import new_order
-from app.utils.redis_client import get_redis_connection
+from app.connectors.binance.api.position import get_position
+from app.connectors.binance.api.ticker import get_ticker
 
 logger = logging.getLogger(__name__)
+
 
 TARGET_POSITION_SIZE = Decimal('0.002')
 
@@ -30,28 +32,26 @@ def arbitrage_entry_algorithm(alert_data: dict):
         return
 
     try:
-        redis_conn = get_redis_connection()
+        position_data = get_position(symbol)
+        logger.info(f"Fetched position data for {symbol}: {position_data}")
 
-        # Get current position size from Redis
-        position_data_raw = redis_conn.get(f"position:{symbol}")
-        current_position_amt = None
-        if position_data_raw:
-            position_data = json.loads(position_data_raw)
-            current_position_amt = Decimal(position_data.get('positionAmt'))
+        if position_data is not None:
+            current_position_amt = Decimal(position_data.get('positionAmt', '0'))
         else:
             logger.warning(f"Could not find position data for {symbol} in Redis.")
             current_position_amt = Decimal('0')
-
-        # Get latest price from Redis
-        ticker_data = redis_conn.hgetall(f"ticker:{symbol}")
-        price = ticker_data.get(b'best_bid') if side == 'BUY' else ticker_data.get(b'best_ask')
+        
+        ticker_data = get_ticker(symbol)
+        price = ticker_data['best_bid'] if side == 'BUY' else ticker_data['best_ask']
 
         if not price:
             logger.warning(f"Could not find ticker price for {symbol} in Redis. Skipping.")
             return
 
+        logger.info(f"Arbitrage entry:\nCurrent position for {symbol} is {current_position_amt}.\nTarget is {TARGET_POSITION_SIZE}.\nPlacing {side} order at price {price}.")
+
         if current_position_amt < TARGET_POSITION_SIZE:
-            new_order(symbol=symbol, quantity=0.002, price=price.decode('utf-8'), side=side)
+            new_order(symbol=symbol, quantity=0.002, price=price, side=side)
         else:
             logger.info(f"Position size {current_position_amt} for {symbol} is already at or above target. No action taken.")
 

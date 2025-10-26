@@ -18,6 +18,7 @@ configuration_ws_streams = ConfigurationWebSocketStreams(
 )
 
 client = DerivativesTradingUsdsFutures(config_ws_streams=configuration_ws_streams)
+redis_conn = get_redis_connection()
 
 async def subscribe_symbol_ticker(symbol: str):
     connection = None
@@ -29,7 +30,6 @@ async def subscribe_symbol_ticker(symbol: str):
         )
 
         def handle_message(data):
-            redis_conn = get_redis_connection()
             redis_key = f"ticker:{symbol}"
             redis_conn.hset(redis_key, mapping={"best_bid": data.b, "best_ask": data.a})
             logger.debug(f"Updated Redis {redis_key} -> Best Bid: {data.b}, Best Ask: {data.a}")
@@ -47,3 +47,14 @@ async def subscribe_symbol_ticker(symbol: str):
         if connection:
             logger.info("Closing WebSocket connection...")
             await connection.close_connection(close_session=True)
+
+def get_ticker(symbol: str):
+    redis_key = f"ticker:{symbol}"
+    ticker_data = redis_conn.hgetall(redis_key)
+    logger.debug(f"Fetched ticker data from Redis {redis_key}: {ticker_data}")
+    if ticker_data:
+        return {
+            "best_bid": ticker_data.get(b'best_bid').decode('utf-8'),
+            "best_ask": ticker_data.get(b'best_ask').decode('utf-8'),
+        }
+    return None
