@@ -3,7 +3,7 @@ import logging
 import asyncio
 import pandas as pd
 import json
-from app.connectors.redis_client import get_redis_connection
+from app.utils.redis_client import get_redis_connection
 from dotenv import load_dotenv
 
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (

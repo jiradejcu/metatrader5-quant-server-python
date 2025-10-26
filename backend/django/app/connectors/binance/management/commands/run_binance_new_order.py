@@ -2,7 +2,7 @@ import logging
 import time
 from django.core.management.base import BaseCommand
 from app.connectors.binance.api.order import new_order
-from app.connectors.redis_client import get_redis_connection
+from app.utils.redis_client import get_redis_connection
 
 logger = logging.getLogger(__name__)
 

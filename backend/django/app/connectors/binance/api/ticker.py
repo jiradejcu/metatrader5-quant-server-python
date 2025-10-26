@@ -1,7 +1,7 @@
 import os
 import logging
 import asyncio
-from app.connectors.redis_client import get_redis_connection
+from app.utils.redis_client import get_redis_connection
 
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,

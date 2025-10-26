@@ -2,7 +2,7 @@ import logging
 from decimal import Decimal
 import json
 from app.connectors.binance.api.order import new_order
-from app.connectors.redis_client import get_redis_connection
+from app.utils.redis_client import get_redis_connection
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,8 @@ def arbitrage_entry_algorithm(alert_data: dict):
             position_data = json.loads(position_data_raw)
             current_position_amt = Decimal(position_data.get('positionAmt'))
         else:
-            logger.warning(f"Could not find position data for {symbol} in Redis. Skipping.")
-            return
+            logger.warning(f"Could not find position data for {symbol} in Redis.")
+            current_position_amt = Decimal('0')
 
         # Get latest price from Redis
         ticker_data = redis_conn.hgetall(f"ticker:{symbol}")
@@ -53,7 +53,7 @@ def arbitrage_entry_algorithm(alert_data: dict):
         if current_position_amt < TARGET_POSITION_SIZE:
             new_order(symbol=symbol, quantity=0.002, price=price.decode('utf-8'), side=side)
         else:
-            logger.info(f"Position size for {symbol} is already at or above target. No action taken.")
+            logger.info(f"Position size {current_position_amt} for {symbol} is already at or above target. No action taken.")
 
     except Exception as e:
         logger.error(f"Error in arbitrage entry algorithm for {symbol}: {e}", exc_info=True)
