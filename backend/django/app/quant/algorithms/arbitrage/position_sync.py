@@ -3,10 +3,13 @@ import time
 import logging
 import threading
 from decimal import Decimal
-from app.connectors.binance.api.position import get_position
 from app.utils.redis_client import get_redis_connection
+from app.utils.api.positions import get_position_by_symbol as get_mt5_position
+from app.utils.api.order import send_market_order
 
 logger = logging.getLogger(__name__)
+symbol = "PAXGUSDT"
+mt5_symbol = "XAUUSD"
 
 def handle_position_update(pubsub):
     try:
@@ -24,13 +27,39 @@ def handle_position_update(pubsub):
                     f"Amount: {position_amt}, Entry Price: {entry_price}"
                     f", Mark Price: {mark_price}, Unrealized Profit: {unrealized_profit}"
                 )
+                
+                mt5_position = get_mt5_position(mt5_symbol)
+                
+                mt5_volume = Decimal(str(mt5_position.get('volume', '0')))
+                mt5_profit = Decimal(str(mt5_position.get('profit', '0')))
+
+                logger.info(
+                    f"MT5 Position for {mt5_symbol} - "
+                    f"Volume: {mt5_volume}, Profit: {mt5_profit}"
+                )
+                
+                order_amt = abs(position_amt - mt5_volume * Decimal('100'))
+                if order_amt > Decimal('0.002'):
+                    logger.info(
+                        f"Discrepancy detected for {symbol}. "
+                        f"Binance Amount: {position_amt}, MT5 Volume: {mt5_volume}. "
+                        f"Placing order to adjust by {order_amt}."
+                    )
+                    send_market_order(
+                        symbol=mt5_symbol,
+                        volume=order_amt / Decimal('100'),
+                        order_type='BUY' if position_amt > mt5_volume else 'SELL',
+                        sl=float(entry_price * Decimal('0.9')),
+                    )
+                else:
+                    logger.info(f"No significant discrepancy for {symbol}. No action taken.")
+                
             time.sleep(0.1)
 
     except Exception as e:
         logger.error(f"Error processing position update for {symbol}: {e}", exc_info=True)
 
 def start_position_sync():
-    symbol = "PAXGUSDT"
     logger.info(f"Starting position sync for {symbol}...")
 
     try:

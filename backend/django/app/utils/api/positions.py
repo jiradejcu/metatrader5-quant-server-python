@@ -54,3 +54,12 @@ def get_positions() -> pd.DataFrame:
         error_msg = f"Exception fetching positions: {e}\n{traceback.format_exc()}"
         logger.error(error_msg)
         return empty_df
+
+def get_position_by_symbol(symbol: str) -> Dict:
+    positions_df = get_positions()
+    position_row = positions_df[positions_df['symbol'] == symbol]
+
+    if position_row.empty:
+        return { 'volume': 0, 'profit': 0 }
+
+    return position_row.iloc[0].to_dict()

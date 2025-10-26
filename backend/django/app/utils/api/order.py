@@ -31,12 +31,12 @@ def send_market_order(symbol: str, volume: float, order_type: str, sl: float, tp
         request = {
             "symbol": symbol,
             "volume": float(volume),
-            "order_type": order_type_str,
+            "type": 0 if order_type_str == 'BUY' else 1,
             "sl": float(sl),
             "deviation": int(deviation),
             "magic": int(magic),
             "comment": str(comment),
-            "type_filling": type_filling,
+            # "type_filling": type_filling,
         }
 
         if tp is not None:
@@ -44,7 +44,7 @@ def send_market_order(symbol: str, volume: float, order_type: str, sl: float, tp
 
         logger.info(f"Sending market order: {request}")
 
-        url = f"{BASE_URL}/send_market_order"
+        url = f"{BASE_URL}/order"
         response = requests.post(url, json=request, timeout=10)
         response.raise_for_status()
 
