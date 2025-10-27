@@ -27,6 +27,7 @@ client = DerivativesTradingUsdsFutures(config_rest_api=configuration_rest_api)
 
 def new_order(symbol, quantity, price, side):
     try:
+        logger.info(f"new_order() being placed: symbol={symbol}, quantity={quantity}, price={price}, side={side}")
         response = client.rest_api.new_order(
             symbol=symbol,
             quantity=quantity,

@@ -17,9 +17,9 @@ def arbitrage_entry_algorithm(alert_data: dict):
     """
     side = None
 
-    if alert_data.get('condition') == 'Crossing Down' and alert_data.get('threshold') <= -0.2:
+    if alert_data.get('condition') == 'Crossing Down' and alert_data.get('threshold') <= -0.3:
             side = 'BUY'
-    elif alert_data.get('condition') == 'Crossing Up' and alert_data.get('threshold') >= 0.2:
+    elif alert_data.get('condition') == 'Crossing Up' and alert_data.get('threshold') >= 0.3:
             side = 'SELL'
 
     if side is None:
@@ -51,6 +51,7 @@ def arbitrage_entry_algorithm(alert_data: dict):
         logger.info(f"Arbitrage entry:\nCurrent position for {symbol} is {current_position_amt}.\nTarget is {TARGET_POSITION_SIZE}.\nPlacing {side} order at price {price}.")
 
         if current_position_amt < TARGET_POSITION_SIZE:
+            logger.info(f"Placing {side} order size 0.002 for {symbol}.")
             new_order(symbol=symbol, quantity=0.002, price=price, side=side)
         else:
             logger.info(f"Position size {current_position_amt} for {symbol} is already at or above target. No action taken.")
