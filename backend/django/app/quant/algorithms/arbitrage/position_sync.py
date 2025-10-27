@@ -10,6 +10,7 @@ from app.utils.api.order import send_market_order
 logger = logging.getLogger(__name__)
 symbol = "PAXGUSDT"
 mt5_symbol = "XAUUSD"
+contract_size = Decimal('100')
 
 def handle_position_update(pubsub):
     try:
@@ -23,7 +24,7 @@ def handle_position_update(pubsub):
                 unrealized_profit = Decimal(position_data.get('unRealizedProfit', '0'))
 
                 logger.debug(
-                    f"Position Update for {symbol} - "
+                    f"Binance Position for {symbol} - "
                     f"Amount: {position_amt}, Entry Price: {entry_price}"
                     f", Mark Price: {mark_price}, Unrealized Profit: {unrealized_profit}"
                 )
@@ -33,12 +34,12 @@ def handle_position_update(pubsub):
                 mt5_volume = Decimal(str(mt5_position.get('volume', '0')))
                 mt5_profit = Decimal(str(mt5_position.get('profit', '0')))
 
-                logger.info(
+                logger.debug(
                     f"MT5 Position for {mt5_symbol} - "
                     f"Volume: {mt5_volume}, Profit: {mt5_profit}"
                 )
                 
-                order_amt = abs(position_amt - mt5_volume * Decimal('100'))
+                order_amt = abs(position_amt - mt5_volume * contract_size)
                 if order_amt > Decimal('0.002'):
                     logger.info(
                         f"Discrepancy detected for {symbol}. "
@@ -47,12 +48,12 @@ def handle_position_update(pubsub):
                     )
                     send_market_order(
                         symbol=mt5_symbol,
-                        volume=order_amt / Decimal('100'),
+                        volume=order_amt / contract_size,
                         order_type='BUY' if position_amt > mt5_volume else 'SELL',
                         sl=float(entry_price * Decimal('0.9')),
                     )
                 else:
-                    logger.info(f"No significant discrepancy for {symbol}. No action taken.")
+                    logger.debug(f"No significant discrepancy for {symbol}. No action taken.")
                 
             time.sleep(0.1)
 
