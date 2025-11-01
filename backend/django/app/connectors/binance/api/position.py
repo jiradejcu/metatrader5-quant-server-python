@@ -62,11 +62,11 @@ async def subscribe_position_information(symbol: str):
                 position_data = symbol_open_position_df.iloc[0].to_dict()
                 redis_conn.set(redis_key, json.dumps(position_data))
                 redis_conn.publish(redis_key, json.dumps(position_data))
-                logger.debug(f"Updated Redis {redis_key} with position data.")
+                logger.debug(f"Updated Redis {redis_key} -> {position_data['positionAmt']}")
             else:
                 if redis_conn.exists(redis_key):
                     redis_conn.delete(redis_key)
-                    logger.debug(f"Deleted Redis key {redis_key} as no open position found for {symbol}.")
+                    logger.debug(f"Deleted Redis key {redis_key} as no position data found for {symbol}.")
 
             await asyncio.sleep(1)
 
