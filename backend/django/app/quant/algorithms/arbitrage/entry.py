@@ -1,12 +1,11 @@
 import json
 import logging
 from decimal import Decimal
-from app.connectors.binance.api.order import new_order
+from app.connectors.binance.api.order import new_order, get_open_orders
 from app.connectors.binance.api.position import get_position
 from app.connectors.binance.api.ticker import get_ticker
 
 logger = logging.getLogger(__name__)
-
 
 TARGET_POSITION_SIZE = Decimal('0.002')
 
@@ -42,17 +41,25 @@ def arbitrage_entry_algorithm(alert_data: dict):
             return
         
         ticker_data = get_ticker(symbol)
-        price = ticker_data['best_bid'] if side == 'BUY' else ticker_data['best_ask']
-
-        if not price:
+        if not ticker_data:
             logger.warning(f"Could not find ticker price for {symbol} in Redis. Skipping.")
             return
+
+        if side == 'BUY':
+            price = Decimal(ticker_data['best_bid'])
+        else:
+            price = Decimal(ticker_data['best_ask'])
 
         logger.info(f"Arbitrage entry:\nCurrent position for {symbol} is {current_position_amt}.\nTarget is {TARGET_POSITION_SIZE}.\nPlacing {side} order at price {price}.")
 
         if current_position_amt < TARGET_POSITION_SIZE:
-            logger.info(f"Placing {side} order size 0.002 for {symbol}.")
-            new_order(symbol=symbol, quantity=0.002, price=price, side=side)
+            open_order = get_open_orders(symbol)
+            if open_order:
+                logger.info(f"Existing open order found for {symbol}. Skipping new order placement.")
+                return
+            
+            logger.info(f"Placing {side} order size {TARGET_POSITION_SIZE} for {symbol}.")
+            new_order(symbol=symbol, quantity=TARGET_POSITION_SIZE, price=price, side=side)
         else:
             logger.info(f"Position size {current_position_amt} for {symbol} is already at or above target. No action taken.")
 
