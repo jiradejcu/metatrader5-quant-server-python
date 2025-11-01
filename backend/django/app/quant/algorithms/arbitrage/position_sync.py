@@ -39,17 +39,24 @@ def handle_position_update(pubsub):
                     f"Volume: {mt5_volume}, Profit: {mt5_profit}"
                 )
                 
-                order_amt = abs(position_amt - mt5_volume * contract_size)
-                if order_amt > Decimal('0.002'):
+                discrepancy = position_amt - mt5_volume * contract_size
+                
+                logger.debug(
+                    f"Binance Amount: {position_amt}, MT5 Volume: {mt5_volume}. "
+                    f"Position Size Difference: {discrepancy}."
+                )
+                
+                order_amt = Decimal(int(discrepancy))
+                
+                if abs(order_amt) >= Decimal('1.00'):
                     logger.info(
                         f"Discrepancy detected for {symbol}. "
-                        f"Binance Amount: {position_amt}, MT5 Volume: {mt5_volume}. "
                         f"Placing order to adjust by {order_amt}."
                     )
                     send_market_order(
                         symbol=mt5_symbol,
-                        volume=order_amt / contract_size,
-                        order_type='BUY' if position_amt > mt5_volume else 'SELL',
+                        volume=abs(order_amt / contract_size),
+                        order_type='BUY' if order_amt > 0 else 'SELL',
                         sl=float(entry_price * Decimal('0.9')),
                     )
                 else:
