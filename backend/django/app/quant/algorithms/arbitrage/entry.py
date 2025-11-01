@@ -39,7 +39,7 @@ def arbitrage_entry_algorithm(alert_data: dict):
             current_position_amt = Decimal(position_data.get('positionAmt', '0'))
         else:
             logger.warning(f"Could not find position data for {symbol} in Redis.")
-            current_position_amt = Decimal('0')
+            return
         
         ticker_data = get_ticker(symbol)
         price = ticker_data['best_bid'] if side == 'BUY' else ticker_data['best_ask']
