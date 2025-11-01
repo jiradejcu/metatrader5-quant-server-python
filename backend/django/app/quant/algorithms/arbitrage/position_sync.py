@@ -57,7 +57,6 @@ def handle_position_update(pubsub):
                         symbol=mt5_symbol,
                         volume=abs(order_amt / contract_size),
                         order_type='BUY' if order_amt > 0 else 'SELL',
-                        sl=float(entry_price * Decimal('0.9')),
                     )
                 else:
                     logger.debug(f"No significant discrepancy for {symbol}. No action taken.")
