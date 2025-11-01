@@ -36,7 +36,7 @@ async def subscribe_position_information(symbol: str):
             response = await connection.position_information()
 
             rate_limits = response.rate_limits
-            logger.debug(f"position_information() rate limits: {rate_limits}")
+            logger.debug(f"Position information rate limits: {rate_limits}")
 
             positions_list = response.data().result
             positions_as_dicts = [p.to_dict() for p in positions_list]
@@ -53,7 +53,7 @@ async def subscribe_position_information(symbol: str):
             ]
 
             df['positionAmt'] = pd.to_numeric(df['positionAmt'])
-            symbol_open_position_df = df[(df['symbol'] == symbol) & (df['positionAmt'] != 0)]
+            symbol_open_position_df = df[(df['symbol'] == symbol)]
 
             redis_key = f"position:{symbol}"
 
