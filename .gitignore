@@ -89,6 +89,7 @@ Thumbs.db
 # Logs
 logs
 *.log
+*.log.*
 
 # Database
 *.sqlite3

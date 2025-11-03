@@ -7,6 +7,8 @@ import time
 
 import requests
 import pandas as pd
+import numpy as np
+from decimal import Decimal
 from dotenv import load_dotenv
 
 from app.utils.constants import MT5Timeframe
@@ -57,9 +59,21 @@ def get_positions() -> pd.DataFrame:
 
 def get_position_by_symbol(symbol: str) -> Dict:
     positions_df = get_positions()
-    position_row = positions_df[positions_df['symbol'] == symbol]
+    symbol_positions = positions_df[positions_df['symbol'] == symbol]
 
-    if position_row.empty:
-        return { 'volume': 0, 'profit': 0 }
+    if symbol_positions.empty:
+        return { 'volume': Decimal(0), 'time_update': None }
+    
+    def calculate_signed_volume(row):
+        volume = Decimal(str(row['volume']))
+        return -volume if row['type'] == 1 else volume
+    
+    symbol_positions['signed_volume'] = symbol_positions.apply(calculate_signed_volume, axis=1)
 
-    return position_row.iloc[0].to_dict()
+    net_volume = symbol_positions['signed_volume'].sum()
+    latest_update = symbol_positions['time_update'].max()
+
+    return {
+        'volume': net_volume,
+        'time_update': latest_update
+    }

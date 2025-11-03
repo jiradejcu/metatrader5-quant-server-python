@@ -1,5 +1,6 @@
 import json
 import time
+import os
 import logging
 import threading
 from decimal import Decimal
@@ -12,16 +13,20 @@ symbol = "PAXGUSDT"
 mt5_symbol = "XAUUSD"
 contract_size = Decimal('100')
 
+latest_update = None
+
 def handle_position_update(pubsub):
+    global latest_update
     try:
         for message in pubsub.listen():
             if message['type'] == 'message':
                 position_data = json.loads(message['data'])
                 symbol = position_data.get('symbol')
-                position_amt = Decimal(position_data.get('positionAmt', '0'))
-                entry_price = Decimal(position_data.get('entryPrice', '0'))
-                mark_price = Decimal(position_data.get('markPrice', '0'))
-                unrealized_profit = Decimal(position_data.get('unRealizedProfit', '0'))
+                # position_amt = Decimal(str(position_data.get('positionAmt', '0')))
+                position_amt = Decimal(str(position_data.get('positionAmt', '0'))) * contract_size # mock up Binance position amount
+                entry_price = Decimal(str(position_data.get('entryPrice', '0')))
+                mark_price = Decimal(str(position_data.get('markPrice', '0')))
+                unrealized_profit = Decimal(str(position_data.get('unRealizedProfit', '0')))
 
                 logger.debug(
                     f"Binance Position for {symbol} - "
@@ -32,32 +37,45 @@ def handle_position_update(pubsub):
                 mt5_position = get_mt5_position(mt5_symbol)
                 
                 mt5_volume = Decimal(str(mt5_position.get('volume', '0')))
-                mt5_profit = Decimal(str(mt5_position.get('profit', '0')))
+                mt5_time_update = mt5_position.get('time_update', None)
+                
+                if latest_update is not None:
+                    if mt5_time_update is None or latest_update >= mt5_time_update:
+                        logger.debug("No position information update from MT5. Skipping...")
+                        continue
+                    else:
+                        logger.debug("New position information from MT5. Reset latest update.")
+                        latest_update = None
 
                 logger.debug(
                     f"MT5 Position for {mt5_symbol} - "
-                    f"Volume: {mt5_volume}, Profit: {mt5_profit}"
+                    f"Volume: {mt5_volume}"
+                    f", Time Update: {mt5_time_update}"
                 )
                 
-                discrepancy = position_amt - mt5_volume * contract_size
+                discrepancy = position_amt + mt5_volume * contract_size
                 
                 logger.debug(
                     f"Binance Amount: {position_amt}, MT5 Volume: {mt5_volume}. "
                     f"Position Size Difference: {discrepancy}."
                 )
                 
-                order_amt = Decimal(int(discrepancy))
+                order_amt = Decimal(int(-discrepancy))
                 
                 if abs(order_amt) >= Decimal('1.00'):
                     logger.info(
                         f"Discrepancy detected for {symbol}. "
                         f"Placing order to adjust by {order_amt}."
                     )
-                    send_market_order(
+                    
+                    order = send_market_order(
                         symbol=mt5_symbol,
                         volume=abs(order_amt / contract_size),
                         order_type='BUY' if order_amt > 0 else 'SELL',
                     )
+                    
+                    if order:
+                        latest_update = mt5_time_update
                 else:
                     logger.debug(f"No significant discrepancy for {symbol}. No action taken.")
                 
@@ -67,6 +85,9 @@ def handle_position_update(pubsub):
         logger.error(f"Error processing position update for {symbol}: {e}", exc_info=True)
 
 def start_position_sync():
+    if os.environ.get('RUN_MAIN') != 'true':
+        return
+        
     logger.info(f"Starting position sync for {symbol}...")
 
     try:

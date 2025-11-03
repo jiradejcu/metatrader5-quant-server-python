@@ -46,9 +46,9 @@ def arbitrage_entry_algorithm(alert_data: dict):
             return
 
         if side == 'BUY':
-            price = Decimal(ticker_data['best_bid'])
+            price = Decimal(str(ticker_data['best_bid']))
         else:
-            price = Decimal(ticker_data['best_ask'])
+            price = Decimal(str(ticker_data['best_ask']))
 
         logger.info(f"Arbitrage entry:\nCurrent position for {symbol} is {current_position_amt}.\nTarget is {TARGET_POSITION_SIZE}.\nPlacing {side} order at price {price}.")
 
