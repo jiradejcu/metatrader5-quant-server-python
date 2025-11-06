@@ -13,3 +13,5 @@
 		1. trigger open % = 0.3%
 		2. trigger cancel % = 0.2%
 		3. trigger TP % = -0.1%
+3. visualize price diff, funding rate on admin page
+4. set trigger open and trigger TP in admin page
