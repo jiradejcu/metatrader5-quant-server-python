@@ -2,6 +2,7 @@ import logging
 import asyncio
 import threading
 import os
+from . import config
 import app.connectors.binance.api.ticker as ticker_stream
 import app.connectors.binance.api.position as position_stream
 
@@ -11,7 +12,7 @@ def start_subscriptions():
     if os.environ.get('RUN_MAIN') != 'true':
         return
 
-    symbol = "PAXGUSDT"
+    symbol = config.PAIRS[0]['binance']
     logger.info(f"Starting arbitrage subscription tasks for {symbol}...")
     try:
         threading.Thread(target=asyncio.run, args=(ticker_stream.subscribe_symbol_ticker(symbol),), daemon=True).start()

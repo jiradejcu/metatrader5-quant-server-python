@@ -1,0 +1,1 @@
+PAIRS = [{'binance': 'PAXGUSDT', 'mt5': 'XAUUSD'}]

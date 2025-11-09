@@ -3,14 +3,13 @@ import time
 import os
 import logging
 import threading
+from . import config
 from decimal import Decimal
 from app.utils.redis_client import get_redis_connection
 from app.utils.api.positions import get_position_by_symbol as get_mt5_position
 from app.utils.api.order import send_market_order
 
 logger = logging.getLogger(__name__)
-symbol = "PAXGUSDT"
-mt5_symbol = "XAUUSD"
 contract_size = Decimal('100')
 
 latest_update = None
@@ -21,7 +20,11 @@ def handle_position_update(pubsub):
         for message in pubsub.listen():
             if message['type'] == 'message':
                 position_data = json.loads(message['data'])
-                symbol = position_data.get('symbol')
+                received_symbol = position_data.get('symbol')
+                config_symbol = config.PAIRS[0]['binance']
+                if received_symbol != config_symbol:
+                    logger.debug(f"Ignoring position update for symbol {received_symbol}. Expected {config_symbol}.")
+                    continue
                 # position_amt = Decimal(str(position_data.get('positionAmt', '0')))
                 position_amt = Decimal(str(position_data.get('positionAmt', '0'))) * contract_size # mock up Binance position amount
                 entry_price = Decimal(str(position_data.get('entryPrice', '0')))
@@ -29,11 +32,12 @@ def handle_position_update(pubsub):
                 unrealized_profit = Decimal(str(position_data.get('unRealizedProfit', '0')))
 
                 logger.debug(
-                    f"Binance Position for {symbol} - "
+                    f"Binance Position for {received_symbol} - "
                     f"Amount: {position_amt}, Entry Price: {entry_price}"
                     f", Mark Price: {mark_price}, Unrealized Profit: {unrealized_profit}"
                 )
                 
+                mt5_symbol = config.PAIRS[0]['mt5']
                 mt5_position = get_mt5_position(mt5_symbol)
                 
                 mt5_volume = Decimal(str(mt5_position.get('volume', '0')))
@@ -64,7 +68,7 @@ def handle_position_update(pubsub):
                 
                 if abs(order_amt) >= Decimal('1.00'):
                     logger.info(
-                        f"Discrepancy detected for {symbol}. "
+                        f"Discrepancy detected for {received_symbol}. "
                         f"Placing order to adjust by {order_amt}."
                     )
                     
@@ -77,17 +81,18 @@ def handle_position_update(pubsub):
                     if order:
                         latest_update = mt5_time_update
                 else:
-                    logger.debug(f"No significant discrepancy for {symbol}. No action taken.")
+                    logger.debug(f"No significant discrepancy for {received_symbol}. No action taken.")
                 
             time.sleep(0.1)
 
     except Exception as e:
-        logger.error(f"Error processing position update for {symbol}: {e}", exc_info=True)
+        logger.error(f"Error processing position update: {e}", exc_info=True)
 
 def start_position_sync():
     if os.environ.get('RUN_MAIN') != 'true':
         return
-        
+    
+    symbol = config.PAIRS[0]['binance']
     logger.info(f"Starting position sync for {symbol}...")
 
     try:
