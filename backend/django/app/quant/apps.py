@@ -10,3 +10,6 @@ class QuantConfig(AppConfig):
         
         from .algorithms.arbitrage import position_sync
         position_sync.start_position_sync()
+        
+        from .algorithms.arbitrage import price_diff
+        price_diff.start_comparison()
