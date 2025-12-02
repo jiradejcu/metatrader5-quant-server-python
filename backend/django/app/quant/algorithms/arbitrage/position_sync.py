@@ -14,11 +14,20 @@ contract_size = Decimal('100')
 
 latest_update = None
 
+def get_pause_status():
+    redis_conn = get_redis_connection()
+    redis_key= "position_sync_paused_flag"
+    is_paused = redis_conn.get(redis_key)
+    return is_paused
+
 def handle_position_update(pubsub):
     global latest_update
     try:
         for message in pubsub.listen():
-            if message['type'] == 'message':
+            is_pause = get_pause_status()
+
+            if message['type'] == 'message' and not is_pause:
+                logger.debug('Position_sync is runing!!')
                 position_data = json.loads(message['data'])
                 received_symbol = position_data.get('symbol')
                 config_symbol = config.PAIRS[0]['binance']
