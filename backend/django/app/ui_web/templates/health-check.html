@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="refresh" content="3">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arbitrage Bot Health Check Page</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- https://tailwindcss.com/docs/color (font color) -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Gray-100 background */
+        }
+        .card {
+            border-left: 4px solid;
+            transition: transform 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6">Arbitrage Bot Health Status</h1>
+
+        <!-- Price Watch Channel Card -->
+        <div class="card bg-white p-6 rounded-xl shadow-lg mb-6 border-blue-500">
+            <h2 class="text-xl font-semibold text-blue-700 mb-4">Price Watch Channel</h2>
+            <div class="space-y-3 text-gray-700">
+                <p class="text-lg">Binance (PAXG): 
+                    <span class="font-mono text-blue-600 font-bold ml-2">{{ binanceMarkPrice|floatformat:2 }}</span> 
+                </p>
+                <p class="text-lg">MT5 (XAU): 
+                    <span class="font-mono text-green-600 font-bold ml-2">{{ mt5MarkPrice|floatformat:2 }}</span> 
+                </p>
+                <p class="text-xl font-bold mt-4">Spread (Gap): 
+                    <span class="font-mono ml-2 
+                        {% if spread > 0 %} text-green-500 
+                        {% else %} text-red-500
+                        {% endif %}">
+                        {{ spread|floatformat:4 }}
+                    </span>
+                </p>
+            </div>
+        </div>
+
+        <!-- Matched Pairs Card -->
+        <div class="card bg-white p-6 rounded-xl shadow-lg mb-6 border-yellow-500">
+            <h2 class="text-xl font-semibold text-yellow-700 mb-4">Matched Pairs (Current Position)</h2>
+            <div class="space-y-3 text-gray-700">
+                <!-- สมมติว่า 'pairStatus' มีค่า เช่น Opening, Warning, Complete -->
+                <p>Status: <span class="font-semibold text-gray-900
+                    {% if pairStatus == 'Warning' %} text-red-600
+                    {% else %} text-green-600
+                    {% endif %}">{{ pairStatus|default:'Idle' }}</span></p>
+                <p>Binance: 
+                    <span class="font-mono font-medium {% if binanceAction == 'LONG' %} text-green-600
+                     {% elif binanceAction == 'SHORT' %} text-red-600 
+                     {% else %} text-gray-500 
+                     {% endif %}">
+                        '{{ binanceAction|default:'N/A' }}'
+                    </span> 
+                    <span class="font-mono font-bold
+                    {% if binanceSize > 0 %} text-green-600
+                    {% else %} text-red-600
+                    {% endif %}">{{ binanceSize|default:0 }}</span> 
+                    PAXG @ <span class="font-mono">{{ binanceMarkPrice|floatformat:2 }}</span>
+                </p>
+                <p>Mt5: 
+                    <span class="font-mono font-medium 
+                    {% if mt5Action == 'LONG' %} text-green-600 
+                    {% elif mt5Action == 'SHORT' %} text-red-600 
+                    {% else %} text-gray-500 
+                    {% endif %}">
+                        '{{ mt5Action|default:'N/A' }}'
+                    </span> 
+                    <span class="font-mono font-bold
+                    {% if mt5Size > 0 %} text-green-600
+                    {% else %} text-red-600
+                    {% endif %}">{{ mt5Size|default:0 }}</span> 
+                    XAU @ <span class="font-mono">{{ mt5MarkPrice|floatformat:2 }}</span>
+                </p>
+                <p>PNL (Unrealized): 
+                    <span class="font-mono text-lg font-bold 
+                    {% if unrealizedBinance >= 0 %} text-green-500 
+                        {% else %} text-red-500
+                        {% endif %}">
+                        {{ unrealizedBinance|default:0.00|floatformat:2 }} USD
+                    </span>
+                </p>
+                <!-- <button class="bg-transparent hover:bg-blue-500 text-blue-700 font-semibold hover:text-white py-2 px-4 border border-blue-500 hover:border-transparent rounded">
+                Button
+                </button> -->
+            </div>
+        </div>
+
+        <!-- Summary Card -->
+        <div class="card bg-white p-6 rounded-xl shadow-lg border-green-500">
+            <h2 class="text-xl font-semibold text-green-700 mb-4">Summary</h2>
+            <div class="space-y-3 text-gray-700">
+                <p>Total PAXG: <span class="font-mono font-medium 
+                    {% if binanceSize > 0 %} text-green-600 
+                    {% else %} text-red-600 
+                    {% endif %}">{{ binanceSize|default:0 }}</span></p>
+                <p>Total XAU Lots: <span class="font-mono font-medium 
+                    {% if mt5Size > 0 %} text-green-600 
+                    {% else %} text-red-600 
+                    {% endif %}">{{ mt5Size|default:0 }}</span></p> 
+                <p>Net Expose: <span class="font-mono font-medium text-gray-500">{{ netExpose|default:0 }}</span></p>
+            </div>
+        </div>
+        
+    </div>
+
+</body>
+</html>
