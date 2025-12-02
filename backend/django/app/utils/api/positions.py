@@ -75,5 +75,8 @@ def get_position_by_symbol(symbol: str) -> Dict:
 
     return {
         'volume': net_volume,
-        'time_update': latest_update
+        'time_update': latest_update,
+        'entryPrice': positions_df['price_open'].iloc[0],
+        'markPrice': positions_df['price_current'].iloc[-1],
+        'unRealizedProfit': positions_df['profit'].sum()
     }
