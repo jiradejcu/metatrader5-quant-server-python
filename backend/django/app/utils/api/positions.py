@@ -4,7 +4,7 @@ from typing import List, Dict
 from datetime import datetime
 import logging
 import time
-
+from datetime import datetime, timezone, timedelta
 import requests
 import pandas as pd
 import numpy as np
@@ -71,7 +71,8 @@ def get_position_by_symbol(symbol: str) -> Dict:
     symbol_positions['signed_volume'] = symbol_positions.apply(calculate_signed_volume, axis=1)
 
     net_volume = symbol_positions['signed_volume'].sum()
-    latest_update = symbol_positions['time_update'].max()
+    thailand_tz = timezone(timedelta(hours=7))
+    latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S")  #symbol_positions['time_update'].max()
 
     return {
         'volume': net_volume,
