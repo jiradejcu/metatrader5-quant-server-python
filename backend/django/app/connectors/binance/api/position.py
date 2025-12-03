@@ -7,7 +7,7 @@ from app.utils.redis_client import get_redis_connection
 from app.utils.api.positions import get_position_by_symbol as get_mt5_position
 from dotenv import load_dotenv
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,
@@ -70,8 +70,12 @@ async def subscribe_position_information(symbol: str):
             redis_key = f"position:{symbol}"
 
             if not symbol_open_position_df.empty:
-                logger.debug(symbol_open_position_df[relevant_columns].to_json(orient='records'))                
+                # logger.debug(symbol_open_position_df[relevant_columns].to_json(orient='records'))            
                 position_data = symbol_open_position_df.iloc[0].to_dict()
+                
+                thailand_tz = timezone(timedelta(hours=7))
+                latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S")
+                position_data['updateTime'] = latest_update
                 
                 # Save data into redis
                 redis_conn.set(redis_key, json.dumps(position_data))
