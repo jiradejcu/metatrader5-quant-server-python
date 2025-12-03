@@ -60,9 +60,22 @@ def get_positions() -> pd.DataFrame:
 def get_position_by_symbol(symbol: str) -> Dict:
     positions_df = get_positions()
     symbol_positions = positions_df[positions_df['symbol'] == symbol]
+    thailand_tz = timezone(timedelta(hours=7))
+    latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S")  #symbol_positions['time_update'].max()
+    
+    # Data for no position data
+    url = f"{BASE_URL}/symbol_info_tick/XAUUSD"
+    response = requests.get(url, timeout=10)
+    data = response.json()
 
     if symbol_positions.empty:
-        return { 'volume': Decimal(0), 'time_update': None }
+        return { 
+            'volume': Decimal(0), 
+            'time_update': latest_update,
+            'entryPrice': Decimal(0),
+            'markPrice': f"{Decimal(data['bid']):.2f}",
+            'unRealizedProfit': Decimal(0)
+            }
     
     def calculate_signed_volume(row):
         volume = Decimal(str(row['volume']))
@@ -71,9 +84,6 @@ def get_position_by_symbol(symbol: str) -> Dict:
     symbol_positions['signed_volume'] = symbol_positions.apply(calculate_signed_volume, axis=1)
 
     net_volume = symbol_positions['signed_volume'].sum()
-    thailand_tz = timezone(timedelta(hours=7))
-    latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S")  #symbol_positions['time_update'].max()
-
     return {
         'volume': net_volume,
         'time_update': latest_update,
