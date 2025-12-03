@@ -43,8 +43,12 @@ def health_check_page(request):
     # Condition defined
     if binance_size > 0:
         binance_action = 'LONG'
+    if binance_size == 0:
+        binance_action = 'None'
     if mt5_size > 0:
         mt5_action = 'LONG'
+    if mt5_size == 0:
+        mt5_action = 'None'
     if (binance_size + mt5_size) == 0:
         pairStatus = 'Complete'
     if redis_conn.get(pause_position_key):
@@ -62,12 +66,13 @@ def health_check_page(request):
         'netExpose': (binance_size * ratio) + mt5_size,
         'mt5Action': mt5_action,
         'unrealizedBinance': sum(unrealizes),
-        'pausePositionSync': pause_position
+        'pausePositionSync': pause_position,
+        'time_update_mt5': mt5_result['time_update'],
     }
     return render(request, 'health-check.html', context)
 
 @api_view(['POST'])
-def handle_pause_position_sync(request):
+def handle_pause_position_sync():
     try:
         redis_conn = get_redis_connection()
         redis_key = f"position_sync_paused_flag"
