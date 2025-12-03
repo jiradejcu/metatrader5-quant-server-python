@@ -39,6 +39,11 @@ def health_check_page(request):
     binance_size = float(result['positionAmt'])
     mt5_size = float(mt5_result['positionAmt'])
     unrealizes = [float(result['unRealizedProfit']), float(mt5_result['unRealizedProfit'])]
+    netExpose = (binance_size * ratio) + mt5_size
+    netExposeAction = 'Safe'
+
+    if netExpose != 0:
+        netExposeAction = 'Unsafe'
 
     # Condition defined
     if binance_size > 0:
@@ -63,16 +68,18 @@ def health_check_page(request):
         'binanceSize': binance_size,
         'binanceAction': binance_action,
         'mt5Size': mt5_size,
-        'netExpose': (binance_size * ratio) + mt5_size,
+        'netExpose': netExpose,
+        'netExposeAction': netExposeAction,
         'mt5Action': mt5_action,
         'unrealizedBinance': sum(unrealizes),
         'pausePositionSync': pause_position,
         'time_update_mt5': mt5_result['time_update'],
+        'time_update_binance': result['updateTime']
     }
     return render(request, 'health-check.html', context)
 
 @api_view(['POST'])
-def handle_pause_position_sync():
+def handle_pause_position_sync(request):
     try:
         redis_conn = get_redis_connection()
         redis_key = f"position_sync_paused_flag"

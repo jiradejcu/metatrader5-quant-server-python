@@ -82,7 +82,7 @@
                     {% if binanceSize > 0 %} text-green-600
                     {% else %} text-red-600
                     {% endif %}">{{ binanceSize|default:0 }}</span> 
-                    PAXG @ <span class="font-mono">{{ binanceMarkPrice|floatformat:2 }}</span>
+                    PAXG @ <span class="font-mono">{{ binanceMarkPrice|floatformat:2 }}  ({{ time_update_binance }})</span>
                 </p>
                 <p>Mt5: 
                     <span class="font-mono font-medium 
@@ -96,7 +96,7 @@
                     {% if mt5Size > 0 %} text-green-600
                     {% else %} text-red-600
                     {% endif %}">{{ mt5Size|default:0 }}</span> 
-                    XAU @ <span class="font-mono">{{ mt5MarkPrice|floatformat:2 }}</span>
+                    XAU @ <span class="font-mono">{{ mt5MarkPrice|floatformat:2 }}  ({{ time_update_mt5 }})</span>
                 </p>
                 <p>PNL (Unrealized): 
                     <span class="font-mono text-lg font-bold 
@@ -121,7 +121,7 @@
                     {% if mt5Size > 0 %} text-green-600 
                     {% else %} text-red-600 
                     {% endif %}">{{ mt5Size|default:0 }}</span></p> 
-                <p>Net Expose: <span class="font-mono font-medium text-gray-500">{{ netExpose|default:0 }}</span></p>
+                <p>Net Expose: <span class="font-mono font-medium text-gray-500">{{ netExpose|default:0 }} ({{ netExposeAction }})</span></p>
             </div>
         </div>
         
