@@ -140,6 +140,7 @@ services:
     container_name: django
     volumes:
       - static_volume:/app/staticfiles
+      - django-logs:/app/logs
     restart: unless-stopped
     ports:
       - 8000:8000
