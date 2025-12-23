@@ -1,0 +1,6 @@
+flask
+flask-cors
+gunicorn
+redis
+docker
+python-dotenv

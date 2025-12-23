@@ -139,6 +139,8 @@ services:
       dockerfile: Dockerfile
     container_name: frontend_app
     restart: unless-stopped
+    env_file:
+      - .env
     networks:
       - traefik-public
     labels:
@@ -158,6 +160,36 @@ services:
 
       traefik.http.services.frontend-service.loadbalancer.server.port: 80
     logging: *default-logging
+  
+  control-api:
+    build:
+      context: backend/control-api
+      dockerfile: Dockerfile
+    container_name: control-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      - traefik-public
+      - default
+    labels:
+      <<: *default-labels
+      traefik.enable: "true"
+      traefik.docker.network: traefik-public
+
+      traefik.http.routers.control-api-http.rule: Host(`${CONTROL_API_DOMAIN}`)
+      traefik.http.routers.control-api-http.entrypoints: http
+      traefik.http.routers.control-api-http.middlewares: https-redirect
+
+      traefik.http.routers.control-api-https.rule: Host(`${CONTROL_API_DOMAIN}`)
+      traefik.http.routers.control-api-https.entrypoints: https
+      traefik.http.routers.control-api-https.tls: "true"
+      traefik.http.routers.control-api-https.tls.certresolver: le
+      traefik.http.routers.control-api-https.service: control-api-service
+
+      traefik.http.services.control-api-service.loadbalancer.server.port: ${CONTROL_API_PORT}
+    logging: *default-logging
+
 
   django:
     build:
