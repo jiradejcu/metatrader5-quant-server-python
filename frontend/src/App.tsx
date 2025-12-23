@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import "./App.css";
-import PausePositionBtn from "./components/pause-btn";
+import { useQuery } from '@tanstack/react-query';
+import { getArbitrageSummary } from './query/apis';
 
-// todo: add fetch data (react-query)
 const initialData = {
   binanceMarkPrice: 0,
   mt5MarkPrice: 0,
@@ -20,6 +21,31 @@ const initialData = {
 };
 
 function App() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['arbitrageSummary'],
+    queryFn: async () => {
+      const response = await getArbitrageSummary();
+      // convert to json because we do not use axios
+      const json = await response.json(); 
+
+      const botData = json.data; 
+
+      // Sanitize data
+      return {
+        ...botData,
+        binanceMarkPrice: Number(botData.binanceMarkPrice),
+        mt5MarkPrice: Number(botData.mt5MarkPrice),
+        spread: Number(botData.spread),
+        unrealizedBinance: Number(botData.unrealizedBinance),
+        binanceSize: Number(botData.binanceSize),
+        mt5Size: Number(botData.mt5Size),
+        netExpose: Number(botData.netExpose),
+      } as any;
+    },
+    // refetchInterval: 5000,
+    placeholderData: initialData,
+  });
+
   const {
     pausePositionSync,
     spread,
@@ -35,176 +61,104 @@ function App() {
     time_update_binance,
     netExpose,
     netExposeAction,
-  } = initialData; // ใช้ค่าเริ่มต้นก่อน หรือใช้ useState()
+  } = data;
+
+  if (isLoading && !data) {
+    return <div className="flex justify-center mt-20 font-medium">Connecting to Bot...</div>;
+  }
+
+  if (isError) {
+    return <div className="text-center mt-20 text-red-500 font-bold">Failed to connect to API</div>;
+  }
 
   return (
-    <>
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-800 mb-6">
+    <div className="max-w-4xl mx-auto p-6">
+      <header className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold text-gray-800">
           Arbitrage Bot Health Status
         </h1>
+        <div className="flex items-center bg-gray-100 px-3 py-1 rounded-full">
+          <span className="relative flex h-2 w-2 mr-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+          </span>
+          <span className="text-xs font-medium text-gray-600">LIVE</span>
+        </div>
+      </header>
 
-        <PausePositionBtn />
-
-        <p id="bot-sync-status-display" className="text-lg font-medium">
+      <div className="mb-6">
+        <p className="text-lg font-medium">
           Bot sync status:{" "}
-          <span
-            className={`font-bold ${
-              pausePositionSync === "Active"
-                ? "text-green-600"
-                : "text-gray-500"
-            }`}
-          >
+          <span className={`font-bold ${pausePositionSync === "Active" ? "text-green-600" : "text-gray-400"}`}>
             {pausePositionSync}
           </span>
         </p>
-
-        {/* Price Watch Channel Card */}
-        <div className="card bg-white p-6 rounded-xl shadow-lg mb-6 border-blue-500">
-          <h2 className="text-xl font-semibold text-blue-700 mb-4">
-            Price Watch Channel
-          </h2>
-          <div className="space-y-3 text-gray-700">
-            <p className="text-lg">
-              Binance (PAXG):
-              <span className="font-mono text-blue-600 font-bold ml-2">
-                {binanceMarkPrice}
-              </span>
-            </p>
-            <p className="text-lg">
-              MT5 (XAU):
-              <span className="font-mono text-green-600 font-bold ml-2">
-                {mt5MarkPrice}
-              </span>
-            </p>
-            <p className="text-xl font-bold mt-4">
-              Spread (Gap):
-              <span
-                className={`font-mono ml-2 ${
-                  spread > 0 ? "text-green-500" : "text-red-500"
-                }`}
-              >
-                {spread}
-              </span>
-            </p>
-          </div>
-        </div>
-
-        {/* Matched Pairs Card */}
-        <div className="card bg-white p-6 rounded-xl shadow-lg mb-6 border-yellow-500">
-          <h2 className="text-xl font-semibold text-yellow-700 mb-4">
-            Matched Pairs (Current Position)
-          </h2>
-          <div className="space-y-3 text-gray-700">
-            <p>
-              Status:{" "}
-              <span
-                className={`font-semibold text-gray-900 ${
-                  pairStatus === "Warning" ? "text-red-600" : "text-green-600"
-                }`}
-              >
-                {pairStatus}
-              </span>
-            </p>
-            <p>
-              Binance:
-              <span
-                className={`font-mono font-medium ${
-                  binanceAction === "LONG"
-                    ? "text-green-600"
-                    : binanceAction === "SHORT"
-                    ? "text-red-600"
-                    : "text-gray-500"
-                }`}
-              >
-                {binanceAction}
-              </span>
-              <span
-                className={`font-mono font-bold ${
-                  binanceSize > 0 ? "text-green-600" : "text-red-600"
-                }`}
-              >
-                {binanceSize}
-              </span>
-              PAXG @{" "}
-              <span className="font-mono">
-                {binanceMarkPrice} ({time_update_binance})
-              </span>
-            </p>
-
-            <p>
-              Mt5:
-              <span
-                className={`font-mono font-medium 
-                    ${
-                      mt5Action === "LONG"
-                        ? "text-green-600"
-                        : mt5Action === "SHORT"
-                        ? "text-red-600"
-                        : "text-gray-500"
-                    }`}
-              >
-                '{mt5Action}'
-              </span>
-              <span
-                className={`font-mono font-bold
-                  ${mt5Size > 0 ? "text-green-600" : "text-red-600"}
-                   `}
-              >
-                {mt5Size}
-              </span>
-              XAU @{" "}
-              <span className="font-mono">
-                {mt5MarkPrice} ({time_update_mt5})
-              </span>
-            </p>
-
-            <p>
-              PNL (Unrealized):
-              <span
-                className={`font-mono text-lg font-bold ${
-                  unrealizedBinance >= 0 ? "text-green-500" : "text-red-500"
-                }`}
-              >
-                {unrealizedBinance} USD
-              </span>
-            </p>
-          </div>
-        </div>
-
-        <div className="card bg-white p-6 rounded-xl shadow-lg border-green-500">
-          <h2 className="text-xl font-semibold text-green-700 mb-4">Summary</h2>
-          <div className="space-y-3 text-gray-700">
-            <p>
-              Total PAXG:{" "}
-              <span
-                className={`font-mono font-medium 
-                    ${binanceSize > 0 ? "text-green-600" : "text-red-600"}`}
-              >
-                {binanceSize}
-              </span>
-            </p>
-
-            <p>
-              Total XAU Lots:{" "}
-              <span
-                className={`font-mono font-medium
-                    ${mt5Size > 0 ? "text-green-600" : "text-red-600"} 
-                    `}
-              >
-                {mt5Size}
-              </span>
-            </p>
-            <p>
-              Net Expose:{" "}
-              <span className="font-mono font-medium text-gray-500">
-                {netExpose} ({netExposeAction})
-              </span>
-            </p>
-          </div>
-        </div>
       </div>
-    </>
+
+      <section className="grid gap-6">
+        {/* Price Watch Card */}
+        <div className="bg-white p-6 rounded-xl shadow-md border-l-4 border-blue-500">
+          <h2 className="text-xl font-semibold text-blue-700 mb-4">Price Watch</h2>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm text-gray-500 uppercase">Binance (PAXG)</p>
+              <p className="text-2xl font-mono font-bold text-gray-800">{binanceMarkPrice?.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500 uppercase">MT5 (XAU)</p>
+              <p className="text-2xl font-mono font-bold text-gray-800">{mt5MarkPrice?.toLocaleString()}</p>
+            </div>
+          </div>
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <p className="text-lg font-bold">
+              Spread: <span className={spread > 0 ? "text-green-500" : "text-red-500"}>{spread?.toFixed(2)}</span>
+            </p>
+          </div>
+        </div>
+
+        {/* Positions Card */}
+        <div className="bg-white p-6 rounded-xl shadow-md border-l-4 border-yellow-500">
+          <h2 className="text-xl font-semibold text-yellow-700 mb-4">Current Positions</h2>
+          <p className="mb-4">Status: <span className={pairStatus === "Warning" ? "text-red-600 font-bold" : "text-green-600 font-bold"}>{pairStatus}</span></p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <p className="text-xs font-bold text-gray-400 mb-1">BINANCE</p>
+              <p className={`text-lg font-bold ${binanceAction === 'LONG' ? 'text-green-600' : 'text-red-600'}`}>
+                {binanceAction} {binanceSize}
+              </p>
+              <p className="text-[10px] text-gray-400 mt-1">{time_update_binance}</p>
+            </div>
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <p className="text-xs font-bold text-gray-400 mb-1">MT5</p>
+              <p className={`text-lg font-bold ${mt5Action === 'LONG' ? 'text-green-600' : 'text-red-600'}`}>
+                {mt5Action} {mt5Size}
+              </p>
+              <p className="text-[10px] text-gray-400 mt-1">{time_update_mt5}</p>
+            </div>
+          </div>
+
+          <p className="text-lg font-semibold">
+            Unrealized PNL: <span className={unrealizedBinance >= 0 ? "text-green-500" : "text-red-500"}>{unrealizedBinance?.toFixed(2)} USD</span>
+          </p>
+        </div>
+
+        {/* Summary Card */}
+        <div className="bg-white p-6 rounded-xl shadow-md border-l-4 border-green-500">
+          <h2 className="text-xl font-semibold text-green-700 mb-4">Risk Summary</h2>
+          <div className="flex gap-12">
+            <div>
+              <p className="text-sm text-gray-500">Net Exposure</p>
+              <p className="text-2xl font-mono font-bold">{netExpose}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Action State</p>
+              <p className={`text-2xl font-bold ${netExposeAction === 'Safe' ? 'text-green-600' : 'text-red-600'}`}>{netExposeAction}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
