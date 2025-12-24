@@ -1,22 +1,20 @@
 const API_BASE_URL = 'https://arbitrage-control.vatanutanon.me';
 
-// export async function pauseDisplay(): Promise<Response> {
-//   const url = `${API_BASE_URL}/pause/`;
-//   const response = await fetch(url, {
-//     method: 'POST',
-//     headers: {
-//       'Content-Type': 'application/json',
-//       // 'Authorization': `Bearer ${yourAccessToken}`,
-//     },
-//     // body: JSON.stringify({ /* data if needed */ }),
-//   });
+export async function pauseDisplay(): Promise<Response> {
+  const url = `${API_BASE_URL}/pause-position-sync`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
 
-//   if (!response.ok) {
-//     throw new Error(`Failed to pause display: ${response.statusText}`);
-//   }
+  if (!response.ok) {
+    throw new Error(`Failed to pause display: ${response.statusText}`);
+  }
 
-//   return response;
-// }
+  return response;
+}
 
 // export async function startBotService(): Promise<Response> {
 //   const url = `${API_BASE_URL}/start-quant/`

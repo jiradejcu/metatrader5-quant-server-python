@@ -1,25 +1,27 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { pauseDisplay } from '../query/apis'; // นำเข้าฟังก์ชันที่สร้างไว้
+import { pauseDisplay } from '../query/apis';
+import { SECOND } from '../constant/time';
 
 function PausePositionBtn() {
   const queryClient = useQueryClient();
+
   const pauseMutation = useMutation({
-    mutationFn: pauseDisplay, // ฟังก์ชันเรียกใช้ API
+    mutationFn: pauseDisplay,
     onSuccess: () => {
-      console.log('Display successfully paused.');
-      queryClient.invalidateQueries({ queryKey: ['pausePositionSync'] });
+      queryClient.invalidateQueries({ queryKey: ['arbitrageSummary'] });
       
-      alert('Completed toggle position sync!');
+      // revert the button state after 1.5 seconds
+      setTimeout(() => {
+        pauseMutation.reset();
+      }, 2 * SECOND);
     },
-    
-    onError: (error) => {
-      if (error instanceof Error) {
-        console.error('Error pausing display:', error.message);
-        alert(`Error: ${error.message}`);
-      } else {
-        console.error('Error pausing display:', error);
-        alert(`Error: ${String(error)}`);
-      }
+    onError: (error: any) => {
+      console.error('Error pausing display:', error);
+
+      setTimeout(() => {
+        pauseMutation.reset();
+      }, 4 * SECOND);
     },
   });
 
@@ -27,22 +29,45 @@ function PausePositionBtn() {
     pauseMutation.mutate(); 
   };
 
+  // Derive all UI states directly from the mutation object
+  let btnText = 'Pause position sync toggle';
+  let btnClasses = "mb-4 font-semibold py-2 px-4 rounded transition duration-200 border ";
+  let message = "";
+  let messageClass = "mt-2 h-5 text-sm font-semibold ";
+
+  if (pauseMutation.isPending) {
+    btnText = 'Calling API...';
+    btnClasses += "bg-gray-400 text-white opacity-75 cursor-not-allowed";
+    message = "Sending request to toggle pause...";
+  } else if (pauseMutation.isSuccess) {
+    btnText = 'Toggle pause success!';
+    btnClasses += "bg-green-500 hover:bg-green-600 text-white";
+    message = "API call successful.";
+    messageClass += "text-green-500";
+  } else if (pauseMutation.isError) {
+    btnText = 'Error! Try Again';
+    btnClasses += "bg-red-500 hover:bg-red-600 text-white";
+    message = (pauseMutation.error as any)?.message || "API call failed.";
+    messageClass += "text-red-500";
+  } else {
+    // Initial / Idle state (Matches HTML blue outline style)
+    btnClasses += "hover:bg-blue-500 text-blue-700 border-blue-500 hover:border-transparent hover:text-white";
+  }
+
   return (
-    <div>
-      <h3>Control position sync toggle</h3>
+    <>
       <button 
         onClick={handlePause} 
         disabled={pauseMutation.isPending}
+        className={btnClasses}
       >
-        {pauseMutation.isPending ? 'Pausing...' : 'Toggling Position Sync'}
+        {btnText}
       </button>
       
-      {pauseMutation.isError && 
-        <p style={{ color: 'red' }}>
-          Error: {pauseMutation.error instanceof Error ? pauseMutation.error.message : String(pauseMutation.error)}
-        </p>
-      }
-    </div>
+      <p className={messageClass}>
+        {message}
+      </p>
+    </>
   );
 }
 
