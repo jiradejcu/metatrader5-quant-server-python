@@ -25,8 +25,8 @@ def handle_position_update(pubsub):
     try:
         for message in pubsub.listen():
             is_pause = get_pause_status()
-
-            if message['type'] == 'message' and not is_pause:
+            # If the condition is true, position sync logic is running
+            if message['type'] == 'message' and is_pause is None:
                 logger.debug('Position_sync is runing!!')
                 position_data = json.loads(message['data'])
                 received_symbol = position_data.get('symbol')
