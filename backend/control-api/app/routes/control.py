@@ -139,6 +139,7 @@ def get_arbitrage_summary():
 def handle_pause_position_sync():
     try:
         redis_key = "position_sync_paused_flag"
+        redis_conn = get_redis_connection()
         is_paused = redis_conn.exists(redis_key)
 
         if is_paused:
