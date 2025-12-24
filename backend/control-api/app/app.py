@@ -21,7 +21,7 @@ def create_app():
     'https://arbitrage-monitor.vatanutanon.me',
     ]
 
-    CORS(app, resources={r"/*": {'origin': allowed_origin}})
+    CORS(app, resources={r"/*": {'origins': allowed_origin}})
 
     app.config['PREFERRED_URL_SCHEME'] = 'https'
 
