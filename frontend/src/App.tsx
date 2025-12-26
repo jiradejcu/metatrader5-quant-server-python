@@ -2,8 +2,9 @@
 import "./App.css";
 import PausePositionBtn from "./components/pause-btn";
 import { useQuery } from '@tanstack/react-query';
-import { getArbitrageSummary } from './query/apis';
+import { getArbitrageSummary, getBotContainerStatus } from './query/apis';
 import { SECOND } from "./constant/time";
+import StopBotContainerBtn from "./components/stop-container-btn";
 
 function App() {
   const { data, isLoading } = useQuery({
@@ -27,6 +28,20 @@ function App() {
     },
     refetchInterval: 2 * SECOND,
   });
+
+  const { data: botServer } = useQuery({
+    queryKey: ['botServerStatus'],
+    queryFn: async ()  => {
+      const response = await getBotContainerStatus()
+      const json = await response.json()
+
+      return {
+        status: json.status
+      }
+    },
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  })
 
   const displayData = data || {};
   const {
@@ -60,6 +75,14 @@ function App() {
         <p className="text-lg font-medium">
           Bot sync status: <span className={`font-bold ${pausePositionSync === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
             {pausePositionSync}
+          </span>
+        </p>
+
+        <StopBotContainerBtn />
+
+        <p className="text-lg fint-medium">
+          Bot server status: <span className="font-bold text-gray-500">
+            {botServer?.status ?? 'Fetching'}
           </span>
         </p>
 
