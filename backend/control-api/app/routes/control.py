@@ -13,33 +13,11 @@ def prepare_json(json_str):
             return {'positionAmt': 0, 'markPrice': 0, 'unRealizedProfit': 0, 'time_update': None, 'updateTime': None}
     return json.loads(json_str)
 
-@control_bp.route('/start-quant', methods=['POST'])
-def start_quant_container():
-    try:
-        client = docker.from_env()
-        container = client.containers.get(TARGET_CONTAINER)
-
-        if container.status != 'running':
-            container.start()
-            
-            return jsonify({
-                "status": "success",
-                "message": f"Container {TARGET_CONTAINER} started"
-            }), 200
-        
-        return jsonify({
-            'status': 'ignored',
-            'message': f'Container {TARGET_CONTAINER} was running (Current status: {container.status})'
-        }), 200
-    except docker.errors.NotFound:
-        return jsonify({"status": "error", "reason": "Container not found"}), 404
-    except Exception as e:
-        return jsonify({"status": "error", "reason": str(e)}), 500
-
 @control_bp.route('/stop-quant', methods=['POST'])
 def stop_quant_container():
     try:
         client = docker.from_env()
+        client.ping()
         container = client.containers.get(TARGET_CONTAINER)
         
         # Check status directly from the object attribute
@@ -57,6 +35,30 @@ def stop_quant_container():
         
     except docker.errors.NotFound:
         return jsonify({'status': 'ignored', 'message': 'Container does not exist'}), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'reason': str(e)
+        }), 500
+
+@control_bp.route('/get-django-status', methods=['GET'])
+def get_django_status():
+    try:
+        client = docker.from_env()
+        container = client.containers.get(TARGET_CONTAINER)
+
+        current_status = container.status
+
+        return jsonify({
+            'container': TARGET_CONTAINER,
+            'status': current_status,
+            'is_running': current_status == 'running'
+        }) , 200
+    except docker.errors.NotFound:
+        return jsonify({
+            'status': 'error',
+            'message': f'Container "{TARGET_CONTAINER} not found'
+        }), 404
     except Exception as e:
         return jsonify({
             'status': 'error',
