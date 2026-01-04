@@ -2,7 +2,7 @@
 import "./App.css";
 import PausePositionBtn from "./components/pause-btn";
 import { useQuery } from '@tanstack/react-query';
-import { getArbitrageSummary, getBotContainerStatus } from './query/apis';
+import { getActiveUserInfo, getArbitrageSummary, getBotContainerStatus } from './query/apis';
 import { SECOND } from "./constant/time";
 import StopBotContainerBtn from "./components/stop-container-btn";
 
@@ -37,6 +37,23 @@ function App() {
 
       return {
         status: json.status
+      }
+    },
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  })
+
+  const { data: activeUser } = useQuery({
+    queryKey: ['activeUser'],
+    queryFn: async () => {
+      const response = await getActiveUserInfo()
+      const json = await response.json()
+
+      return {
+        binance_key: json.binance_key,
+        login: json.login,
+        name: json.name,
+        server: json.server
       }
     },
     staleTime: Infinity,
@@ -88,6 +105,14 @@ function App() {
 
         <section className="mt-6 grid gap-6">
             {/* Cards use standard styling from HTML template */}
+            <div className="card bg-white p-6 rounded-xl shadow-lg border-l-4 border-blue-500">
+                <h2 className="text-xl font-semibold text-blue-700 mb-4">Active User</h2>
+                <div className="space-y-3">
+                    <p>Binance (API_KEY): <span className="font-mono text-blue-600 font-bold ml-2">{activeUser?.binance_key}</span></p>
+                    <p>MT5 Account: <span className="font-mono text-green-600 font-bold ml-2">{activeUser?.name} [{activeUser?.login}] | Server {activeUser?.server} </span></p>
+                </div>
+            </div>
+
             <div className="card bg-white p-6 rounded-xl shadow-lg border-l-4 border-blue-500">
                 <h2 className="text-xl font-semibold text-blue-700 mb-4">Price Watch Channel</h2>
                 <div className="space-y-3">

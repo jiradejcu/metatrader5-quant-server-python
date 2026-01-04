@@ -57,3 +57,16 @@ export async function getArbitrageSummary(): Promise<Response> {
 
   return response
 }
+
+export async function getActiveUserInfo(): Promise<Response> {
+  const url =`${API_BASE_URL}/user-info`
+  const response = await fetch(url, {
+    method: 'GET'
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to get active user service: ${response.statusText}`)
+  }
+
+  return response
+}
