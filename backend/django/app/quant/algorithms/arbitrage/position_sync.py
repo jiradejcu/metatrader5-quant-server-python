@@ -34,8 +34,8 @@ def handle_position_update(pubsub):
                 if received_symbol != config_symbol:
                     logger.debug(f"Ignoring position update for symbol {received_symbol}. Expected {config_symbol}.")
                     continue
-                # position_amt = Decimal(str(position_data.get('positionAmt', '0')))
-                position_amt = Decimal(str(position_data.get('positionAmt', '0'))) * contract_size # mock up Binance position amount
+                position_amt = Decimal(str(position_data.get('positionAmt', '0')))
+                # position_amt = Decimal(str(position_data.get('positionAmt', '0'))) * contract_size # mock up Binance position amount
                 entry_price = Decimal(str(position_data.get('entryPrice', '0')))
                 mark_price = Decimal(str(position_data.get('markPrice', '0')))
                 unrealized_profit = Decimal(str(position_data.get('unRealizedProfit', '0')))
