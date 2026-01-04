@@ -3,6 +3,12 @@ from utils.redis_client import get_redis_connection
 import logging
 import docker
 import json
+import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+MT5_URL = os.getenv('API_DOMAIN')
 
 logger = logging.getLogger(__name__)
 control_bp = Blueprint('control', __name__)
@@ -161,3 +167,24 @@ def handle_pause_position_sync():
     except Exception as e:
         logger.error(f"Pausing bot error: {e}")
         return jsonify({"message": f"Server error: {str(e)}", "is_paused": None}), 500
+
+@control_bp.route('/user-info', methods=['GET'])
+def get_active_user_info():
+    try:
+        api_url = 'https://' + MT5_URL + '/account_info'
+        response = requests.get(api_url)
+        data = response.json()
+        print(data)
+
+        return jsonify({
+            'status': 'successful',
+            'login': data['login'],
+            'server': data['server'],
+            'name': data['name'],
+            'binance_key': data['binance_key']
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'reason': str(e)
+        }), 500
