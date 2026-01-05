@@ -1,11 +1,6 @@
 from flask import Blueprint, jsonify
 import MetaTrader5 as mt5
 from flasgger import swag_from
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-BINANCE_KEY = os.getenv('API_KEY_BINANCE')
 
 health_bp = Blueprint('health', __name__)
 
@@ -70,8 +65,7 @@ def get_account_info():
             'status': 'successful',
             'login': account_info['login'],
             'server': account_info['server'],
-            'name': account_info['name'],
-            'binance_key': BINANCE_KEY
+            'name': account_info['name']
         }), 200
     except Exception as e:
         return jsonify({
