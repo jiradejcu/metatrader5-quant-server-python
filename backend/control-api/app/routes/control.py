@@ -41,7 +41,7 @@ def stop_quant_container():
         }), 200
         
     except docker.errors.NotFound:
-        return jsonify({'status': 'ignored', 'message': 'Container does not exist'}), 200
+        return jsonify({'status': 'ignored', 'message': 'Container does not exist'}), 404
     except Exception as e:
         return jsonify({
             'status': 'error',
@@ -114,7 +114,7 @@ def get_arbitrage_summary():
         elif mt5_size == 0:
             mt5_action = 'None'
 
-        if (binance_size + mt5_size) == 0:
+        if netExpose == 0:
             pairStatus = 'Complete'
 
         if redis_conn.get(pause_position_key):
@@ -184,6 +184,36 @@ def get_active_user_info():
             'name': data['name'],
             'binance_key': BINANCE_KEY
         }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'reason': str(e)
+        }), 500
+
+@control_bp.route('/restart', methods=['POST'])
+def restart_container():
+    try:
+        data = request.get_json()
+        
+        if not data or 'container' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing "container" in request body'
+            }), 400
+        container_name = data['container']
+        client = docker.from_env()
+        
+
+        container = client.containers.get(container_name)
+
+        container.restart()
+
+        return jsonify({
+            'status': 'successful',
+            'message': f"Container {container_name} has been restarted!"
+        }), 200
+    except docker.errors.NotFound:
+        return jsonify({'status': 'ignored', 'message': 'Container does not exist'}), 404
     except Exception as e:
         return jsonify({
             'status': 'error',
