@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 MT5_URL = os.getenv('API_DOMAIN')
+BINANCE_KEY = os.getenv('API_KEY_BINANCE')
 
 logger = logging.getLogger(__name__)
 control_bp = Blueprint('control', __name__)
@@ -76,7 +77,7 @@ def get_arbitrage_summary():
     try:
         binance_symbol = 'PAXGUSDT'
         mt5_symbol = 'XAUUSD'
-        ratio = 1
+        ratio = 100
 
         binance_key = f"position:{binance_symbol}"
         mt5_key = f"position: {mt5_symbol}"
@@ -97,7 +98,7 @@ def get_arbitrage_summary():
         binance_size = float(result.get('positionAmt', 0))
         mt5_size = float(mt5_result.get('positionAmt', 0))
         unrealizes = [float(result.get('unRealizedProfit', 0)), float(mt5_result.get('unRealizedProfit', 0))]
-        netExpose = (binance_size * ratio) + mt5_size
+        netExpose = binance_size + (mt5_size * ratio) # 1 PAXG = 0.01 XAU
         netExposeAction = 'Safe'
 
         if netExpose != 0:
@@ -181,7 +182,7 @@ def get_active_user_info():
             'login': data['login'],
             'server': data['server'],
             'name': data['name'],
-            'binance_key': data['binance_key']
+            'binance_key': BINANCE_KEY
         }), 200
     except Exception as e:
         return jsonify({
