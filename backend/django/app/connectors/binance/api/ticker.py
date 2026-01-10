@@ -33,6 +33,8 @@ async def subscribe_symbol_ticker(symbol: str):
         def handle_message(data):
             redis_key = f"ticker:{symbol}"
             redis_conn.hset(redis_key, mapping={"best_bid": data.b, "best_ask": data.a})
+            redis_conn.expire(redis_key, 10)
+
             # logger.debug(f"Updated Redis {redis_key} -> Best Bid: {data.b}, Best Ask: {data.a}")
 
         stream.on("message", handle_message)

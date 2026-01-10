@@ -80,6 +80,8 @@ async def subscribe_position_information(symbol: str):
                 # Save data into redis
                 redis_conn.set(redis_key, json.dumps(position_data))
                 redis_conn.publish(redis_key, json.dumps(position_data))
+                redis_conn.expire(redis_key, 10)
+
                 logger.debug(f"Updated Redis {redis_key} -> {position_data['positionAmt']}")
             else:
                 if redis_conn.exists(redis_key):
@@ -117,6 +119,8 @@ async def subscribe_position_mt5_information(symbol: str):
             data = json.dumps(result, cls=json_encoder)
             redis_conn.set(redis_key, data)
             redis_conn.publish(redis_key, data)
+            redis_conn.expire(redis_key, 10)
+
             logger.debug(f"Updated Redis {redis_key} success")
                 
             await asyncio.sleep(1)
