@@ -26,7 +26,7 @@ function App() {
         netExpose: Number(botData.netExpose),
       } as any;
     },
-    refetchInterval: 2 * SECOND,
+    refetchInterval: SECOND,
   });
 
   const { data: botServer } = useQuery({
@@ -87,24 +87,25 @@ function App() {
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-800 mb-6">Arbitrage Bot Health Status</h1>
 
-        <PausePositionBtn />
-
-        <p className="text-lg font-medium">
-          Bot sync status: <span className={`font-bold ${pausePositionSync === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
-            {pausePositionSync}
-          </span>
-        </p>
-
-        <StopBotContainerBtn />
-
-        <p className="text-lg fint-medium">
-          Bot server status: <span className="font-bold text-gray-500">
-            {botServer?.status ?? 'Fetching'}
-          </span>
-        </p>
-
         <section className="mt-6 grid gap-6">
             {/* Cards use standard styling from HTML template */}
+            <div className="card bg-white p-6 rounded-xl shadow-lg border-l-4 border-blue-500">
+                <h2 className="text-xl font-semibold text-blue-700 mb-4">Control Channel</h2>
+                <PausePositionBtn />
+                <p className="text-lg font-medium">
+                  Bot sync status: <span className={`font-bold ${pausePositionSync === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
+                    {pausePositionSync}
+                  </span>
+                </p>
+
+                <StopBotContainerBtn />
+
+                <p className="text-lg fint-medium">
+                  Bot server status: <span className="font-bold text-gray-500">
+                    {botServer?.status ?? 'Fetching'}
+                  </span>
+                </p>
+            </div>
             <div className="card bg-white p-6 rounded-xl shadow-lg border-l-4 border-blue-500">
                 <h2 className="text-xl font-semibold text-blue-700 mb-4">Active User</h2>
                 <div className="space-y-3">
