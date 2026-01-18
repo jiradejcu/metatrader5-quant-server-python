@@ -32,6 +32,25 @@ export async function stopBotService(): Promise<Response> {
   return response
 }
 
+export async function restartBotService(): Promise<Response> {
+  const url = `${API_BASE_URL}/restart`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+    "container": "django"
+    })
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to stop bot service: ${response.statusText}`)
+  }
+
+  return response
+}
+
 export async function getBotContainerStatus(): Promise<Response> {
   const url = `${API_BASE_URL}/get-django-status`
   const response = await fetch(url, {
