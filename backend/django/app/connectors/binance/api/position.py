@@ -4,7 +4,8 @@ import asyncio
 import pandas as pd
 import json
 from app.utils.redis_client import get_redis_connection
-from app.utils.api.positions import get_position_by_symbol as get_mt5_position
+from app.utils.api.positions import get_positions as get_mt5_position
+from app.utils.api.data import symbol_info_tick
 from dotenv import load_dotenv
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
@@ -103,17 +104,51 @@ async def subscribe_position_mt5_information(symbol: str):
     try:
         while True:
             mt5_symbol = symbol
-            result = get_mt5_position(mt5_symbol)
-
+            # todo: if user has two symbols, we must write more code to filter using only mt5_symbol attribute
+            positions = get_mt5_position()
             redis_key = f"position: {mt5_symbol}"
 
             if redis_conn.exists(redis_key):
                 redis_conn.delete(redis_key)
                 logger.debug(f"Delete Redis key {redis_key} as no position data found for {symbol}.")
+            
+            now = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S") # use UTC(+7) Thailand time zone
+            result = {
+                "time_update": now,
+                "entryPrice": "0",
+                "markPrice": "0",
+                "unRealizedProfit": "0",
+                "positionAmt": "0"
+            }
 
-            logger.debug(f"Set new data for {redis_key}")
-            result['positionAmt'] = result['volume']
-            del result['volume']
+            if not positions.empty:
+                # Handling logic before calculating average
+                positions['cal_type'] = positions['type'].apply(lambda x: -1 if x == 1 else 1)
+                positions['cal_volume'] = positions['volume'] * positions['cal_type']
+                
+                total_volume = float(positions['cal_volume'].sum())
+                # todo handle case when fully hedging working and you add one more position without closing fully hedge (MT5)
+                weighted_entry = float((positions['price_open'] * positions['cal_volume']).sum() / positions['cal_volume'].sum()) if total_volume != 0.0 else 0
+                total_profit = 0 if total_volume == 0.0 else float(positions['profit'].sum())
+                
+                tick = symbol_info_tick(mt5_symbol)
+                logger.debug(f"Set new data for {redis_key}")
+                
+                mark_price = 0
+                if tick is not None and not tick.empty:
+                    try:
+                        ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
+                        bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
+                    except (AttributeError, KeyError, TypeError):
+                        ask = getattr(tick, 'ask', 0)
+                        bid = getattr(tick, 'bid', 0)
+
+                    mark_price = float(ask if total_volume < 0 else bid)
+
+                result["entryPrice"] = f"{weighted_entry:.3f}"
+                result["markPrice"] = f"{mark_price:.3f}"
+                result["unRealizedProfit"] = f"{total_profit:.2f}"
+                result["positionAmt"] = f"{total_volume:.3f}"
 
             # Save data into redis
             data = json.dumps(result, cls=json_encoder)

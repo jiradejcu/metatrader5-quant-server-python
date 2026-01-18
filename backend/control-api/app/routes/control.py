@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 MT5_URL = os.getenv('API_DOMAIN')
 BINANCE_KEY = os.getenv('API_KEY_BINANCE')
+HOLDER_NAME = os.getenv('HOLDER_NAME')
 
 logger = logging.getLogger(__name__)
 control_bp = Blueprint('control', __name__)
@@ -123,6 +124,8 @@ def get_arbitrage_summary():
         response_data = {
             'binanceMarkPrice': result.get('markPrice'),
             'mt5MarkPrice': mt5_result.get('markPrice'),
+            'binanceEntry': result.get('entryPrice'),
+            'mt5Entry': mt5_result.get('entryPrice'),
             'spread': float(result.get('markPrice', 0)) - float(mt5_result.get('markPrice', 0)),
             'pairStatus': pairStatus,
             'binanceSize': binance_size,
@@ -182,7 +185,8 @@ def get_active_user_info():
             'login': data['login'],
             'server': data['server'],
             'name': data['name'],
-            'binance_key': BINANCE_KEY
+            'binance_key': BINANCE_KEY,
+            'binance_account_name': HOLDER_NAME
         }), 200
     except Exception as e:
         return jsonify({
