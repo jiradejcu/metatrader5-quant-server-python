@@ -539,6 +539,8 @@ services:
       - traefik-public
     depends_on:
       - postgres
+    profiles:
+      - monitor
 
 volumes:
   traefik-public-certificates:
