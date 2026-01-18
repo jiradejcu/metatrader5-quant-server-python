@@ -118,7 +118,7 @@ function App() {
             <div className="card bg-white p-6 rounded-xl shadow-lg border-l-4 border-[#e1e8f0]">
                 <h2 className="text-xl font-semibold text-[#CCDDF0] mb-4">Active User</h2>
                 <div className="space-y-3">
-                  <div className="relative group">
+                  <div className="relative group cursor-pointer">
                     <p data-tooltip-target="binance-account-name-tooltip" >Binance Holder: <span className="font-mono text-blue-600 font-bold ml-2">{activeUser?.binance_account_name}</span></p>
                     <div
                         className="absolute bottom-full left-1/2 
