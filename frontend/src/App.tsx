@@ -42,8 +42,6 @@ function App() {
         status: json.status
       }
     },
-    staleTime: Infinity,
-    refetchOnWindowFocus: false,
   })
 
   const { data: activeUser } = useQuery({
@@ -60,8 +58,6 @@ function App() {
         binance_account_name: json.binance_account_name
       }
     },
-    staleTime: Infinity,
-    refetchOnWindowFocus: false,
   })
 
   const displayData = data || {};
@@ -82,6 +78,8 @@ function App() {
     time_update_binance = '-',
     netExpose = 0,
     netExposeAction = 'Safe',
+    binanceSymbol = 'default',
+    mt5Symbol = 'default'
   } = displayData;
 
   if (isLoading && !data) {
@@ -137,8 +135,8 @@ function App() {
             <div className="card bg-white p-6 rounded-xl shadow-lg border-l-4 border-[#9068be]">
                 <h2 className="text-xl font-semibold text-[#9068be] mb-4">Price Watch Channel</h2>
                 <div className="space-y-3">
-                    <p>Binance (PAXG): <span className="font-mono text-blue-600 font-bold ml-2">{binanceMarkPrice.toFixed(2)}</span></p>
-                    <p>MT5 (XAU): <span className="font-mono text-green-600 font-bold ml-2">{mt5MarkPrice.toFixed(2)}</span></p>
+                    <p>Binance ({binanceSymbol}): <span className="font-mono text-blue-600 font-bold ml-2">{binanceMarkPrice.toFixed(2)}</span></p>
+                    <p>MT5 ({mt5Symbol}): <span className="font-mono text-green-600 font-bold ml-2">{mt5MarkPrice.toFixed(2)}</span></p>
                     <p className="text-xl font-bold mt-4">Spread: <span className={spread > 0 ? 'text-green-500' : 'text-red-500'}>{spread.toFixed(2)}</span></p>
                 </div>
             </div>
@@ -147,11 +145,11 @@ function App() {
                 <h2 className="text-xl font-semibold text-[#9068be] mb-4">Current Positions</h2>
                 <div className="space-y-3">
                     <p>Status: <span className={pairStatus === 'Warning' ? 'text-red-600' : 'text-green-600'}>{pairStatus}</span></p>
-                    <p>Binance: {binanceAction} {binanceSize} PAXG ({time_update_binance})</p>
-                    <p>Mt5: {mt5Action} {mt5Size} XAU ({time_update_mt5})</p>
-                    <p>Binance entry: {binanceEntry} ({time_update_binance})</p>
-                    <p>Mt5 entry: {mt5Entry} ({time_update_mt5})</p>
-                    <p>Entry Diff: {(binanceEntry-mt5Entry).toFixed(2)}</p>
+                    <p>Binance: {binanceAction} {binanceSize} {binanceSymbol} ({time_update_binance})</p>
+                    <p>Mt5: {mt5Action} {mt5Size} {mt5Symbol} ({time_update_mt5})</p>
+                    <p>Binance entry: {binanceEntry.toFixed(4)}</p>
+                    <p>Mt5 entry: {mt5Entry}</p>
+                    <p>Entry Diff: {(binanceEntry-mt5Entry).toFixed(4)}</p>
                     <p>PNL: <span className={unrealizedBinance >= 0 ? 'text-green-500' : 'text-red-500'}>{unrealizedBinance.toFixed(2)} USD</span></p>
                 </div>
             </div>
