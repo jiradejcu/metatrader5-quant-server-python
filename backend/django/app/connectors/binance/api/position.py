@@ -121,6 +121,20 @@ async def subscribe_position_mt5_information(symbol: str):
                 "positionAmt": "0"
             }
 
+            tick = symbol_info_tick(mt5_symbol)
+            mark_price = 0
+
+            if tick is not None and not tick.empty:
+                try:
+                    ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
+                    bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
+                except (AttributeError, KeyError, TypeError):
+                    ask = getattr(tick, 'ask', 0)
+                    bid = getattr(tick, 'bid', 0)
+                # todo refactor and if this logic is wrong, fixing it
+                mark_price = ask
+                result["markPrice"] = mark_price
+
             if not positions.empty:
                 # Handling logic before calculating average
                 positions['cal_type'] = positions['type'].apply(lambda x: -1 if x == 1 else 1)
@@ -130,20 +144,9 @@ async def subscribe_position_mt5_information(symbol: str):
                 # todo handle case when fully hedging working and you add one more position without closing fully hedge (MT5)
                 weighted_entry = float((positions['price_open'] * positions['cal_volume']).sum() / positions['cal_volume'].sum()) if total_volume != 0.0 else 0
                 total_profit = 0 if total_volume == 0.0 else float(positions['profit'].sum())
+                mark_price = float(ask if total_volume < 0 else bid)
                 
-                tick = symbol_info_tick(mt5_symbol)
                 logger.debug(f"Set new data for {redis_key}")
-                
-                mark_price = 0
-                if tick is not None and not tick.empty:
-                    try:
-                        ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
-                        bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
-                    except (AttributeError, KeyError, TypeError):
-                        ask = getattr(tick, 'ask', 0)
-                        bid = getattr(tick, 'bid', 0)
-
-                    mark_price = float(ask if total_volume < 0 else bid)
 
                 result["entryPrice"] = f"{weighted_entry:.3f}"
                 result["markPrice"] = f"{mark_price:.3f}"
