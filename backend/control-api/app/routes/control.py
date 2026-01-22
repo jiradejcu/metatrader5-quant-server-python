@@ -6,11 +6,13 @@ import json
 import requests
 import os
 from dotenv import load_dotenv
+from constants.config import PAIRS
 
 load_dotenv()
 MT5_URL = os.getenv('API_DOMAIN')
 BINANCE_KEY = os.getenv('API_KEY_BINANCE')
 HOLDER_NAME = os.getenv('HOLDER_NAME')
+PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
 
 logger = logging.getLogger(__name__)
 control_bp = Blueprint('control', __name__)
@@ -76,8 +78,8 @@ def get_django_status():
 @control_bp.route('/get-arbitrage-summary', methods=['GET'])
 def get_arbitrage_summary():
     try:
-        binance_symbol = 'PAXGUSDT'
-        mt5_symbol = 'XAUUSD'
+        binance_symbol = PAIRS[PAIR_INDEX]['binance']
+        mt5_symbol = PAIRS[PAIR_INDEX]['mt5']
         ratio = 100
 
         binance_key = f"position:{binance_symbol}"
@@ -119,7 +121,7 @@ def get_arbitrage_summary():
             pairStatus = 'Complete'
 
         if redis_conn.get(pause_position_key):
-            pause_position = 'Pause'
+            pause_position = 'Pause' 
 
         response_data = {
             'binanceMarkPrice': result.get('markPrice'),
@@ -137,7 +139,9 @@ def get_arbitrage_summary():
             'unrealizedBinance': sum(unrealizes),
             'pausePositionSync': pause_position,
             'time_update_mt5': mt5_result.get('time_update'),
-            'time_update_binance': result.get('updateTime')
+            'time_update_binance': result.get('updateTime'),
+            'binanceSymbol': binance_symbol,
+            'mt5Symbol': mt5_symbol,
         }
 
         logger.info("Successful get arbitrage information!!")

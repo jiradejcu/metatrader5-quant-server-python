@@ -22,6 +22,7 @@ def get_pause_status():
 
 def handle_position_update(pubsub):
     global latest_update
+    PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
     try:
         for message in pubsub.listen():
             is_pause = get_pause_status()
@@ -30,7 +31,7 @@ def handle_position_update(pubsub):
                 logger.debug('Position_sync is runing!!')
                 position_data = json.loads(message['data'])
                 received_symbol = position_data.get('symbol')
-                config_symbol = config.PAIRS[0]['binance']
+                config_symbol = config.PAIRS[PAIR_INDEX]['binance']
                 if received_symbol != config_symbol:
                     logger.debug(f"Ignoring position update for symbol {received_symbol}. Expected {config_symbol}.")
                     continue
@@ -46,7 +47,7 @@ def handle_position_update(pubsub):
                     f", Mark Price: {mark_price}, Unrealized Profit: {unrealized_profit}"
                 )
                 
-                mt5_symbol = config.PAIRS[0]['mt5']
+                mt5_symbol = config.PAIRS[PAIR_INDEX]['mt5']
                 mt5_position = get_mt5_position(mt5_symbol)
                 
                 mt5_volume = Decimal(str(mt5_position.get('volume', '0')))
@@ -101,7 +102,8 @@ def start_position_sync():
     if os.environ.get('RUN_MAIN') != 'true':
         return
     
-    symbol = config.PAIRS[0]['binance']
+    PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
+    symbol = config.PAIRS[PAIR_INDEX]['binance']
     logger.info(f"Starting position sync for {symbol}...")
 
     try:

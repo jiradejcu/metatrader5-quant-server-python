@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 redis_conn = get_redis_connection()
         
 def compare():
-    binance_symbol = config.PAIRS[0]['binance']
-    mt5_symbol = config.PAIRS[0]['mt5']
+    PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
+    binance_symbol = config.PAIRS[PAIR_INDEX]['binance']
+    mt5_symbol = config.PAIRS[PAIR_INDEX]['mt5']
     
     binance_ticker = get_ticker(binance_symbol)
     mt5_tick = symbol_info_tick(mt5_symbol)

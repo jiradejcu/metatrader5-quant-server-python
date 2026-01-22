@@ -12,8 +12,9 @@ def start_subscriptions():
     if os.environ.get('RUN_MAIN') != 'true':
         return
 
-    symbol = config.PAIRS[0]['binance']
-    symbol_mt5 = config.PAIRS[0]['mt5']
+    PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
+    symbol = config.PAIRS[PAIR_INDEX]['binance']
+    symbol_mt5 = config.PAIRS[PAIR_INDEX]['mt5']
     logger.info(f"Starting arbitrage subscription tasks for {symbol}...")
     try:
         threading.Thread(target=asyncio.run, args=(ticker_stream.subscribe_symbol_ticker(symbol),), daemon=True).start()
