@@ -240,6 +240,7 @@ services:
   redis:
     image: redis:6
     container_name: redis
+    restart: unless-stopped
     ports:
       - 6379:6379
     cpus: 0.5
@@ -258,6 +259,7 @@ services:
       dockerfile: Dockerfile
     container_name: celery
     command: celery -A app worker --loglevel=info --concurrency=3
+    restart: unless-stopped
     volumes:
       - static_volume:/app/staticfiles
     env_file:
@@ -277,6 +279,7 @@ services:
       dockerfile: Dockerfile
     container_name: celery-beat
     command: celery -A app beat --loglevel=info
+    restart: unless-stopped
     volumes:
       - static_volume:/app/staticfiles
     env_file:
