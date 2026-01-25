@@ -272,6 +272,8 @@ services:
     labels:
       <<: *default-labels
     logging: *default-logging
+    profiles:
+      - worker
 
   celery-beat:
     build:
@@ -292,6 +294,8 @@ services:
     labels:
       <<: *default-labels
     logging: *default-logging
+    profiles:
+      - worker
 
   grafana:
     image: grafana/grafana:${GRAFANA_VERSION:-11.0.0}
