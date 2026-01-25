@@ -10,7 +10,7 @@ from app.utils.api.positions import get_position_by_symbol as get_mt5_position
 from app.utils.api.order import send_market_order
 
 logger = logging.getLogger(__name__)
-contract_size = Decimal('100')
+# contract_size = Decimal('100')
 
 latest_update = None
 
@@ -23,6 +23,7 @@ def get_pause_status():
 def handle_position_update(pubsub):
     global latest_update
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
+    contract_size = Decimal(os.getenv('CONTRACT_SIZE'))
     try:
         for message in pubsub.listen():
             is_pause = get_pause_status()
