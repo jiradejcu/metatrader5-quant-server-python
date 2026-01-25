@@ -105,7 +105,9 @@ async def subscribe_position_mt5_information(symbol: str):
         while True:
             mt5_symbol = symbol
             # todo: if user has two symbols, we must write more code to filter using only mt5_symbol attribute
+            # add map filter position.symbol to select only match with mt5_symbol, now considering all
             positions = get_mt5_position()
+            positions = positions[positions['symbol'] == mt5_symbol]
             redis_key = f"position: {mt5_symbol}"
 
             if redis_conn.exists(redis_key):
