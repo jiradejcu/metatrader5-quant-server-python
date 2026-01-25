@@ -62,9 +62,8 @@ def get_position_by_symbol(symbol: str) -> Dict:
     symbol_positions = positions_df[positions_df['symbol'] == symbol]
     thailand_tz = timezone(timedelta(hours=7))
     latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S")  #symbol_positions['time_update'].max()
-    
     # Data for no position data
-    url = f"{BASE_URL}/symbol_info_tick/XAUUSD"
+    url = f"{BASE_URL}/symbol_info_tick/{symbol}"
     response = requests.get(url, timeout=10)
     data = response.json()
 
