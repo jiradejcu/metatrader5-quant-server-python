@@ -81,7 +81,7 @@ def get_arbitrage_summary():
     try:
         binance_symbol = PAIRS[PAIR_INDEX]['binance']
         mt5_symbol = PAIRS[PAIR_INDEX]['mt5']
-        ratio = RATIO_EXPOSE ?? 100
+        ratio = RATIO_EXPOSE
 
         binance_key = f"position:{binance_symbol}"
         mt5_key = f"position: {mt5_symbol}"
