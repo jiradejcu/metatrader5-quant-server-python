@@ -107,9 +107,8 @@ def get_arbitrage_summary():
 
         # handle floating point issue
         epsilon = 1e-12 
-        if (Math.abs(netExpose) < epsilon) {
+        if abs(netExpose) < epsilon:
             netExpose = 0
-        }
 
         if netExpose != 0:
             netExposeAction = 'Unsafe'
