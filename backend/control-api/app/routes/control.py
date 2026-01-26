@@ -106,9 +106,9 @@ def get_arbitrage_summary():
         netExposeAction = 'Safe'
 
         # handle floating point issue
-        const epsilon = 1e-12; 
+        epsilon = 1e-12 
         if (Math.abs(netExpose) < epsilon) {
-            netExpose = 0;
+            netExpose = 0
         }
 
         if netExpose != 0:
