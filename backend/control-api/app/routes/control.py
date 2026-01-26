@@ -105,6 +105,12 @@ def get_arbitrage_summary():
         netExpose = binance_size + (mt5_size * ratio) # 1 PAXG = 0.01 XAU
         netExposeAction = 'Safe'
 
+        # handle floating point issue
+        const epsilon = 1e-12; 
+        if (Math.abs(netExpose) < epsilon) {
+            netExpose = 0;
+        }
+
         if netExpose != 0:
             netExposeAction = 'Unsafe'
 
