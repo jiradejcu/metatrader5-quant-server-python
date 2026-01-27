@@ -1,6 +1,4 @@
-const API_BASE_URL = 'https://arbitrage-control.vatanutanon.me';
-
-export async function pauseDisplay(): Promise<Response> {
+export async function pauseDisplay(API_BASE_URL: string): Promise<Response> {
   const url = `${API_BASE_URL}/pause-position-sync`;
   const response = await fetch(url, {
     method: 'POST',
@@ -16,7 +14,7 @@ export async function pauseDisplay(): Promise<Response> {
   return response;
 }
 
-export async function stopBotService(): Promise<Response> {
+export async function stopBotService(API_BASE_URL: string): Promise<Response> {
   const url = `${API_BASE_URL}/stop-quant`
   const response = await fetch(url, {
     method: 'POST',
@@ -32,7 +30,7 @@ export async function stopBotService(): Promise<Response> {
   return response
 }
 
-export async function restartBotService(): Promise<Response> {
+export async function restartBotService(API_BASE_URL: string): Promise<Response> {
   const url = `${API_BASE_URL}/restart`
   const response = await fetch(url, {
     method: 'POST',
@@ -51,7 +49,7 @@ export async function restartBotService(): Promise<Response> {
   return response
 }
 
-export async function getBotContainerStatus(): Promise<Response> {
+export async function getBotContainerStatus(API_BASE_URL: string): Promise<Response> {
   const url = `${API_BASE_URL}/get-django-status`
   const response = await fetch(url, {
     method: 'GET'
@@ -64,7 +62,7 @@ export async function getBotContainerStatus(): Promise<Response> {
   return response
 }
 
-export async function getArbitrageSummary(): Promise<Response> {
+export async function getArbitrageSummary(API_BASE_URL: string): Promise<Response> {
   const url = `${API_BASE_URL}/get-arbitrage-summary`
   const response = await fetch(url, {
     method: 'GET',
@@ -77,7 +75,7 @@ export async function getArbitrageSummary(): Promise<Response> {
   return response
 }
 
-export async function getActiveUserInfo(): Promise<Response> {
+export async function getActiveUserInfo(API_BASE_URL: string): Promise<Response> {
   const url =`${API_BASE_URL}/user-info`
   const response = await fetch(url, {
     method: 'GET'
