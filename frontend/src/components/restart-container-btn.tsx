@@ -2,10 +2,11 @@
 import { useMutation } from "@tanstack/react-query";
 import { restartBotService } from "../query/apis";
 import { SECOND } from "../constant/time";
+import type { IDokcerAPIBtnProps } from "../interfaces/ button-docker.interface";
 
-function RestartBotContainerBtn () {
+function RestartBotContainerBtn ({ url }: IDokcerAPIBtnProps) {
     const restartBotMutation = useMutation({
-        mutationFn: restartBotService,
+        mutationFn: (url: string) => restartBotService(url),
         onSuccess: () => {
             setTimeout(() => {
                 restartBotMutation.reset()
@@ -21,7 +22,7 @@ function RestartBotContainerBtn () {
     })
 
     const handleRestartBotServer = () => {
-        restartBotMutation.mutate()
+        restartBotMutation.mutate(url)
     } 
 
     let btnText = 'Restart Bot Server'

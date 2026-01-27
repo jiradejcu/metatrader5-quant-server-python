@@ -40,3 +40,38 @@
 .read-the-docs {
   color: #888;
 }
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 10px;
+  transition: background 0.3s ease;
+}
+
+.scrollbar-red::-webkit-scrollbar-thumb {
+  background: #e62739;
+}
+
+.scrollbar-blue::-webkit-scrollbar-thumb {
+  background: #37BCED;
+}
+
+.scrollbar-green::-webkit-scrollbar-thumb {
+  background: #A5FF47;
+}
+
+.scrollbar-purple::-webkit-scrollbar-thumb {
+  background: #9068be;
+}
+
+.scrollbar-cray::-webkit-scrollbar-thumb {
+  background: #6ed3cf;
+}

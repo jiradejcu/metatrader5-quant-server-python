@@ -2,12 +2,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { stopBotService } from "../query/apis";
 import { SECOND } from "../constant/time";
+import type { IDokcerAPIBtnProps } from "../interfaces/ button-docker.interface";
 
-function StopBotContainerBtn () {
+function StopBotContainerBtn ({ url }: IDokcerAPIBtnProps) {
     const queryClient = useQueryClient()
 
     const stopBotMutation = useMutation({
-        mutationFn: stopBotService,
+        mutationFn: (url: string) => stopBotService(url),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['botServerStatus']})
 
@@ -25,7 +26,7 @@ function StopBotContainerBtn () {
     })
 
     const handleStopBotServer = () => {
-        stopBotMutation.mutate()
+        stopBotMutation.mutate(url)
     } 
 
     let btnText = 'Stop Bot Server'

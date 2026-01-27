@@ -2,12 +2,13 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { pauseDisplay } from '../query/apis';
 import { SECOND } from '../constant/time';
+import type { IDokcerAPIBtnProps } from '../interfaces/ button-docker.interface';
 
-function PausePositionBtn() {
+function PausePositionBtn({ url }: IDokcerAPIBtnProps) {
   const queryClient = useQueryClient();
 
   const pauseMutation = useMutation({
-    mutationFn: pauseDisplay,
+    mutationFn: (url: string) => pauseDisplay(url),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['arbitrageSummary'] });
       
@@ -26,7 +27,7 @@ function PausePositionBtn() {
   });
 
   const handlePause = () => {
-    pauseMutation.mutate(); 
+    pauseMutation.mutate(url); 
   };
 
   // Derive all UI states directly from the mutation object
