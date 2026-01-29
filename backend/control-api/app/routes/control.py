@@ -233,3 +233,48 @@ def restart_container():
             'status': 'error',
             'reason': str(e)
         }), 500
+
+# Input: upper_limit and lower_limit (float or int)
+@control_bp.route('/set-grid-channel', methods=['POST'])
+def set_grid_setting_values():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Required define data on body!!'
+            }), 400
+        
+        # Input validator
+        if 'upper_diff' not in data or 'lower_diff' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Required "upper_diff" and "lower_diff" attributes!'
+            }), 400
+
+        if not isinstance(data['upper_diff'], (int, float)) or not isinstance(data['lower_diff'], (int, float)):
+            return jsonify({
+                'status': 'error',
+                'message': 'Attribute "upper_diff" and "lower_diff" must be numeric (int or float)!'
+            }), 400
+
+        upper_diff = float(data['upper_diff'])
+        lower_diff = float(data['lower_diff'])
+
+        # Set grid channel on redis
+        redis_conn = get_redis_connection()
+        redis_conn.set('Setting Grid channel',json.dumps({
+            "upper_diff": upper_diff,
+            "lower_diff": lower_diff
+        }))
+
+        return jsonify({
+            'status': 'successful',
+            'message': f"Finished set grid channel!!"
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'reason': str(e)
+        }), 500
+        
