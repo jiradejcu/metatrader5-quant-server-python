@@ -10,12 +10,12 @@ logger = logging.getLogger(__name__)
 
 def handle_grid_flow():
     global latest_update
-    PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-    binance_symbol = config.PAIRS[PAIR_INDEX]['binance']
-    mt5_symbol = config.PAIRS[PAIR_INDEX]['mt5']
-    logger.info(f"Starting grid trading process for {binance_symbol} ...")
     
     try:
+        PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
+        binance_symbol = config.PAIRS[PAIR_INDEX]['binance']
+        mt5_symbol = config.PAIRS[PAIR_INDEX]['mt5']
+        logger.info(f"Starting grid trading process for {binance_symbol} ...")
         redis_conn = get_redis_connection()
         pubsub = redis_conn.pubsub()
         pubsub.subscribe(f"Setting Grid channel:{binance_symbol}:{mt5_symbol}")
