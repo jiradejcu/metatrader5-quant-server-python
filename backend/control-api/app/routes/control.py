@@ -262,11 +262,19 @@ def set_grid_setting_values():
         lower_diff = float(data['lower_diff'])
 
         # Set grid channel on redis
+        PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
+        binance_symbol = PAIRS[PAIR_INDEX]['binance']
+        mt5_symbol = PAIRS[PAIR_INDEX]['mt5']
         redis_conn = get_redis_connection()
-        redis_conn.set('Setting Grid channel',json.dumps({
+        redis_key = f"Setting Grid channel:{binance_symbol}:{mt5_symbol}"
+        grid_channel = {
             "upper_diff": upper_diff,
             "lower_diff": lower_diff
-        }))
+        }
+        
+        # No expire until user fill new setting values
+        redis_conn.set(redis_key, json.dumps(grid_channel))
+        redis_conn.publish(redis_key, json.dumps(grid_channel))
 
         return jsonify({
             'status': 'successful',
