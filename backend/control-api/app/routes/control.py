@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, Response, stream_with_context
 from utils.redis_client import get_redis_connection
 import logging
 import docker
@@ -7,6 +7,7 @@ import requests
 import os
 from dotenv import load_dotenv
 from constants.config import PAIRS
+from events.master import event_quants_master_data
 
 load_dotenv()
 MT5_URL = os.getenv('API_DOMAIN')
@@ -90,7 +91,7 @@ def get_arbitrage_summary():
         redis_conn = get_redis_connection()
 
         result = prepare_json(redis_conn.get(binance_key))
-        logger.info(f"Get redis key: position: {mt5_symbol} success")
+        logger.info(f"Get redis key: position: {binance_symbol} success")
         mt5_result = prepare_json(redis_conn.get(mt5_key))
         logger.info(f"Get redis key: position: {mt5_symbol} success")
         pause_position = 'Active'
@@ -267,9 +268,13 @@ def set_grid_setting_values():
         mt5_symbol = PAIRS[PAIR_INDEX]['mt5']
         redis_conn = get_redis_connection()
         redis_key = f"Setting Grid channel:{binance_symbol}:{mt5_symbol}"
+
+        # todo: fixed max postion size = 10 XAUUSDT, order_size = 1 XAUUSDT/order
         grid_channel = {
             "upper_diff": upper_diff,
-            "lower_diff": lower_diff
+            "lower_diff": lower_diff,
+            "max_position_size": 10,
+            "order_size": 1
         }
         
         # No expire until user fill new setting values
@@ -285,4 +290,8 @@ def set_grid_setting_values():
             'status': 'error',
             'reason': str(e)
         }), 500
-        
+
+
+@control_bp.route('/stream/quants', methods=['GET'])
+def stream_quant_master_data():
+    return Response(stream_with_context(event_quants_master_data()), mimetype="text/event-stream")
