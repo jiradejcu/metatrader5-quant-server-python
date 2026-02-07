@@ -4,3 +4,4 @@ gunicorn
 redis
 docker
 python-dotenv
+gevent

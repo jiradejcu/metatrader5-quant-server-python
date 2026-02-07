@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 def event_quants_master_data():
     while True:
         try:
+            # todo: if every second get service is heavy load, considering change to use pusub strategy instead
             grid_data = get_grid_parameters_data()
             arbitrage_summary = get_arbitrage_summary()
 
