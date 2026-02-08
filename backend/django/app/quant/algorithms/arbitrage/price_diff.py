@@ -52,6 +52,8 @@ def compare():
         redis_key = f"price_comparison:{binance_symbol}:{mt5_symbol}"
         redis_conn.set(redis_key, json.dumps(result))
         redis_conn.expire(redis_key, 10)
+        
+        redis_conn.publish(redis_key, json.dumps(result))
     except Exception as e:
         logger.error(f"Error sending result to Redis: {e}", exc_info=True)
     
