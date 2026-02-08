@@ -18,4 +18,4 @@ class QuantConfig(AppConfig):
 
         # Send notification to telegram group when price diff cross the grid channel
         from .algorithms.arbitrage import grid_bot
-        grid_bot.handle_grid_flow()
+        grid_bot.start_grid_bot_sync()
