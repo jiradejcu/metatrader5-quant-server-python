@@ -1,15 +1,15 @@
 import { useGetActiveUser } from "../hooks/active-user";
-import { useGetSummaryDataHook } from "../hooks/summary";
+import { useGetSummaryStreamData } from "../hooks/summary";
 import type { ICardSection } from "../interfaces/control-panel.interface";
 
 const PairDetails = ({  
   pairStatus = 'Normal',
   binanceAction = 'None',
-  binanceSize = '0.0',
+  binanceSize = 0,
   binanceSymbol = 'default',
   time_update_binance = '00:00:00',
   mt5Action = 'None',
-  mt5Size = '0.0',
+  mt5Size = 0,
   mt5Symbol = 'None',
   time_update_mt5 = '00:00:00',
   binanceEntry = 0,
@@ -79,20 +79,20 @@ const PairDetails = ({
 export const CurrentPositionSection = (arg: ICardSection) => {
     const { apiUrl } = arg
         const { 
-            isLoading,
-            pairStatus,
-            binanceAction,
-            binanceSize,
-            binanceSymbol,
-            time_update_binance,
-            mt5Action,
-            mt5Size,
-            mt5Symbol,
-            time_update_mt5,
-            binanceEntry,
-            mt5Entry,
-            unrealizedBinance
-         } = useGetSummaryDataHook(apiUrl)
+          isLoading,
+          pairStatus,
+          binanceAction,
+          binanceSize,
+          binanceSymbol,
+          time_update_binance,
+          mt5Action,
+          mt5Size,
+          mt5Symbol,
+          time_update_mt5,
+          binanceEntry,
+          mt5Entry,
+          unrealizedBinance
+        } = useGetSummaryStreamData(apiUrl)
         const { activeUser } = useGetActiveUser(apiUrl)
 
     if (isLoading) {
@@ -117,13 +117,6 @@ export const CurrentPositionSection = (arg: ICardSection) => {
                 mt5Entry = {mt5Entry}
                 unrealizedBinance = {unrealizedBinance}
             />
-            {/* <p>Status: <span className={pairStatus === 'Warning' ? 'text-red-600' : 'text-green-600'}>{pairStatus}</span></p>
-            <p>Binance: {binanceAction} {binanceSize} {binanceSymbol} ({time_update_binance})</p>
-            <p>Mt5: {mt5Action} {mt5Size} {mt5Symbol} ({time_update_mt5})</p>
-            <p>Binance entry: {binanceEntry.toFixed(4)}</p>
-            <p>Mt5 entry: {mt5Entry}</p>
-            <p>Entry Diff: {(binanceEntry-mt5Entry).toFixed(4)}</p>
-            <p>PNL: <span className={unrealizedBinance >= 0 ? 'text-green-500' : 'text-red-500'}>{unrealizedBinance.toFixed(2)} USD</span></p> */}
         </div>
     )
 }

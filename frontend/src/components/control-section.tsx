@@ -1,7 +1,9 @@
 import { useGetActiveUser } from "../hooks/active-user";
 import { useGetBotStatus } from "../hooks/bot-status";
-import { useGetSummaryDataHook } from "../hooks/summary";
+import { useStreamQuantMaster } from "../hooks/stream-master-data";
+import { useGetSummaryStreamData } from "../hooks/summary";
 import type { ICardSection } from "../interfaces/control-panel.interface";
+import { GridSettingModal } from "./grid-setting-modals";
 import PausePositionBtn from "./pause-btn";
 import RestartBotContainerBtn from "./restart-container-btn";
 import StopBotContainerBtn from "./stop-container-btn";
@@ -13,7 +15,16 @@ export const ControlSection = (arg: ICardSection) => {
 
     const { botServer } = useGetBotStatus(apiUrl)
     const { activeUser } = useGetActiveUser(apiUrl)
-    const { isLoading , pausePositionSync } = useGetSummaryDataHook(apiUrl)
+    const {isLoading: isLoadingStreamMaster } = useStreamQuantMaster(apiUrl)
+
+    // Calling SSE hook to keep the data updated
+    const { isLoading, pausePositionSync } = useGetSummaryStreamData(apiUrl)
+
+    if (isLoadingStreamMaster) {
+      return <div className="flex justify-center mt-20 font-medium text-gray-600">SSE Connection with host {apiUrl} ...</div>;
+    }
+
+
 
     if (isLoading && !pausePositionSync) {
         return <div className="flex justify-center mt-20 font-medium text-gray-600">Control panel: Connecting to Bot...</div>;
@@ -22,6 +33,11 @@ export const ControlSection = (arg: ICardSection) => {
     return (
         <div>
             <h3 className="text-lg font-semibold text-[#705A5A] mb-4">{activeUser?.name}</h3>
+            {/* grid parameter settings */}
+            <GridSettingModal
+              url={apiUrl}            
+            />
+
             <p className="text-base font-medium">
                   Bot sync status: <span className={`font-bold ${pausePositionSync === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
                     {pausePositionSync}

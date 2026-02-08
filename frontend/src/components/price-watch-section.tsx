@@ -1,4 +1,4 @@
-import { useGetSummaryDataHook } from "../hooks/summary";
+import { useGetSummaryStreamData } from "../hooks/summary";
 import type { ICardSection } from "../interfaces/control-panel.interface";
 import type { SpreadHighlightProps } from "../interfaces/spread.interface";
 
@@ -35,13 +35,13 @@ const SpreadHighlight: React.FC<SpreadHighlightProps> = ({ spread }) => {
 export const PriceWatchSection = (arg: ICardSection) => {
     const { apiUrl } = arg
     const { 
-        isLoading,
-        binanceSymbol,
-        mt5Symbol,
-        spread,
-        binanceMarkPrice,
-        mt5MarkPrice
-     } = useGetSummaryDataHook(apiUrl)
+      isLoading,
+      binanceSymbol,
+      mt5Symbol,
+      spread,
+      binanceMarkPrice,
+      mt5MarkPrice
+    } = useGetSummaryStreamData(apiUrl)
     
     if (isLoading) {
         return <div className="flex justify-center mt-20 font-medium text-gray-600">Price Watch: Connecting to API...</div>;
@@ -49,9 +49,6 @@ export const PriceWatchSection = (arg: ICardSection) => {
 
     return (
         <>
-            {/* <p>Binance ({binanceSymbol}): <span className="font-mono text-blue-600 font-bold ml-2">{binanceMarkPrice.toFixed(2)}</span></p>
-            <p>MT5 ({mt5Symbol}): <span className="font-mono text-green-600 font-bold ml-2">{mt5MarkPrice.toFixed(2)}</span></p>
-            <p className="text-xl font-bold mt-4">Spread: <span className={spread > 0 ? 'text-green-500' : 'text-red-500'}>{spread.toFixed(2)}</span></p> */}
             {/* Data Rows */}
             <div className="space-y-4">
                 <div className="flex justify-between items-end">
@@ -60,7 +57,7 @@ export const PriceWatchSection = (arg: ICardSection) => {
                     <p className="text-sm font-medium text-slate-600">{binanceSymbol}</p>
                     </div>
                     <span className="font-mono text-slate-900 font-bold text-base tracking-tight">
-                    {binanceMarkPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    {binanceMarkPrice.toFixed(2)}
                     </span>
                 </div>
                 
@@ -70,7 +67,7 @@ export const PriceWatchSection = (arg: ICardSection) => {
                     <p className="text-sm font-medium text-slate-600">{mt5Symbol}</p>
                     </div>
                     <span className="font-mono text-slate-900 font-bold text-base tracking-tight">
-                    {mt5MarkPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    {mt5MarkPrice.toFixed(2)}
                     </span>
                 </div>
             </div>

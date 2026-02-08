@@ -67,7 +67,7 @@ function App() {
                 </div>
             </div>
             
-            <div className="card bg-white p-6 rounded-xl shadow-lg border-l-4 border-[#9068be] flex flex-col w-full max-w-3xl mx-auto overflow-hidden h-[500px]">
+            <div className="card bg-white p-6 rounded-xl shadow-lg border-l-4 border-[#9068be] flex flex-col w-full max-w-3xl mx-auto overflow-hidden h-[530px]">
                 <h2 className="text-xl font-semibold text-[#9068be] mb-4">Current Positions</h2>
 
                 {/* Scrollable Container */}

@@ -1,14 +1,14 @@
 import { useGetActiveUser } from "../hooks/active-user";
-import { useGetSummaryDataHook } from "../hooks/summary";
+import { useGetSummaryStreamData } from "../hooks/summary";
 import type { ICardSection } from "../interfaces/control-panel.interface";
 
 export const ExposureSection = (arg: ICardSection) => {
     const { apiUrl } = arg
-    const {
-        netExpose,
-        netExposeAction,
-        isLoading
-    } = useGetSummaryDataHook(apiUrl)
+    const { 
+          isLoading,
+          netExpose,
+          netExposeAction
+        } = useGetSummaryStreamData(apiUrl)
     const { activeUser } = useGetActiveUser(apiUrl)
     
     if (isLoading) {
