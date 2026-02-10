@@ -6,3 +6,6 @@ services:
       - ${LOG_VOLUME}:/app/logs
     ports:
       - "8000:8000"
+  mt5:
+    ports:
+      - "5678:5678"

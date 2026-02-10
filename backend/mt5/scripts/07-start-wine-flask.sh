@@ -7,7 +7,7 @@ log_message "RUNNING" "07-start-wine-flask.sh"
 log_message "INFO" "Starting Flask server in Wine environment..."
 
 # Run the Flask app using Wine's Python
-# FLASK_DEBUG=1 wine python -m debugpy --listen 0.0.0.0:5678 /app/app.py &
+# wine python -m debugpy --listen 0.0.0.0:5678 /app/app.py &
 wine python /app/app.py &
 
 FLASK_PID=$!

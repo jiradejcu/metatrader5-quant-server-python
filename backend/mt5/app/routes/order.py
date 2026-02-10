@@ -74,13 +74,12 @@ def send_market_order_endpoint():
             return jsonify({"error": "Order data is required"}), 400
 
         required_fields = ['symbol', 'volume', 'type']
-        if not all(field in data for field in required_fields):
+        if 'position_by' not in data and not all(field in data for field in required_fields):
             return jsonify({"error": "Missing required fields"}), 400
 
         request_data = {
             "action": mt5.TRADE_ACTION_CLOSE_BY if data.get('position_by') else mt5.TRADE_ACTION_DEAL,
             "symbol": data['symbol'],
-            "volume": float(data['volume']),
             "type": mt5.ORDER_TYPE_CLOSE_BY if data.get('position_by') else data['type'],
             "deviation": data.get('deviation', 20),
             "magic": data.get('magic', 0),
@@ -114,6 +113,8 @@ def send_market_order_endpoint():
             request_data["position"] = data.get('position')
         if 'position_by' in data:
             request_data["position_by"] = data.get('position_by')
+        else:
+            request_data["volume"] = float(data['volume'])
             
         logger.info(f"Order Request Data: {request_data}")
         
