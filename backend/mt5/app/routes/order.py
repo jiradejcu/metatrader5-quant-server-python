@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
                     'symbol': {'type': 'string'},
                     'volume': {'type': 'number'},
                     'type': {'type': 'string', 'enum': ['BUY', 'SELL']},
+                    'position': {'type': 'number'},
+                    'position_by': {'type': 'number'},
                     'deviation': {'type': 'integer', 'default': 20},
                     'magic': {'type': 'integer', 'default': 0},
                     'comment': {'type': 'string', 'default': ''},
@@ -42,11 +44,11 @@ logger = logging.getLogger(__name__)
                         'type': 'object',
                         'properties': {
                             'retcode': {'type': 'integer'},
+                            'deal': {'type': 'number'},
                             'order': {'type': 'integer'},
                             'magic': {'type': 'integer'},
                             'price': {'type': 'number'},
                             'symbol': {'type': 'string'},
-                            # Add other relevant fields as needed
                         }
                     }
                 }
@@ -75,12 +77,11 @@ def send_market_order_endpoint():
         if not all(field in data for field in required_fields):
             return jsonify({"error": "Missing required fields"}), 400
 
-        # Prepare the order request
         request_data = {
-            "action": mt5.TRADE_ACTION_DEAL,
+            "action": mt5.TRADE_ACTION_CLOSE_BY if data.get('position_by') else mt5.TRADE_ACTION_DEAL,
             "symbol": data['symbol'],
             "volume": float(data['volume']),
-            "type": data['type'],
+            "type": mt5.ORDER_TYPE_CLOSE_BY if data.get('position_by') else data['type'],
             "deviation": data.get('deviation', 20),
             "magic": data.get('magic', 0),
             "comment": data.get('comment', ''),
@@ -94,10 +95,12 @@ def send_market_order_endpoint():
             return jsonify({"error": "Failed to get symbol price"}), 400
 
         # Set price based on order type
-        if data['type'] == mt5.ORDER_TYPE_BUY:
+        if request_data["type"] == mt5.ORDER_TYPE_BUY:
             request_data["price"] = tick.ask
-        elif data['type'] == mt5.ORDER_TYPE_SELL:
+        elif request_data["type"] == mt5.ORDER_TYPE_SELL:
             request_data["price"] = tick.bid
+        elif request_data["type"] == mt5.ORDER_TYPE_CLOSE_BY:
+            pass
         else:
             return jsonify({"error": "Invalid order type"}), 400
 
@@ -107,6 +110,13 @@ def send_market_order_endpoint():
         if 'tp' in data:
             request_data["tp"] = data['tp']
 
+        if 'position' in data:
+            request_data["position"] = data.get('position')
+        if 'position_by' in data:
+            request_data["position_by"] = data.get('position_by')
+            
+        logger.info(f"Order Request Data: {request_data}")
+        
         # Send order
         result = mt5.order_send(request_data)
         if result.retcode != mt5.TRADE_RETCODE_DONE:
