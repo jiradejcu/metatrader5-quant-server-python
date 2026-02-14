@@ -183,6 +183,31 @@ def handle_pause_position_sync():
         logger.error(f"Pausing bot error: {e}")
         return jsonify({"message": f"Server error: {str(e)}", "is_paused": None}), 500
 
+@control_bp.route('/pause-grid-bot', methods=['POST'])
+def handle_pause_grid_bot():
+    try:
+        redis_key = "grid_bot_paused_flag"
+        redis_conn = get_redis_connection()
+        is_paused = redis_conn.exists(redis_key)
+
+        if is_paused:
+            redis_conn.delete(redis_key)
+            return jsonify({
+                "message": "Sync is resumed. Grid bot is now ACTIVE.",
+                "is_paused": False
+            }), 200
+        
+        redis_conn.set(redis_key, 'PAUSED')
+        logger.info("Successful handle pause grid bot!!")
+        return jsonify({
+            "message": "Sync is paused. Grid bot is STOPPED.",
+            "is_paused": True
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Pausing grid bot error: {e}")
+        return jsonify({"message": f"Server error: {str(e)}", "is_paused": None}), 500
+
 @control_bp.route('/user-info', methods=['GET'])
 def get_active_user_info():
     try:
