@@ -92,19 +92,24 @@ def get_arbitrage_summary():
             'mt5Symbol': mt5_symbol,
         }
 
-        # Fill missing data from the latest response
+        # Fill missing data from the latest response (Clean data)
         if latest_response_data != {} and response_data['binanceMarkPrice'] == 0 and latest_response_data['binanceMarkPrice'] != 0:
             response_data['binanceMarkPrice'] = latest_response_data['binanceMarkPrice']
-        elif latest_response_data != {} and response_data['mt5MarkPrice'] == 0 and latest_response_data['mt5MarkPrice'] != 0:
+        if latest_response_data != {} and response_data['mt5MarkPrice'] == 0 and latest_response_data['mt5MarkPrice'] != 0:
             response_data['mt5MarkPrice'] = latest_response_data['mt5MarkPrice']
-        elif latest_response_data != {} and response_data['binanceEntry'] == 0 and latest_response_data['binanceEntry'] != 0:
+        if latest_response_data != {} and response_data['binanceEntry'] == 0 and latest_response_data['binanceEntry'] != 0:
             response_data['binanceEntry'] = latest_response_data['binanceEntry']
-        elif latest_response_data != {} and response_data['mt5Entry'] == 0 and latest_response_data['mt5Entry'] != 0:
+        if latest_response_data != {} and response_data['mt5Entry'] == 0 and latest_response_data['mt5Entry'] != 0:
             response_data['mt5Entry'] = latest_response_data['mt5Entry']
-        elif latest_response_data != {} and response_data['spread'] == 0 and latest_response_data['spread'] != 0:
-            response_data['spread'] = latest_response_data['spread']
-        else:
-            latest_response_data = response_data
+        if latest_response_data != {} and response_data['binanceSize'] == 0 and latest_response_data['binanceSize'] != 0:
+            response_data['binanceSize'] = latest_response_data['binanceSize']
+        if latest_response_data != {} and response_data['mt5Size'] == 0 and latest_response_data['mt5Size'] != 0:
+            response_data['mt5Size'] = latest_response_data['mt5Size']
+
+        response_data['spread'] = response_data['binanceMarkPrice'] - response_data['mt5MarkPrice']
+        
+        # Update the latest response data for future reference
+        latest_response_data = response_data
 
         return response_data
     except Exception as e:
