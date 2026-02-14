@@ -22,7 +22,7 @@ def get_grid_parameters_data():
                 mt5_symbol = PAIRS[PAIR_INDEX]['mt5']
 
                 binance_key = f"position:{binance_symbol}"
-                grid_parameters_key = f"Setting Grid channel:{binance_symbol}:{mt5_symbol}"
+                grid_parameters_key = f"setting_grid_channel:{binance_symbol}:{mt5_symbol}"
                 result = prepare_json(redis_conn.get(binance_key), binance_data_default)
                 grid_data = prepare_json(redis_conn.get(grid_parameters_key), grid_data_default)
 
