@@ -14,8 +14,10 @@ RATIO_EXPOSE= int(os.getenv('CONTRACT_SIZE'))
 logger = logging.getLogger(__name__)
 
 position_data_default = {'positionAmt': 0, 'markPrice': 0, 'unRealizedProfit': 0, 'time_update': None, 'updateTime': None}
+latest_response_data = {}
 
 def get_arbitrage_summary():
+    global latest_response_data
     redis_conn = get_redis_connection()
     try:
         binance_symbol = PAIRS[PAIR_INDEX]['binance']
@@ -89,6 +91,20 @@ def get_arbitrage_summary():
             'binanceSymbol': binance_symbol,
             'mt5Symbol': mt5_symbol,
         }
+
+        # Fill missing data from the latest response
+        if latest_response_data != {} and response_data['binanceMarkPrice'] == 0 and latest_response_data['binanceMarkPrice'] != 0:
+            response_data['binanceMarkPrice'] = latest_response_data['binanceMarkPrice']
+        elif latest_response_data != {} and response_data['mt5MarkPrice'] == 0 and latest_response_data['mt5MarkPrice'] != 0:
+            response_data['mt5MarkPrice'] = latest_response_data['mt5MarkPrice']
+        elif latest_response_data != {} and response_data['binanceEntry'] == 0 and latest_response_data['binanceEntry'] != 0:
+            response_data['binanceEntry'] = latest_response_data['binanceEntry']
+        elif latest_response_data != {} and response_data['mt5Entry'] == 0 and latest_response_data['mt5Entry'] != 0:
+            response_data['mt5Entry'] = latest_response_data['mt5Entry']
+        elif latest_response_data != {} and response_data['spread'] == 0 and latest_response_data['spread'] != 0:
+            response_data['spread'] = latest_response_data['spread']
+        else:
+            latest_response_data = response_data
 
         return response_data
     except Exception as e:
