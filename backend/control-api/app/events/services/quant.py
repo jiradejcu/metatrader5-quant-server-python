@@ -100,14 +100,14 @@ def get_arbitrage_summary():
             response_data['binanceAction'] = 'LONG'
         elif response_data['binanceSize'] == 0:
             response_data['binanceAction'] = 'None'
-        else if response_data['binanceSize'] < 0:
+        else:
             response_data['binanceAction'] = 'SHORT'
 
         if response_data['mt5Size'] > 0:
             response_data['mt5Action'] = 'LONG'
         elif response_data['mt5Size'] == 0:
             response_data['mt5Action'] = 'None'
-        else if response_data['mt5Size'] < 0:
+        else:
             response_data['mt5Action'] = 'SHORT'
 
         if response_data['netExpose'] == 0:
