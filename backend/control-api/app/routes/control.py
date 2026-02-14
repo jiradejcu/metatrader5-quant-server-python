@@ -235,56 +235,88 @@ def restart_container():
             'reason': str(e)
         }), 500
 
-# Input: upper_limit and lower_limit (float or int)
 @control_bp.route('/set-grid-channel', methods=['POST'])
 def set_grid_setting_values():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({
-                'status': 'error',
-                'message': 'Required define data on body!!'
-            }), 400
+            return jsonify({'status': 'error', 'message': 'Required define data on body!!'}), 400
         
-        # Input validator
-        if 'upper_diff' not in data or 'lower_diff' not in data:
+        # 1. Validate required fields and types
+        required_fields = [
+            'upper_diff', 'lower_diff', 'max_position_size', 
+            'order_size', 'close_long', 'close_short'
+        ]
+        
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    'status': 'error', 
+                    'message': f'Required attribute "{field}" is missing!'
+                }), 400
+            if not isinstance(data[field], (int, float)):
+                return jsonify({
+                    'status': 'error', 
+                    'message': f'Attribute "{field}" must be numeric!'
+                }), 400
+
+        upper = float(data['upper_diff'])
+        lower = float(data['lower_diff'])
+        max_pos = float(data['max_position_size'])
+        ord_size = float(data['order_size'])
+        c_long = float(data['close_long'])
+        c_short = float(data['close_short'])
+
+        # Validation Logic
+        errors = []
+        if not (ord_size < max_pos):
+            errors.append("order_size must be less than max_position_size")
+        if not (upper >= c_long):
+            errors.append("upper_diff must be greater than or equal to close_long")
+        if not (upper >= c_short):
+            errors.append("upper_diff must be greater than or equal to close_short")
+        if not (c_short >= lower):
+            errors.append("close_short must be greater than or equal to lower_diff")
+        if not (c_long >= lower):
+            errors.append("close_long must be greater than or equal to lower_diff")
+        if not (upper > lower):
+            errors.append("upper_diff must be greater than lower_diff")
+
+        if errors:
             return jsonify({
                 'status': 'error',
-                'message': 'Required "upper_diff" and "lower_diff" attributes!'
+                'message': 'Validation failed',
+                'errors': errors
             }), 400
 
-        if not isinstance(data['upper_diff'], (int, float)) or not isinstance(data['lower_diff'], (int, float)):
-            return jsonify({
-                'status': 'error',
-                'message': 'Attribute "upper_diff" and "lower_diff" must be numeric (int or float)!'
-            }), 400
-
-        upper_diff = float(data['upper_diff'])
-        lower_diff = float(data['lower_diff'])
-
-        # Set grid channel on redis
-        PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
+        # Process Redis Update
+        PAIR_INDEX = int(os.getenv('PAIR_INDEX', 0))
         binance_symbol = PAIRS[PAIR_INDEX]['binance']
         mt5_symbol = PAIRS[PAIR_INDEX]['mt5']
+        
         redis_conn = get_redis_connection()
-        redis_key = f"Setting Grid channel:{binance_symbol}:{mt5_symbol}"
+        redis_key = f"setting_grid_channel:{binance_symbol}:{mt5_symbol}"
 
-        # todo: fixed max postion size = 10 XAUUSDT, order_size = 1 XAUUSDT/order
         grid_channel = {
-            "upper_diff": upper_diff,
-            "lower_diff": lower_diff,
-            "max_position_size": 10,
-            "order_size": 1
+            "upper_diff": upper,
+            "lower_diff": lower,
+            "max_position_size": max_pos,
+            "order_size": ord_size,
+            "close_long": c_long,
+            "close_short": c_short
         }
         
-        # No expire until user fill new setting values
-        redis_conn.set(redis_key, json.dumps(grid_channel))
-        redis_conn.publish(redis_key, json.dumps(grid_channel))
+        payload = json.dumps(grid_channel)
+        
+        redis_conn.set(redis_key, payload)
+        redis_conn.publish(redis_key, payload)
 
         return jsonify({
             'status': 'successful',
-            'message': f"Finished set grid channel!!"
+            'message': "Grid channel settings updated successfully",
+            'data': grid_channel
         }), 200
+
     except Exception as e:
         return jsonify({
             'status': 'error',
