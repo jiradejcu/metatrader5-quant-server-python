@@ -200,7 +200,7 @@ services:
     container_name: django
     volumes:
       - static_volume:/app/staticfiles
-      - django-logs:/app/logs
+      - ${LOG_VOLUME}:/app/logs
     restart: unless-stopped
     ports:
       - 8000:8000
@@ -241,8 +241,6 @@ services:
     image: redis:6
     container_name: redis
     restart: unless-stopped
-    ports:
-      - 6379:6379
     cpus: 0.5
     mem_limit: 512m
     depends_on:
@@ -513,7 +511,7 @@ services:
   n8n:
     image: docker.n8n.io/n8nio/n8n
     container_name: n8n
-    restart: always
+    restart: unless-stopped
     labels:
       <<: *default-labels
       traefik.enable: true
