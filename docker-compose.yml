@@ -198,6 +198,7 @@ services:
       context: backend/django
       dockerfile: Dockerfile
     container_name: django
+    command: sh -c "python manage.py runserver 0.0.0.0:8000"
     volumes:
       - static_volume:/app/staticfiles
       - ${LOG_VOLUME}:/app/logs
