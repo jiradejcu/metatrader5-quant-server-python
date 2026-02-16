@@ -47,11 +47,11 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {name} {module} {process:d} {thread:d} {message}',
+            'format': '{levelname} {asctime} {name}:{lineno:d} PID:{process:d} {thread:d} {message}',
             'style': '{',
         },
         'simple': {
-            'format': '{levelname} {asctime} {name} {message}',
+            'format': '{levelname} {asctime} {name}:{lineno:d} {message}',
             'style': '{',
         },
     },
@@ -63,7 +63,7 @@ LOGGING = {
             'stream': 'ext://sys.stdout', 
         },
         'file': {
-            'level': 'INFO',
+            'level': 'DEBUG',
             'class': 'logging.FileHandler',
             'filename': os.path.join(BASE_DIR, 'logs/quant.log'),
             'formatter': 'verbose',
