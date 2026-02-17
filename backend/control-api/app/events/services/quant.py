@@ -66,22 +66,22 @@ def get_arbitrage_summary():
         }
 
         # Fill missing data from the latest response (Clean data)
-        if latest_response_data != {} and response_data['binanceMarkPrice'] == 0 and latest_response_data['binanceMarkPrice'] != 0:
-            response_data['binanceMarkPrice'] = latest_response_data['binanceMarkPrice']
-        if latest_response_data != {} and response_data['mt5MarkPrice'] == 0 and latest_response_data['mt5MarkPrice'] != 0:
-            response_data['mt5MarkPrice'] = latest_response_data['mt5MarkPrice']
-        if latest_response_data != {} and response_data['binanceEntry'] == 0 and latest_response_data['binanceEntry'] != 0:
-            response_data['binanceEntry'] = latest_response_data['binanceEntry']
-        if latest_response_data != {} and response_data['mt5Entry'] == 0 and latest_response_data['mt5Entry'] != 0:
-            response_data['mt5Entry'] = latest_response_data['mt5Entry']
-        if latest_response_data != {} and response_data['binanceSize'] == 0 and latest_response_data['binanceSize'] != 0:
-            response_data['binanceSize'] = latest_response_data['binanceSize']
-        if latest_response_data != {} and response_data['mt5Size'] == 0 and latest_response_data['mt5Size'] != 0:
-            response_data['mt5Size'] = latest_response_data['mt5Size']
-        if latest_response_data != {} and response_data['binance_unrealized_profit'] == 0 and latest_response_data['unrealizedBinance'] != 0:
-            response_data['binance_unrealized_profit'] = latest_response_data['binance_unrealized_profit']
-        if latest_response_data != {} and response_data['mt5_unrealized_profit'] == 0 and latest_response_data['mt5_unrealized_profit'] != 0:
-            response_data['mt5_unrealized_profit'] = latest_response_data['mt5_unrealized_profit']
+        # if latest_response_data != {} and response_data['binanceMarkPrice'] == 0 and latest_response_data['binanceMarkPrice'] != 0:
+        #     response_data['binanceMarkPrice'] = latest_response_data['binanceMarkPrice']
+        # if latest_response_data != {} and response_data['mt5MarkPrice'] == 0 and latest_response_data['mt5MarkPrice'] != 0:
+        #     response_data['mt5MarkPrice'] = latest_response_data['mt5MarkPrice']
+        # if latest_response_data != {} and response_data['binanceEntry'] == 0 and latest_response_data['binanceEntry'] != 0:
+        #     response_data['binanceEntry'] = latest_response_data['binanceEntry']
+        # if latest_response_data != {} and response_data['mt5Entry'] == 0 and latest_response_data['mt5Entry'] != 0:
+        #     response_data['mt5Entry'] = latest_response_data['mt5Entry']
+        # if latest_response_data != {} and response_data['binanceSize'] == 0 and latest_response_data['binanceSize'] != 0:
+        #     response_data['binanceSize'] = latest_response_data['binanceSize']
+        # if latest_response_data != {} and response_data['mt5Size'] == 0 and latest_response_data['mt5Size'] != 0:
+        #     response_data['mt5Size'] = latest_response_data['mt5Size']
+        # if latest_response_data != {} and response_data['binance_unrealized_profit'] == 0 and latest_response_data['unrealizedBinance'] != 0:
+        #     response_data['binance_unrealized_profit'] = latest_response_data['binance_unrealized_profit']
+        # if latest_response_data != {} and response_data['mt5_unrealized_profit'] == 0 and latest_response_data['mt5_unrealized_profit'] != 0:
+        #     response_data['mt5_unrealized_profit'] = latest_response_data['mt5_unrealized_profit']
 
         response_data['netExpose'] = response_data['binanceSize'] + (response_data['mt5Size'] * ratio) # 1 PAXG = 0.01 XAU
         response_data['spread'] = response_data['binanceMarkPrice'] - response_data['mt5MarkPrice']
@@ -114,7 +114,7 @@ def get_arbitrage_summary():
             response_data['pairStatus'] = 'Complete'    
         
         # Update the latest response data for future reference
-        latest_response_data = response_data
+        # latest_response_data = response_data
 
         return response_data
     except Exception as e:
