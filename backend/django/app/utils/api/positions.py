@@ -90,3 +90,8 @@ def get_position_by_symbol(symbol: str) -> Dict:
         'markPrice': positions_df['price_current'].iloc[-1],
         'unRealizedProfit': positions_df['profit'].sum()
     }
+
+def get_position_list_by_symbol(symbol: str) -> List[Dict]:
+    positions_df = get_positions()
+    symbol_positions = positions_df[positions_df['symbol'] == symbol]
+    return symbol_positions.to_dict('records')

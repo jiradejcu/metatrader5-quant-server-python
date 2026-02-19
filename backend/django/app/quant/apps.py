@@ -11,11 +11,11 @@ class QuantConfig(AppConfig):
         from .algorithms.arbitrage import position_sync
         position_sync.start_position_sync()
 
-        # Add new worker to work as the bot grid (buying order when trigger upper and lower conditions)
+        from .algorithms.arbitrage import net_position
+        net_position.start_net_position_check()
         
         from .algorithms.arbitrage import price_diff
         price_diff.start_comparison()
 
-        # Send notification to telegram group when price diff cross the grid channel
         from .algorithms.arbitrage import grid_bot
         grid_bot.start_grid_bot_sync()

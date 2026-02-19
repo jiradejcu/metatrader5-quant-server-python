@@ -17,28 +17,43 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = os.getenv('MT5_API_URL')
 
-def send_market_order(symbol: str, volume: float, order_type: str, sl: float = None, tp: float = None) -> Dict:
+def send_market_order(symbol: str, volume: float = None, order_type: str = None, sl: float = None, tp: float = None, position: int = None, position_by: int = None) -> Dict:
     try:
-        order_type_str = order_type if isinstance(order_type, str) else order_type.name
-        
-        if order_type_str not in ['BUY', 'SELL']:
-            error_msg = f"Invalid order type: {order_type_str}. Must be 'BUY' or 'SELL'"
-            logger.error(error_msg)
-            return None
-
         request = {
             "symbol": symbol,
-            "volume": float(volume),
-            "type": 0 if order_type_str == 'BUY' else 1,
         }
 
-        if sl is not None:
-            request["sl"] = float(sl)
+        if position_by is not None:
+            request["position"] = position
+            request["position_by"] = position_by
+            request["type"] = "BUY" # type is ignored for close_by in backend but required by validation
+            # Even though volume is ignored by backend for close_by, it might be required by field validation
+            request["volume"] = 0 
+        else:
+            if order_type is None or volume is None:
+                logger.error("order_type and volume are required for market orders")
+                return None
+                
+            order_type_str = order_type if isinstance(order_type, str) else order_type.name
+            
+            if order_type_str not in ['BUY', 'SELL']:
+                error_msg = f"Invalid order type: {order_type_str}. Must be 'BUY' or 'SELL'"
+                logger.error(error_msg)
+                return None
 
-        if tp is not None:
-            request["tp"] = float(tp)
+            request["volume"] = float(volume)
+            request["type"] = order_type_str
+            
+            if sl is not None:
+                request["sl"] = float(sl)
 
-        logger.info(f"Sending market order: {request}")
+            if tp is not None:
+                request["tp"] = float(tp)
+            
+            if position is not None:
+                request["position"] = position
+
+        logger.info(f"Sending order request: {request}")
 
         url = f"{BASE_URL}/order"
         response = requests.post(url, json=request, timeout=10)
@@ -48,25 +63,28 @@ def send_market_order(symbol: str, volume: float, order_type: str, sl: float = N
         
         if response_data.get('error'):
             error_msg = response_data.get('error', 'Unknown error')
-            print(f"Order failed: {error_msg}")
+            logger.error(f"Order failed: {error_msg}")
             return None
             
         order = response_data['result']
-        logger.info(f"Market order successful: {order}")
+        logger.info(f"Order successful: {order}")
 
         return order
         
     except requests.exceptions.HTTPError as e:
-        error_msg = f"HTTP error sending market order for {symbol}: {e.response.text}"
+        error_msg = f"HTTP error sending order for {symbol}: {e.response.text}"
         logger.error(error_msg)
 
     except requests.exceptions.Timeout:
-        error_msg = f"Timeout sending market order for {symbol}"
+        error_msg = f"Timeout sending order for {symbol}"
         logger.error(error_msg)
     
     except Exception as e:
-        error_msg = f"Exception sending market order for {symbol}: {str(e)}\n{traceback.format_exc()}"
+        error_msg = f"Exception sending order for {symbol}: {str(e)}\n{traceback.format_exc()}"
         logger.error(error_msg)
+
+def close_by(symbol: str, ticket: int, ticket_by: int) -> Dict:
+    return send_market_order(symbol=symbol, position=ticket, position_by=ticket_by)
     
 def modify_sl_tp(position, sl: float, tp: float = None) -> Dict:
     try:
