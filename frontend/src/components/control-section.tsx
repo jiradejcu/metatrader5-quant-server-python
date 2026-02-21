@@ -6,7 +6,7 @@ import type { ICardSection } from "../interfaces/control-panel.interface";
 import { GridSettingModal } from "./grid-setting-modals";
 import PausePositionBtn from "./pause-btn";
 import RestartBotContainerBtn from "./restart-container-btn";
-import StopBotContainerBtn from "./stop-container-btn";
+// import StopBotContainerBtn from "./stop-container-btn";
 
 export const ControlSection = (arg: ICardSection) => {
     const {
@@ -52,9 +52,9 @@ export const ControlSection = (arg: ICardSection) => {
                     {botServer?.status ?? 'Fetching'}
                   </span>
                 </p>
-                <StopBotContainerBtn 
+                {/* <StopBotContainerBtn 
                   url={apiUrl}
-                />
+                /> */}
 
                 <p>Press this button when position value lost.</p>
                 <RestartBotContainerBtn 
