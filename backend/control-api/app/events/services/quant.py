@@ -27,6 +27,7 @@ def get_arbitrage_summary():
         binance_key = f"position:{binance_symbol}"
         mt5_key = f"position: {mt5_symbol}"
         pause_position_key = "position_sync_paused_flag"
+        grid_bot_pause_key = "grid_bot_paused_flag"
 
         redis_conn = get_redis_connection()
 
@@ -34,8 +35,11 @@ def get_arbitrage_summary():
         logger.info(f"Get redis key: position: {binance_symbol} success")
         mt5_result = prepare_json(redis_conn.get(mt5_key), position_data_default)
         logger.info(f"Get redis key: position: {mt5_symbol} success")
+        price_diff = prepare_json(redis_conn.get(f"price_comparison:{binance_symbol}:{mt5_symbol}"), {})
+
         
         pause_position = 'Active'
+        grid_bot_status = 'Active'
         binance_action = 'SHORT'
         mt5_action = 'SHORT'
         pairStatus = 'Warning'
@@ -47,6 +51,9 @@ def get_arbitrage_summary():
 
         if redis_conn.get(pause_position_key):
             pause_position = 'Pause' 
+        
+        if redis_conn.get(grid_bot_pause_key):
+            grid_bot_status = 'Pause'
 
         now = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S") # use UTC(+7) Thailand time zone
         response_data = {
@@ -57,12 +64,14 @@ def get_arbitrage_summary():
             'binanceSize': binance_size,
             'mt5Size': mt5_size,
             'pausePositionSync': pause_position,
+            'gridBotStatus': grid_bot_status,
             'time_update_mt5': now,
             'time_update_binance': now,
             'binanceSymbol': binance_symbol,
             'mt5Symbol': mt5_symbol,
             'binance_unrealized_profit': float(result.get('unRealizedProfit', 0)),
-            'mt5_unrealized_profit': float(mt5_result.get('unRealizedProfit', 0))
+            'mt5_unrealized_profit': float(mt5_result.get('unRealizedProfit', 0)),
+            'price_diff_percent': round(float(price_diff.get('percent_change_premium', "0")), 3)
         }
 
         # Fill missing data from the latest response (Clean data)
