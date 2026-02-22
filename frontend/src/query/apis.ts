@@ -1,3 +1,5 @@
+import type { SettingGridProps } from "../interfaces/setting-grid.interface";
+
 export async function pauseDisplay(API_BASE_URL: string): Promise<Response> {
   const url = `${API_BASE_URL}/pause-position-sync`;
   const response = await fetch(url, {
@@ -9,6 +11,39 @@ export async function pauseDisplay(API_BASE_URL: string): Promise<Response> {
 
   if (!response.ok) {
     throw new Error(`Failed to pause display: ${response.statusText}`);
+  }
+
+  return response;
+}
+
+export async function pauseGridBot(API_BASE_URL: string): Promise<Response> {
+  const url = `${API_BASE_URL}/pause-grid-bot`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to pause grid bot: ${response.statusText}`);
+  }
+
+  return response;
+}
+
+export async function setupGridParameters(API_BASE_URL: string, parameters: SettingGridProps): Promise<Response> {
+  const url = `${API_BASE_URL}/set-grid-channel`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(parameters),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Failed to set grid parameters: ${response.statusText}`);
   }
 
   return response;

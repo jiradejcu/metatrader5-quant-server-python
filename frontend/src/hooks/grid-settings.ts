@@ -7,6 +7,8 @@ interface IGridSettings {
     max_position_size: number;
     order_size: number;
     mark_price: number;
+    close_long: number;
+    close_short: number;
     time: string;
 }
 

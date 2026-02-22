@@ -22,6 +22,8 @@ interface IArbitrageSummary {
   netExposeAction?: string;
   binanceSymbol?: string;
   mt5Symbol?: string;
+  price_diff_percent?: number;
+  gridBotStatus?: string;
 }
 
 export const useGetSummaryDataHook = (url: string) => {
@@ -54,6 +56,7 @@ export const useGetSummaryDataHook = (url: string) => {
     // Destructuring and set dafault values
     const {
         pausePositionSync = 'Active',
+        gridBotStatus= 'Active',
         spread = 0,
         pairStatus = 'Idle',
         binanceAction = 'N/A',
@@ -70,12 +73,14 @@ export const useGetSummaryDataHook = (url: string) => {
         netExpose = 0,
         netExposeAction = 'Safe',
         binanceSymbol = 'default',
-        mt5Symbol = 'default'
+        mt5Symbol = 'default',
+        price_diff_percent = 0.0
     } = displayData;
 
     return { 
         isLoading, 
         pausePositionSync,
+        gridBotStatus,
         spread,
         pairStatus,
         binanceAction,
@@ -92,7 +97,8 @@ export const useGetSummaryDataHook = (url: string) => {
         netExpose,
         netExposeAction,
         binanceSymbol,
-        mt5Symbol
+        mt5Symbol,
+        price_diff_percent
      }
 }
 
@@ -106,6 +112,7 @@ export const useGetSummaryStreamData = (url: string) => {
   // Destructuring and set dafault values
     const {
         pausePositionSync = 'Active',
+        gridBotStatus = 'Active',
         spread = 0,
         pairStatus = 'Idle',
         binanceAction = 'N/A',
@@ -122,12 +129,14 @@ export const useGetSummaryStreamData = (url: string) => {
         netExpose = 0,
         netExposeAction = 'Safe',
         binanceSymbol = 'default',
-        mt5Symbol = 'default'
+        mt5Symbol = 'default',
+        price_diff_percent = 0.0
     } = (arbitrageSummary || {}) as IArbitrageSummary;
 
     return { 
         isLoading,
         pausePositionSync,
+        gridBotStatus,
         spread,
         pairStatus,
         binanceAction,
@@ -144,6 +153,7 @@ export const useGetSummaryStreamData = (url: string) => {
         netExpose,
         netExposeAction,
         binanceSymbol,
-        mt5Symbol
+        mt5Symbol,
+        price_diff_percent
      }
 }
