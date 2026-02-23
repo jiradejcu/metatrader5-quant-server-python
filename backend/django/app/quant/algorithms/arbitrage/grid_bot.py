@@ -142,19 +142,23 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
 
                         if has_fractional_position:
                             logger.debug("Fractional position detected. Initiating cancellation of all open orders to clear fraction.")
-                            cancel_all_open_orders(symbol)
+                            # cancel_all_open_orders(symbol)
                             
                             fraction_size = ((CONTRACT_SIZE-f) / CONTRACT_SIZE) * MINIMUM_TRADE_AMOUNT
                             logger.debug(f"Fractional position detected. Attempting to clear fraction with size: {fraction_size}")
-                            side = 'BUY' if position_amt > 0 else 'SELL'
-                            chase_order(symbol, fraction_size, side)
+
+                            if pending_order_size == fraction_size:
+                                side = 'BUY' if position_amt > 0 else 'SELL'
+                                chase_order(symbol, fraction_size, side)
+                            else:
+                                cancel_all_open_orders(symbol)
                         else:
                             # Sell zone
                             if latest_price_diff >= upper:
                                 logger.debug(f"Sell zone detected. Latest price diff: {latest_price_diff} is greater than or equal to upper threshold: {upper}")
                                 if open_orders:
-                                    if open_price_order != round(best_ask, 2) and open_qty_order > 0:
-                                        chase_order(symbol, open_qty_order, 'SELL')                                  
+                                    if open_price_order != round(best_ask, 2) and pending_order_size > 0:
+                                        chase_order(symbol, pending_order_size, 'SELL')                                  
                                 elif can_open_orders:
                                     new_order(symbol, float(order_size), best_ask + boundary_price, 'SELL')
 
@@ -162,8 +166,8 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                             elif latest_price_diff <= lower:
                                 logger.debug(f"Buy zone detected. Latest price diff: {latest_price_diff} is less than or equal to lower threshold: {lower}")
                                 if open_orders:
-                                    if open_price_order != round(best_bid, 2) and open_qty_order > 0:
-                                        chase_order(symbol, open_qty_order, 'BUY')
+                                    if open_price_order != round(best_bid, 2) and pending_order_size > 0:
+                                        chase_order(symbol, pending_order_size, 'BUY')
                                 elif can_open_orders:
                                     new_order(symbol, float(order_size), best_bid - boundary_price, 'BUY')
 
