@@ -6,7 +6,7 @@ export const FloatingLabelInput = (arg: IFloatingLabelInputProps) => {
         name,
         value,
         onChange,
-        step = "0.01"
+        step = "any"
     } = arg
 
   return (
