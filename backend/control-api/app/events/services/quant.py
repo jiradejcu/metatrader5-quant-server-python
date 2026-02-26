@@ -37,6 +37,8 @@ def get_arbitrage_summary():
         logger.info(f"Get redis key: position: {mt5_symbol} success")
         price_diff = prepare_json(redis_conn.get(f"price_comparison:{binance_symbol}:{mt5_symbol}"), {})
 
+        place_order_key = f"place order of {binance_symbol}"
+        place_order_data = prepare_json(redis_conn.get(place_order_key), {})
         
         pause_position = 'Active'
         grid_bot_status = 'Active'
@@ -71,7 +73,9 @@ def get_arbitrage_summary():
             'mt5Symbol': mt5_symbol,
             'binance_unrealized_profit': float(result.get('unRealizedProfit', 0)),
             'mt5_unrealized_profit': float(mt5_result.get('unRealizedProfit', 0)),
-            'price_diff_percent': round(float(price_diff.get('percent_change_premium', "0")), 3)
+            'price_diff_percent': round(float(price_diff.get('percent_change_premium', "0")), 3),
+            'current_upper_diff': place_order_data.get('current_upper_diff', None),
+            'current_lower_diff': place_order_data.get('current_lower_diff', None),
         }
 
         # Fill missing data from the latest response (Clean data)
