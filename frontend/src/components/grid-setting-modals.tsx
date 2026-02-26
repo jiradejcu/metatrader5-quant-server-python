@@ -15,19 +15,26 @@ export const GridSettingModal = (
     const { data } = useGetGridSettingsStreamData(url)
     const hasInitialized = useRef(false);
     const [formData, setFormData] = useState({
-        upper_diff: 0.3,
-        lower_diff: -0.3,
-        max_position_size: 0.03,
-        order_size: 0.02,
-        close_long: 0.1,
-        close_short: -0.1
+        upper_diff: 30,
+        lower_diff: -30,
+        max_position_size: 2,
+        order_size: 1,
+        close_long: 10,
+        close_short: -10
     });
-    const { price_diff_percent, gridBotStatus, time_update_binance: time_update  } = useGetSummaryStreamData(url)
+    const { 
+        isLoading, 
+        current_upper_diff, 
+        current_lower_diff, 
+        gridBotStatus, 
+        time_update_binance: time_update, 
+        binanceSymbol  
+    } = useGetSummaryStreamData(url)
 
     const setupGridMutation = useMutation({
             mutationFn: (url: string) => setupGridParameters(url, formData),
-            onSuccess: (res: any) => {
-              console.log('Grid parameters updated successfully:', res);
+            onSuccess: () => {
+              alert('Grid parameters updated successfully!');
               setFormData(formData)
               
               // revert the button state after 2 seconds
@@ -36,6 +43,7 @@ export const GridSettingModal = (
               }, 2 * SECOND);
             },
             onError: (error: any) => {
+              alert('Failed to update grid parameters. Please try again.');  
               console.error('Error setting grid parameters:', error);
         
               setTimeout(() => {
@@ -43,8 +51,6 @@ export const GridSettingModal = (
               }, 4 * SECOND);
             },
           });
-
-    const [isLoading, setIsLoading] = useState(false);
 
     const handleChange = (e:any) => {
         const { name, value } = e.target;
@@ -54,16 +60,12 @@ export const GridSettingModal = (
         }));
     };
 
-    const handleSubmit = () => {
-        setIsLoading(true);
-        setupGridMutation.mutate(url)
-
-        // Simulate API call
-        setTimeout(() => {
-            console.log("Form submitted with data:", formData);
-            setIsLoading(false);
-        }, 2 * SECOND);
-    }
+    const handleSubmit = (e: any) => {
+        // CRITICAL FIX: Prevent the page from reloading
+        if (e) e.preventDefault();
+        
+        setupGridMutation.mutate(url);
+    };
 
     useEffect(() => {
         if (data && !hasInitialized.current) {
@@ -123,10 +125,26 @@ export const GridSettingModal = (
                             {isLoading ? (
                                 <p className="text-xs text-blue-600 animate-pulse mt-1 font-bold">Syncing data...</p>
                             ) : (
-                                <div className="mt-2 inline-block px-3 py-1 bg-slate-100 rounded-full">
-                                <p className="text-[11px] text-slate-600 font-bold font-mono uppercase">
-                                    Diff: <span className="text-blue-600">{price_diff_percent || 0}%</span> | Status {gridBotStatus} | {time_update}
-                                </p>
+                                <div className="mt-2 inline-block px-4 py-2 bg-slate-100 rounded-3xl">
+                                    <div className="flex flex-col items-center justify-center space-y-0.5">
+                                        <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">
+                                            Symbol: <span className="text-[#FFC640]">{binanceSymbol}</span> 
+                                        </p>
+
+                                        <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">
+                                            Upper Diff: <span className="text-blue-600">{current_upper_diff || '0.00'}</span>
+                                            <span className="mx-2 text-slate-300">|</span>
+                                            Lower Diff: <span className="text-blue-600">{current_lower_diff || '0.00'}</span>
+                                        </p>
+                                        
+                                        <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">
+                                            Status: <span className={gridBotStatus === 'PAUSE' ? 'text-red-500' : 'text-green-600'}>
+                                                {gridBotStatus || 'UNKNOWN'}
+                                            </span>
+                                            <span className="mx-2 text-slate-300">|</span>
+                                            {time_update || '0000-00-00 00:00:00'}
+                                        </p>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -138,8 +156,8 @@ export const GridSettingModal = (
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
-                                <FloatingLabelInput label="Max Pos Size" name="max_position_size" value={formData.max_position_size} onChange={handleChange} step="0.001" />
-                                <FloatingLabelInput label="Order Size" name="order_size" value={formData.order_size} onChange={handleChange} step="0.001" />
+                                <FloatingLabelInput label="Max Pos Size" name="max_position_size" value={formData.max_position_size} onChange={handleChange} />
+                                <FloatingLabelInput label="Order Size" name="order_size" value={formData.order_size} onChange={handleChange} />
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
