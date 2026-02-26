@@ -42,7 +42,7 @@ def send_market_order(symbol: str, volume: float = None, order_type: str = None,
                 return None
 
             request["volume"] = float(volume)
-            request["type"] = order_type_str
+            request["type"] = 0 if order_type_str == 'BUY' else 1
             
             if sl is not None:
                 request["sl"] = float(sl)
