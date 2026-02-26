@@ -20,6 +20,7 @@ def start_subscriptions():
         threading.Thread(target=asyncio.run, args=(ticker_stream.subscribe_symbol_ticker(symbol),), daemon=True).start()
         threading.Thread(target=asyncio.run, args=(position_stream.subscribe_position_information(symbol),), daemon=True).start()
         threading.Thread(target=asyncio.run, args=(position_stream.subscribe_position_mt5_information(symbol_mt5),), daemon= True).start()
+        threading.Thread(target=asyncio.run, args=(position_stream.subscribe_spread_diff(symbol, symbol_mt5),), daemon=True).start()
         logger.info(f"Successfully started subscription threads for {symbol}.")
     except Exception as e:
         logger.error(f"Error in arbitrage subscribe tasks for {symbol}: {e}", exc_info=True)
