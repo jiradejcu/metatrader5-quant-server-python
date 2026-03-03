@@ -21,35 +21,40 @@ client = DerivativesTradingUsdsFutures(config_ws_streams=configuration_ws_stream
 redis_conn = get_redis_connection()
 
 async def subscribe_symbol_ticker(symbol: str):
-    connection = None
-    try:
-        connection = await client.websocket_streams.create_connection()
-        logger.info("WebSocket connection for symbol ticker established.")
+    while True:
+        connection = None
+        try:
+            connection = await client.websocket_streams.create_connection()
+            logger.info(f"WebSocket connection for {symbol} ticker established.")
 
-        stream = await connection.individual_symbol_book_ticker_streams(
-            symbol=symbol,
-        )
+            stream = await connection.individual_symbol_book_ticker_streams(
+                symbol=symbol,
+            )
 
-        def handle_message(data):
-            redis_key = f"ticker:{symbol}"
-            redis_conn.hset(redis_key, mapping={"best_bid": data.b, "best_ask": data.a})
-            redis_conn.expire(redis_key, 10)
+            def handle_message(data):
+                redis_key = f"ticker:{symbol}"
+                redis_conn.hset(redis_key, mapping={"best_bid": data.b, "best_ask": data.a})
+                redis_conn.expire(redis_key, 10)
+                logger.debug(f"Updated Redis {redis_key} -> Best Bid: {data.b}, Best Ask: {data.a}")
 
-            # logger.debug(f"Updated Redis {redis_key} -> Best Bid: {data.b}, Best Ask: {data.a}")
+            stream.on("message", handle_message)
 
-        stream.on("message", handle_message)
+            while True:
+                await asyncio.sleep(1)
 
-        while True:
-            await asyncio.sleep(1)
-
-    except asyncio.CancelledError:
-        logger.info("WebSocket task cancelled. Closing connection.")
-    except Exception as e:
-        logger.error(f"individual_symbol_book_ticker_streams() error: {e}")
-    finally:
-        if connection:
-            logger.info("Closing WebSocket connection...")
-            await connection.close_connection(close_session=True)
+        except asyncio.CancelledError:
+            logger.info(f"WebSocket task for {symbol} cancelled. Closing connection.")
+            break
+        except Exception as e:
+            logger.error(f"WebSocket error for {symbol}: {e}. Retrying in 5 seconds...")
+            await asyncio.sleep(5)
+        finally:
+            if connection:
+                try:
+                    logger.info(f"Closing WebSocket connection for {symbol}...")
+                    await connection.close_connection(close_session=True)
+                except Exception as close_err:
+                    logger.warning(f"Error while closing connection for {symbol}: {close_err}")
 
 def get_ticker(symbol: str):
     redis_key = f"ticker:{symbol}"
