@@ -1,21 +1,25 @@
 import { useGetActiveUser } from "../hooks/active-user";
 import { useGetSummaryStreamData } from "../hooks/summary";
 import type { ICardSection } from "../interfaces/control-panel.interface";
+import type { IPairDetails } from "../interfaces/current-position.interface";
 
-const PairDetails = ({  
-  pairStatus = 'Normal',
-  binanceAction = 'None',
-  binanceSize = 0,
-  binanceSymbol = 'default',
-  time_update_binance = '00:00:00',
-  mt5Action = 'None',
-  mt5Size = 0,
-  mt5Symbol = 'None',
-  time_update_mt5 = '00:00:00',
-  binanceEntry = 0,
-  mt5Entry = 0,
-  unrealizedBinance = 0
-}) => {
+const PairDetails = (arg: IPairDetails) => {
+  const {
+    pairStatus,
+    binanceAction,
+    binanceSize,
+    binanceSymbol,
+    time_update_binance,
+    mt5Action,
+    mt5Size,
+    mt5Symbol,
+    time_update_mt5,
+    binanceEntry,
+    mt5Entry,
+    unrealizedBinance,
+    current_upper_diff,
+    current_lower_diff
+  } = arg
   
   const dataRows = [
     { 
@@ -33,23 +37,33 @@ const PairDetails = ({
       value: `${mt5Action} ${mt5Size} ${mt5Symbol}`, 
       subValue: `(${time_update_mt5})` 
     },
+    {
+      label: 'Current Upper Diff',
+      value: `${current_upper_diff !== undefined ? current_upper_diff.toFixed(2) : 0.00}`,
+      valueClass: current_upper_diff !== undefined ? (current_upper_diff > 0 ? 'text-green-500' : 'text-red-500') : 'text-gray-400'
+    },
+    {
+      label: 'Current Lower Diff',
+      value: `${current_lower_diff !== undefined ? current_lower_diff.toFixed(2) : 0.00}`,
+      valueClass: current_lower_diff !== undefined ? (current_lower_diff > 0 ? 'text-green-500' : 'text-red-500') : 'text-gray-400'
+    },
     { 
       label: 'Binance Entry', 
-      value: binanceEntry.toFixed(4) 
+      value: binanceEntry ? binanceEntry.toFixed(2) : 0.00 
     },
     { 
       label: 'MT5 Entry', 
-      value: mt5Entry.toFixed(4) 
+      value: mt5Entry ? mt5Entry.toFixed(2) : 0.00 
     },
     { 
       label: 'Entry Diff', 
-      value: (binanceEntry - mt5Entry).toFixed(4),
+      value: (binanceEntry && mt5Entry) ? (binanceEntry - mt5Entry).toFixed(2) : 0.00,
       valueClass: 'font-mono'
     },
     { 
       label: 'PNL', 
-      value: `${unrealizedBinance.toFixed(2)} USD`, 
-      valueClass: unrealizedBinance >= 0 ? 'text-green-500 font-bold' : 'text-red-500 font-bold' 
+      value: `${unrealizedBinance ? unrealizedBinance.toFixed(2) : 0.00} USD`, 
+      valueClass: (unrealizedBinance && unrealizedBinance >= 0) ? 'text-green-500 font-bold' : 'text-red-500 font-bold' 
     }
   ];
 
@@ -91,9 +105,27 @@ export const CurrentPositionSection = (arg: ICardSection) => {
           time_update_mt5,
           binanceEntry,
           mt5Entry,
-          unrealizedBinance
+          unrealizedBinance,
+          current_upper_diff,
+          current_lower_diff
         } = useGetSummaryStreamData(apiUrl)
         const { activeUser } = useGetActiveUser(apiUrl)
+        const input_pair_data: IPairDetails = {
+          pairStatus,
+          binanceAction,
+          binanceSize,
+          binanceSymbol,
+          time_update_binance,
+          mt5Action,
+          mt5Size,
+          mt5Symbol,
+          time_update_mt5,
+          binanceEntry,
+          mt5Entry,
+          unrealizedBinance,
+          current_upper_diff,
+          current_lower_diff
+        }
 
     if (isLoading) {
         return <div className="flex justify-center mt-20 font-medium text-gray-600">Current Position: Connecting to API...</div>;
@@ -103,20 +135,7 @@ export const CurrentPositionSection = (arg: ICardSection) => {
             <h2 className="text-lg font-bold mb-4">
                 {activeUser?.name}
             </h2>
-            <PairDetails 
-                pairStatus = {pairStatus}
-                binanceAction = {binanceAction}
-                binanceSize = {binanceSize}
-                binanceSymbol = {binanceSymbol}
-                time_update_binance = {time_update_binance}
-                mt5Action = {mt5Action}
-                mt5Size = {mt5Size}
-                mt5Symbol = {mt5Symbol}
-                time_update_mt5 = {time_update_mt5}
-                binanceEntry = {binanceEntry}
-                mt5Entry = {mt5Entry}
-                unrealizedBinance = {unrealizedBinance}
-            />
+            <PairDetails {...input_pair_data} />
         </div>
     )
 }
