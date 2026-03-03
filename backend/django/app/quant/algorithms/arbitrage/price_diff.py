@@ -22,11 +22,23 @@ def compare():
     binance_ticker = get_ticker(binance_symbol)
     mt5_tick = symbol_info_tick(mt5_symbol)
     
-    binance_ask = Decimal(binance_ticker['best_ask'])
-    binance_bid = Decimal(binance_ticker['best_bid'])
-    
-    mt5_ask = Decimal(str(mt5_tick.ask[0]))
-    mt5_bid = Decimal(str(mt5_tick.bid[0]))
+    if binance_ticker is None:
+        logger.warning(f"No binance ticker data for {binance_symbol} in Redis")
+        return
+        
+    if mt5_tick is None or mt5_tick.empty:
+        logger.warning(f"No MT5 tick data for {mt5_symbol}")
+        return
+
+    try:
+        binance_ask = Decimal(binance_ticker['best_ask'])
+        binance_bid = Decimal(binance_ticker['best_bid'])
+        
+        mt5_ask = Decimal(str(mt5_tick.ask[0]))
+        mt5_bid = Decimal(str(mt5_tick.bid[0]))
+    except (KeyError, IndexError, AttributeError) as e:
+        logger.error(f"Error parsing ticker data for {binance_symbol}/{mt5_symbol}: {e}")
+        return
     
     percent_change_premium = None
     percent_change_discount = None
