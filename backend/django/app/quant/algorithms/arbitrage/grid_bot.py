@@ -101,14 +101,14 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                 # TRADING LOGIC (OUTSIDE OF DATA_LOCK)
                 if allow_place_orders:
                     try:
+                        # previous order status propagate through the exchange API
+                        time.sleep(0.5) 
+                        
                         # Snapshot from outside the lock
                         upper = latest_grid_settings['upper']
                         lower = latest_grid_settings['lower']
                         max_pos = latest_grid_settings['max_position_size']
                         order_size = latest_grid_settings['order_size']
-
-                        # previous order status propagate through the exchange API
-                        time.sleep(0.5) 
 
                         # Get Current Status from Binance (Network I/O)
                         open_orders = get_open_orders(symbol)   # return list of objects [CurrentAllOpenOrdersResponse]
@@ -118,7 +118,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         positions = get_position(symbol)
                         position_amt = float(positions.get('positionAmt', '0'))
                         abs_position_amt = abs(position_amt)
-
                         open_price_order = round(float(getattr(open_orders[0], 'price', 0)), 2) if open_orders else 0.0
                         pending_order_size = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders)
 
@@ -126,22 +125,22 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         total_exposure = abs_position_amt + pending_order_size
                         remaining_capacity = max_pos - total_exposure
                         open_one_order = True if pending_order_size > 0 else False
-
                         is_reach_limit = remaining_capacity <= 0
                         available_slots = remaining_capacity / order_size if (order_size > 0 and remaining_capacity > 0) else 0
+                        # Floating Point Safety using 0.99
+                        can_open_orders = not is_reach_limit and available_slots >= 0.99 and not open_one_order
+
+                        # State handling position fraction 
+                        unfilled_position = ((Decimal(str(abs_position_amt)) * MINIMUM_TRADE_AMOUNT)*CONTRACT_SIZE) % CONTRACT_SIZE
+                        fraction_size = ((CONTRACT_SIZE-unfilled_position) / CONTRACT_SIZE) * MINIMUM_TRADE_AMOUNT
+
+                        check_limit = max_pos - (abs_position_amt + float(fraction_size))
+                        has_fractional_position = unfilled_position != 0
 
                         # Circuit remove open order if is_reach_limit <=0 but we have open_one_order to free up capacity for new order
                         if is_reach_limit and open_orders:
                             logger.debug("Circuit removing open order to prevent fill over max position size.")
                             cancel_all_open_orders(symbol)
-
-                        # Floating Point Safety using 0.99
-                        can_open_orders = not is_reach_limit and available_slots >= 0.99 and not open_one_order
-
-                        # State handling position fraction 
-                        # by f != 0 then we need to clear this position by chase order with qty =  contract size and side is the same as current position side
-                        f = ((Decimal(str(abs_position_amt)) * MINIMUM_TRADE_AMOUNT)*CONTRACT_SIZE) % CONTRACT_SIZE
-                        has_fractional_position = f != 0
 
                         # Audit log for debugging
                         # logger.debug(f"max_pos: {max_pos}")
@@ -152,19 +151,19 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         # logger.debug(f"remaining_capacity: {remaining_capacity}")
                         # logger.debug(f"Position amount: {position_amt}, Absolute position amount: {abs_position_amt}")
                         # logger.debug(f"can_open_orders: {can_open_orders}, open_price_order: {open_price_order}, pending_order_size: {pending_order_size}")
+                        # logger.debug(f"Fractional position detected. Attempting to clear fraction with size: {fraction_size}")
+                        # logger.debug(f"upper: {upper}, lower: {lower}, latest_upper: {latest_upper}, latest_lower: {latest_lower}")
 
-                        if has_fractional_position:
-                            logger.debug("Fractional position detected. Initiating cancellation of all open orders to clear fraction.")
-                            
-                            fraction_size = ((CONTRACT_SIZE-f) / CONTRACT_SIZE) * MINIMUM_TRADE_AMOUNT
-                            logger.debug(f"Fractional position detected. Attempting to clear fraction with size: {fraction_size}")
-
+                        if has_fractional_position:   
+                            # If the pending order size is not equal to the required fraction size, we need to cancel existing orders and place a new chase order for the fraction size.                         
                             if pending_order_size != fraction_size:
-                                # If the pending order size is not equal to the required fraction size, we need to cancel existing orders and place a new chase order for the fraction size.
                                 cancel_all_open_orders(symbol)
                             
                             side = 'BUY' if position_amt > 0 else 'SELL'
-                            chase_order(symbol, fraction_size, side)
+                            logger.debug(f"Chasing fractional position. Side: {side}, Size: {fraction_size}")
+
+                            if check_limit >= 0:
+                                chase_order(symbol, fraction_size, side)
                         else:
                             # Sell zone
                             if latest_upper >= upper:
@@ -173,7 +172,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                                     # Clear left pending order when we reach max_position_size limit
                                     if remaining_capacity < 0:
                                         cancel_all_open_orders(symbol)
-                                    elif open_price_order != round(best_ask, 2) and pending_order_size > 0:
+                                    elif open_price_order != round(best_ask, 2) and pending_order_size > 0 and check_limit >= 0:
                                         chase_order(symbol, pending_order_size, 'SELL')                                  
                                 elif can_open_orders:
                                     new_order(symbol, float(order_size), best_ask + boundary_price, 'SELL')
@@ -185,7 +184,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                                     if remaining_capacity < 0:
                                         # Clear left pending order when we reach max_position_size limit
                                         cancel_all_open_orders(symbol)
-                                    elif open_price_order != round(best_bid, 2) and pending_order_size > 0:
+                                    elif open_price_order != round(best_bid, 2) and pending_order_size > 0 and check_limit >= 0:
                                         chase_order(symbol, pending_order_size, 'BUY')
                                 elif can_open_orders:
                                     new_order(symbol, float(order_size), best_bid - boundary_price, 'BUY')
@@ -212,10 +211,13 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                                 #         new_order(symbol, abs_position_amt, best_ask + boundary_price, close_side)
                     except Exception as e:
                         logger.error(f"Error in processing grid flow logic: {e}", exc_info=True)
+                        # Clear all pending orders when server down
+                        cancel_all_open_orders(symbol)
+                        time.sleep(3)
                     finally:
                         # ALWAYS reset flag inside finally and inside lock
                         # Wait a moment for the order to "settle" in the exchange system
-                        time.sleep(1.25) 
+                        time.sleep(1) 
                         with data_lock:
                             is_processing_place_order = False
         except Exception as e:
