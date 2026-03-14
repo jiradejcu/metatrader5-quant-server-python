@@ -7,7 +7,7 @@ from .ticker import get_ticker
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,
     ConfigurationRestAPI,
-    DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL,
+    DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL
 )
 from binance_sdk_derivatives_trading_usds_futures.rest_api.models import (
     NewOrderSideEnum,
@@ -123,3 +123,44 @@ def chase_order(symbol, quantity, side, max_retries=6, delay=10):
             break
 
     logger.error(f"Chase order failed after {max_retries} attempts.")
+
+def get_latest_order_snapshot(symbol):
+    """
+    Fetches the most recent order as an object and determines if it is 'Clean'
+    """
+    try:
+        # The query time period must be less then 7 days( default as the recent 7 days).
+        response = client.rest_api.all_orders(symbol=symbol, limit=1)
+        orders = response.data() # This returns a list of AllOrdersResponse objects
+
+        if not orders or len(orders) == 0:
+            return {"status": "NONE", "is_clean": True, "fill_pct": 0}
+
+        # Access the latest order via index, then use dot notation
+        latest = orders[0]
+        logger.debug(f'Snapshot order object: {latest}')
+
+        status = latest.status
+        orig_qty = float(latest.orig_qty)
+        executed_qty = float(latest.executed_qty)
+        
+        fill_pct = (executed_qty / orig_qty) * 100 if orig_qty > 0 else 0
+
+        # Define Clean/Dirty logic
+        # Clean: The order is finished. We can safely open a new one.
+        # Dirty: NEW or PARTIALLY_FILLED. We must wait to avoid double-ordering.
+        terminal_statuses = ['FILLED', 'CANCELED', 'EXPIRED', 'REJECTED', 'EXPIRED_IN_MATCH']
+        is_clean = status in terminal_statuses
+
+        logger.debug(f"[Binance snapshot] Order {latest.order_id} status: {status}, Clean: {is_clean}, qty: {latest.orig_qty}, price: {latest.price}")
+
+        return {
+            "order_id": latest.order_id,
+            "status": status,
+            "is_clean": is_clean,
+            "fill_pct": fill_pct,
+            "side": latest.side
+        }
+    except Exception as e:
+        logger.error(f"Error fetching order snapshot: {e}", exc_info=True)
+        return None
