@@ -29,8 +29,8 @@ client = DerivativesTradingUsdsFutures(config_rest_api=configuration_rest_api)
 
 def new_order(symbol, quantity, price, side):
     try:
-        logger.info(f"New order being placed: symbol={symbol}, quantity={quantity}, price={price}, side={side}")
-        logger.info(f"{NewOrderTimeInForceEnum}")
+        # logger.info(f"New order being placed: symbol={symbol}, quantity={quantity}, price={price}, side={side}")
+        # logger.info(f"{NewOrderTimeInForceEnum}")
         response = client.rest_api.new_order(
             symbol=symbol,
             quantity=quantity,
@@ -41,10 +41,10 @@ def new_order(symbol, quantity, price, side):
         )
 
         rate_limits = response.rate_limits
-        logger.info(f"New order rate limits: {rate_limits}")
+        # logger.info(f"New order rate limits: {rate_limits}")
 
         data = response.data()
-        logger.info(f"New order response: {data}")
+        # logger.info(f"New order response: {data}")
         
         return data
     except Exception as e:
@@ -53,16 +53,16 @@ def new_order(symbol, quantity, price, side):
 
 def cancel_all_open_orders(symbol):
     try:
-        logger.info(f"Cancel all open order: symbol={symbol}")
+        # logger.info(f"Cancel all open order: symbol={symbol}")
         response = client.rest_api.cancel_all_open_orders(
             symbol=symbol,
         )
 
         rate_limits = response.rate_limits
-        logger.info(f"Cancel all open order rate limits: {rate_limits}")
+        # logger.info(f"Cancel all open order rate limits: {rate_limits}")
 
         data = response.data()
-        logger.info(f"Cancel all open order response: {data}")
+        # logger.info(f"Cancel all open order response: {data}")
         
         return data
     except Exception as e:
@@ -70,22 +70,23 @@ def cancel_all_open_orders(symbol):
 
 def get_open_orders(symbol):
     try:
-        logger.info(f"Get open orders for symbol={symbol}")
+        # logger.info(f"Get open orders for symbol={symbol}")
         response = client.rest_api.current_all_open_orders(
             symbol=symbol,
         )
 
         rate_limits = response.rate_limits
-        logger.info(f"Get open orders rate limits: {rate_limits}")
+        # logger.info(f"Get open orders rate limits: {rate_limits}")
 
         data = response.data()
-        logger.info(f"Get open orders response: {data}")
+        # logger.info(f"Get open orders response: {data}")
         
         return data
     except Exception as e:
         logger.error(f"Get open orders error: {e}")
 
-def chase_order(symbol, quantity, side, max_retries=6, delay=10):
+def chase_order(symbol, quantity, side, max_retries=6, delay=1):
+    # logger.debug("[Chase order] entry!!")
     for attempt in range(max_retries):
         try:
             ticker = get_ticker(symbol)
@@ -95,16 +96,16 @@ def chase_order(symbol, quantity, side, max_retries=6, delay=10):
                 continue
 
             target_price = float(ticker['best_bid']) if side == "BUY" else float(ticker['best_ask'])
-            logger.info(f"Chase order attempt {attempt + 1}: Placing {side} order for {quantity} {symbol} at price {target_price}")
+            # logger.info(f"Chase order attempt {attempt + 1}: Placing {side} order for {quantity} {symbol} at price {target_price}")
 
             open_orders = get_open_orders(symbol)
             matching_order = next((order for order in open_orders if round(float(getattr(open_orders[0], 'price', 0)), 4) == float(target_price)), None)
             if matching_order:
-                logger.info(f"Matching order already exists at price {target_price}. No new order placed.")
+                # logger.info(f"Matching order already exists at price {target_price}. No new order placed.")
                 return matching_order
             else:
                 if open_orders:
-                    logger.info(f"Price moved to {target_price}. Cancelling old orders...")
+                    # logger.info(f"Price moved to {target_price}. Cancelling old orders...")
                     cancel_all_open_orders(symbol)
 
                 order_result = new_order(
@@ -116,8 +117,7 @@ def chase_order(symbol, quantity, side, max_retries=6, delay=10):
                 if not order_result:
                     logger.warning(f"Post-only order rejected at {target_price}. Will retry in next loop.")
                 else:
-                    logger.info(f"Post-only order placed successfully: {order_result.get('orderId')}")
-            time.sleep(delay)
+                    # logger.info(f"Post-only order placed successfully: {order_result.get('order_id')}")
         except Exception as e:
             logger.error(f"Chase order error on attempt {attempt + 1}: {e}")
             break
@@ -138,7 +138,7 @@ def get_latest_order_snapshot(symbol):
 
         # Access the latest order via index, then use dot notation
         latest = orders[0]
-        logger.debug(f'Snapshot order object: {latest}')
+        # logger.debug(f'Snapshot order object: {latest}')
 
         status = latest.status
         orig_qty = float(latest.orig_qty)
@@ -152,7 +152,7 @@ def get_latest_order_snapshot(symbol):
         terminal_statuses = ['FILLED', 'CANCELED', 'EXPIRED', 'REJECTED', 'EXPIRED_IN_MATCH']
         is_clean = status in terminal_statuses
 
-        logger.debug(f"[Binance snapshot] Order {latest.order_id} status: {status}, Clean: {is_clean}, qty: {latest.orig_qty}, price: {latest.price}")
+        # logger.debug(f"[Binance snapshot] Order {latest.order_id} status: {status}, Clean: {is_clean}, qty: {latest.orig_qty}, price: {latest.price}")
 
         return {
             "order_id": latest.order_id,

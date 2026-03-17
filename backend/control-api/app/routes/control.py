@@ -91,9 +91,9 @@ def get_arbitrage_summary():
         redis_conn = get_redis_connection()
 
         result = prepare_json(redis_conn.get(binance_key))
-        logger.info(f"Get redis key: position: {binance_symbol} success")
+        # logger.info(f"Get redis key: position: {binance_symbol} success")
         mt5_result = prepare_json(redis_conn.get(mt5_key))
-        logger.info(f"Get redis key: position: {mt5_symbol} success")
+        # logger.info(f"Get redis key: position: {mt5_symbol} success")
         pause_position = 'Active'
 
         binance_action = 'SHORT'
@@ -151,7 +151,7 @@ def get_arbitrage_summary():
             'mt5Symbol': mt5_symbol,
         }
 
-        logger.info("Successful get arbitrage information!!")
+        # logger.info("Successful get arbitrage information!!")
         return jsonify({"message": "Successful retrieved summary data", "data": response_data}), 200
 
     except Exception as e:
@@ -173,7 +173,7 @@ def handle_pause_position_sync():
             }), 200
         
         redis_conn.set(redis_key, 'PAUSED')
-        logger.info("Successful handle pause position sync!!")
+        # logger.info("Successful handle pause position sync!!")
         return jsonify({
             "message": "Sync is paused. Bot position sync is STOPPED.",
             "is_paused": True
@@ -198,7 +198,7 @@ def handle_pause_grid_bot():
             }), 200
         
         redis_conn.set(redis_key, 'PAUSED')
-        logger.info("Successful handle pause grid bot!!")
+        # logger.info("Successful handle pause grid bot!!")
         return jsonify({
             "message": "Sync is paused. Grid bot is STOPPED.",
             "is_paused": True
@@ -294,7 +294,7 @@ def set_grid_setting_values():
 
         # Validation Logic
         errors = []
-        if not (ord_size < max_pos):
+        if not (ord_size <= max_pos):
             errors.append("order_size must be less than max_position_size")
         if not (upper >= c_long):
             errors.append("upper_diff must be greater than or equal to close_long")
