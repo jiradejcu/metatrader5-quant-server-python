@@ -19,10 +19,12 @@ latest_update = None
 latest_grid_settings = None
 latest_upper = None
 latest_lower = None
-boundary_price = 10.0
+boundary_price = 500.0
 has_running_placing_bot = False # working as reservation ticket (Queue concept - allow one queue works and others will reject if first queue does not finish work)
+last_acted_order_id = None
+optimistic_dirty_time = 0
 
-def poller_snapshot_order_status(symbol):
+def poller_snapshot_io_for_placing_bot(symbol):
     logger.info(f"[Poller Order Status Thread] Starting Background Poller for {symbol}")
     while True:
         start_time = time.time() # Capture start time
@@ -35,11 +37,13 @@ def poller_snapshot_order_status(symbol):
                 state.placing_order_state["fill_pct"] = snapshot.get('fill_pct', 0) if snapshot else 0
                 state.placing_order_state["side"] = snapshot.get('side', None) if snapshot else None
                 state.placing_order_state["is_clean"] = snapshot.get('is_clean', True) if snapshot else True
+                state.placing_order_state["price"] = snapshot.get('price', None) if snapshot else None
+                state.placing_order_state["orig_qty"] = snapshot.get('orig_qty', 0) if snapshot else 0
         except Exception as e:
             logger.error(f"Poller Thread Error: {e}")
             time.sleep(1) # Wait longer on error
 
-        # 0.5 seconds = 120 calls per minute. 
+        # 500 ms = ~ 120 calls per minute. 
         # Well under the 2,400 per minute limit.    
         elapsed = time.time() - start_time
         sleep_time = max(0.01, 0.5 - elapsed) 
@@ -53,6 +57,8 @@ def get_pause_status():
 
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
     global latest_update, latest_grid_settings, has_running_placing_bot, latest_upper, latest_lower
+    global last_acted_order_id, optimistic_dirty_time
+    global order_snapshot
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
     CONTRACT_SIZE = int(os.getenv('CONTRACT_SIZE'))
     MINIMUM_TRADE_AMOUNT = int(os.getenv('MINIMUM_TRADE_AMOUNT'))
@@ -85,8 +91,22 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                 if message['type'] != 'message':
                     continue
 
+                now = time.time()
                 with state.state_lock:
+                    # LATENCY GUARD: wait 500ms after sending a order
+                    if (now - optimistic_dirty_time < 0.5 or 
+                        has_running_placing_bot):
+                        continue
+
                     order_snapshot = state.placing_order_state.copy()
+
+
+                # STALE DATA GUARD:
+                # If the poller is still showing the OLD order_id we just finished, skip.
+                if last_acted_order_id and order_snapshot.get('order_id') == last_acted_order_id:
+                    if order_snapshot.get('status') not in ['FILLED', 'CANCELED', 'EXPIRED']:
+                        # logger.debug('[STALE DATA GUARD]: skip on going order!!')
+                        continue
                 
                 channel = message['channel'].decode('utf-8')
                 data_payload = message['data']
@@ -125,10 +145,23 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                     allow_place_orders = True
 
                 # TRADING LOGIC
-                if allow_place_orders and not has_running_placing_bot:
+                if allow_place_orders:
                     try:
                         # Stamp reservation ticket and let others know is busy now
-                        has_running_placing_bot = True
+                        with state.state_lock:
+                            if has_running_placing_bot:
+                                # logger.debug("[RACE GUARD] Another thread is already calling Binance. Skipping.")
+                                continue 
+                            
+                            # Claim the ticket
+                            has_running_placing_bot = True
+                            # ATOMIC PRE-EMPTIVE STRIKE: 
+                            # We mark it as NOT clean immediately so Thread #2 
+                            # sees it as dirty before Thread #1 even calls Binance.
+                            state.placing_order_state["is_clean"] = False
+                        
+                        # Snapshot data (Now you have "ownership" of this cycle)
+                        # current_clean_status = False # We just forced it to False
 
                         # Snapshot from outside the lock
                         upper = latest_grid_settings['upper']
@@ -139,88 +172,130 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         # Get Current Status from Binance (Network I/O)
                         open_orders = get_open_orders(symbol)   # return list of objects [CurrentAllOpenOrdersResponse]
                         ticker = get_ticker(symbol)
+                        positions = get_position(symbol)
                         best_bid = float(ticker.get('best_bid', 0))
                         best_ask = float(ticker.get('best_ask', 0))
-                        positions = get_position(symbol)
                         position_amt = float(positions.get('positionAmt', '0'))
                         abs_position_amt = abs(position_amt)
+                        side_position = None    # position_amt = 0 (No position state)
+                        
+                        if position_amt > 0:
+                             side_position = 'BUY'
+                        else:
+                            side_position = 'SELL'
+                        
                         open_price_order = round(float(getattr(open_orders[0], 'price', 0)), 2) if open_orders else 0.0
                         pending_order_size = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders)
 
+                        # When user open reverse order
+                        # logger.debug(f"check reverse condition: {side_position != order_snapshot['side'] and side_position is not None}")
+                        if side_position != order_snapshot['side'] and side_position is not None:
+                            # logger.debug("[User manual order] user open reverse side order!!")
+                            pending_order_size = (pending_order_size * -1)
+
                         # Check if we can open new orders based on max position size compared to current position + pending order size + new order size
-                        total_exposure = abs_position_amt + pending_order_size
+                        
+                        # Todo: dynamic exposure by latest status: 
+                        # position amt -1 -> open buy 0.3 -> -0.7 -> fill open 0.7
+                        # position amt 1 -> open sell 0.3 -> 0.7 -> fill open -0.7
+                        # position amt 1 -> open buy 0.3 -> 1.3 -> fill open 0.7
+                        # total_exposure = position_amt - pending_order_size if order_snapshot['side'] == 'BUY' else position_amt + pending_order_size
+                        total_exposure = abs_position_amt + pending_order_size 
                         open_orders_status = ['NEW', 'PARTIALLY_FILLED']
                         remaining_capacity = max_pos - total_exposure
                         is_reach_limit = remaining_capacity <= 0
-                        can_open_orders = not is_reach_limit and order_snapshot['is_clean']
+                        can_open_orders = not is_reach_limit
                         allow_chase_by_status = remaining_capacity >= 0 and order_snapshot['status'] in open_orders_status
 
                         # State handling position fraction 
                         unfilled_position = ((Decimal(str(abs_position_amt)) * MINIMUM_TRADE_AMOUNT)*CONTRACT_SIZE) % CONTRACT_SIZE
-                        fraction_size = ((CONTRACT_SIZE-unfilled_position) / CONTRACT_SIZE) * MINIMUM_TRADE_AMOUNT
+                        same_direction_flag = (order_snapshot['side'] == 'BUY' and position_amt > 0) or (order_snapshot['side'] == 'SELL' and position_amt < 0)
+                        dynamic_fraction_by_latest_status = (CONTRACT_SIZE-unfilled_position)  if same_direction_flag else unfilled_position
+                        fraction_size = (dynamic_fraction_by_latest_status / CONTRACT_SIZE) * MINIMUM_TRADE_AMOUNT
                         has_fractional_position = unfilled_position != 0
 
                         # Circuit remove pending open order if current position size hit limit max position
-                        if is_reach_limit and open_orders:
-                            logger.debug("Circuit removing open order to prevent fill over max position size.")
-                            cancel_all_open_orders(symbol)
+                        # if is_reach_limit and open_orders:
+                        #     logger.debug("Circuit removing open order to prevent fill over max position size.")
+                        #     cancel_all_open_orders(symbol)
 
                         # Audit log for debugging
-                        logger.debug(f"[Audit placing thread] max_pos: {max_pos}")
-                        logger.debug(f"[Audit placing thread] order_size: {order_size}, allow_place_orders: {allow_place_orders}, total_exposure: {total_exposure}")
-                        logger.debug(f"[Audit placing thread] open_qty_order: {pending_order_size}")
-                        logger.debug(f"[Audit placing thread] is_reach_limit: {is_reach_limit}")
-                        logger.debug(f"[Audit placing thread] remaining_capacity: {remaining_capacity}")
-                        logger.debug(f"[Audit placing thread] Position amount: {position_amt}, Absolute position amount: {abs_position_amt}, has_fractional_position: {has_fractional_position}")
-                        logger.debug(f"[Audit placing thread] can_open_orders: {can_open_orders}, allow_chase_by_status:{allow_chase_by_status}, open_price_order: {open_price_order}, pending_order_size: {pending_order_size}")
-                        logger.debug(f"[Audit placing thread] Fractional position detected. Attempting to clear fraction with size: {fraction_size}")
-                        logger.debug(f"[Audit placing thread] upper: {upper}, lower: {lower}, latest_upper: {latest_upper}, latest_lower: {latest_lower}")
-                        logger.debug(f"[Audit placing thread] order_snapshot: {order_snapshot}")
+                        # logger.debug(f"[Audit placing thread] max_pos: {max_pos}")
+                        # logger.debug(f"[Audit placing thread] order_size: {order_size}, allow_place_orders: {allow_place_orders}, total_exposure: {total_exposure}")
+                        # logger.debug(f"[Audit placing thread] open_qty_order: {pending_order_size}")
+                        # logger.debug(f"[Audit placing thread] is_reach_limit: {is_reach_limit}")
+                        # logger.debug(f"[Audit placing thread] remaining_capacity: {remaining_capacity}")
+                        # logger.debug(f"[Audit placing thread] Position amount: {position_amt}, Absolute position amount: {abs_position_amt}, has_fractional_position: {has_fractional_position}")
+                        # logger.debug(f"[Audit placing thread] can_open_orders: {can_open_orders}, allow_chase_by_status:{allow_chase_by_status}, open_price_order: {open_price_order}, pending_order_size: {pending_order_size}")
+                        # logger.debug(f"[Audit placing thread] Fractional position detected. Attempting to clear fraction with size: {fraction_size}")
+                        # logger.debug(f"[Audit placing thread] upper: {upper}, lower: {lower}, latest_upper: {latest_upper}, latest_lower: {latest_lower}")
+                        # logger.debug(f"[Audit placing thread] order_snapshot: {order_snapshot}, side_position: {side_position}")
 
                         if has_fractional_position:   
-                            # If the pending order size is not equal to the required fraction size, we need to cancel existing orders and place a new chase order for the fraction size.                         
-                            if pending_order_size != fraction_size:
+                            # Clear left pending order when we reach max_position_size limit
+                            if remaining_capacity < 0:
                                 cancel_all_open_orders(symbol)
                             
                             side = order_snapshot['side']   # use latest order side for chasing order
+                            optimal_price = best_bid - boundary_price if side == 'BUY' else best_ask + boundary_price
 
                             if can_open_orders:
-                                logger.debug(f"[Fill remain process] New fractional order. Side: {side}, Size: {fraction_size}")
-                                new_order(symbol, fraction_size, best_ask + boundary_price, side)
+                                # logger.debug(f"[Fill remain process] New fractional order. Side: {side}, Size: {fraction_size} >>> SENDING SELL ORDER")
+                                response = new_order(symbol, fraction_size, optimal_price, side)
+                                # logger.debug(f"[New order]: {response}")
+
+                                # OPTIMISTIC timestamp UPDATE: 
+                                optimistic_dirty_time = time.time()
+                                if response and response.order_id:
+                                    last_acted_order_id = response.order_id
                             else:
                                 if allow_chase_by_status:
-                                    logger.debug(f"[Fill remain process] Chasing fractional position. Side: {side}, Size: {fraction_size}")
+                                    # logger.debug(f"[Fill remain process] Chasing fractional position. Side: {side}, Size: {fraction_size}")
                                     chase_order(symbol, fraction_size, side)
+
+                                    optimistic_dirty_time = time.time()
                         else:
                             side = order_snapshot['side']
                             
-                            # Sell zone
+                            # Sell zone d
                             if latest_upper >= upper:
-                                logger.debug(f"[Placing Bot Thread | running algorithm] Sell zone detected. Latest upper: {latest_upper} is greater than or equal to upper threshold: {upper}")
-                                if open_orders:
+                                # logger.debug('[Placing Bot Thread | running algorithm]: Entry sell zone')
+                                if allow_chase_by_status:
                                     # Clear left pending order when we reach max_position_size limit
                                     if remaining_capacity < 0:
                                         cancel_all_open_orders(symbol)
-                                    elif open_price_order != round(best_ask, 2) and pending_order_size > 0 and allow_chase_by_status:
+                                    elif open_price_order != round(best_ask, 2) and pending_order_size > 0:
                                         chase_order(symbol, pending_order_size, side)                                  
                                 elif can_open_orders:
-                                    new_order(symbol, float(order_size), best_ask + boundary_price, 'SELL')
+                                    logger.info("[Placing Bot Thread | running algorithm] >>> SENDING SELL ORDER")
+                                    response = new_order(symbol, float(order_size), best_ask + boundary_price, 'SELL')
+
+                                    # OPTIMISTIC timestamp UPDATE: 
+                                    optimistic_dirty_time = time.time()
+                                    if response and response.order_id:
+                                        last_acted_order_id = response.order_id
 
                             # Buy zone
                             elif latest_lower <= lower:
-                                logger.debug(f"[Placing Bot Thread | running algorithm] Buy zone detected. Latest lower: {latest_lower} is less than or equal to lower threshold: {lower}")
-                                if open_orders:
+                                # logger.debug('[Placing Bot Thread | running algorithm]: Entry buy zone')
+                                if allow_chase_by_status:
                                     # Clear left pending order when we reach max_position_size limit
                                     if remaining_capacity < 0:
                                         cancel_all_open_orders(symbol)
-                                    elif open_price_order != round(best_bid, 2) and pending_order_size > 0 and allow_chase_by_status:
+                                    elif open_price_order != round(best_bid, 2) and pending_order_size > 0:
                                         chase_order(symbol, pending_order_size, side)
                                 elif can_open_orders:
-                                    new_order(symbol, float(order_size), best_bid - boundary_price, 'BUY')
+                                    logger.info("[Placing Bot Thread | running algorithm] >>> SENDING BUY ORDER")
+                                    response = new_order(symbol, float(order_size), best_bid - boundary_price, 'BUY')
+
+                                    # OPTIMISTIC timestamp UPDATE: 
+                                    optimistic_dirty_time = time.time()
+                                    if response and response.order_id:
+                                        last_acted_order_id = response.order_id
 
                             # Neutral zone
                             else:
-                                logger.debug("[Placing Bot Thread | running algorithm] In neutral zone, no new orders will be placed. Monitoring for TP conditions if any open positions exist.")
+                                # logger.debug("[Placing Bot Thread | running algorithm] In neutral zone, no new orders will be placed. Monitoring for TP conditions if any open positions exist.")
                                 # TP conditions
                                 # This code got issued, snowball send order with prebious size e.g [1] 0.03 -> [2] 0.06 -> [3] -> 0.12 , ...
                                 # if position_amt != 0:
@@ -238,13 +313,15 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                                 #         logger.debug(f"price {best_bid - boundary_price}")
                                 #         logger.debug(f"close_side {close_side}")
                                 #         new_order(symbol, abs_position_amt, best_ask + boundary_price, close_side)
-                        # Done every task and return the reservation ticket
-                        has_running_placing_bot = False
                     except Exception as e:
                         logger.error(f"[Placing Bot Thread] Error in processing grid flow logic: {e}", exc_info=True)
-                        cancel_all_open_orders(symbol)  # Clear all pending orders when server down
-                        has_running_placing_bot = False # Reset reservation ticket process
+                        # cancel_all_open_orders(symbol)  # Clear all pending orders when server down
+                        with state.state_lock:
+                            state.placing_order_state["is_clean"] = True
                         time.sleep(1)
+                # Done every task and return the reservation ticket
+                has_running_placing_bot = False
+                time.sleep(0.1)
         except Exception as e:
             logger.error(f"[Placing Bot Thread] Critical PubSub failure: {e}. Reconnecting in 1s...", exc_info=True)
             time.sleep(1)
@@ -270,7 +347,7 @@ def start_grid_bot_sync():
             args=(pubsub, price_diff, grid_range), daemon=True
         ).start()
         threading.Thread(
-            target=poller_snapshot_order_status,
+            target=poller_snapshot_io_for_placing_bot,
             args=(binance_symbol,), daemon=True
         ).start()
         logger.info("Grid Bot thread started and running in background.")
