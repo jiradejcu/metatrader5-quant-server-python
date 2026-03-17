@@ -6,7 +6,9 @@ placing_order_state = {
     "status": None,
     "is_clean": True,
     "fill_pct": 0,
-    "side": None
+    "side": None,
+    'price': None,
+    'orig_qty': 0
 }
 
 # Lock to ensure thread-safety when reading/writing to variable
