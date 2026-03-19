@@ -1,8 +1,10 @@
 import os
 import logging
 import asyncio
+import json
 import time
 from app.utils.redis_client import get_redis_connection
+from app.utils.api.data import symbol_info_tick
 
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,
@@ -20,6 +22,29 @@ configuration_ws_streams = ConfigurationWebSocketStreams(
 
 client = DerivativesTradingUsdsFutures(config_ws_streams=configuration_ws_streams)
 redis_conn = get_redis_connection()
+
+def subscribe_symbol_ticker_mt5(symbol: str):
+    tick = symbol_info_tick(symbol)
+
+    if tick is not None and not tick.empty:
+        try:
+            ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
+            bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
+
+            tickert_key = f"ticker (MT5):{symbol}"
+            redis_conn.set(tickert_key, json.dumps({
+                        "best_ask": ask,
+                        "best_bid": bid,
+                    }))
+            redis_conn.publish(tickert_key, json.dumps({
+                "best_ask": ask,
+                "best_bid": bid,
+            }))
+            # logger.info("Successful add ticker MT5!!")
+            redis_conn.expire(tickert_key, 10)
+        except Exception as e:
+            logger.error(f"Failed to set MT5 ticker data because: {e}")
+
 
 async def subscribe_symbol_ticker(symbol: str):
     while True:
