@@ -17,7 +17,6 @@ def start_subscriptions():
     symbol_mt5 = config.PAIRS[PAIR_INDEX]['mt5']
     logger.info(f"Starting arbitrage subscription tasks for {symbol}...")
     try:
-        threading.Thread(target=asyncio.run, args=(ticker_stream.subscribe_symbol_ticker(symbol),), daemon=True).start()
         threading.Thread(target=asyncio.run, args=(position_stream.subscribe_position_information(symbol),), daemon=True).start()
         threading.Thread(target=asyncio.run, args=(position_stream.subscribe_position_mt5_information(symbol_mt5),), daemon= True).start()
         threading.Thread(target=asyncio.run, args=(position_stream.subscribe_spread_diff(symbol, symbol_mt5),), daemon=True).start()
