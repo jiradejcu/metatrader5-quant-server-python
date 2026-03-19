@@ -295,7 +295,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
 
                             # Neutral zone
                             else:
-                                # logger.debug("[Placing Bot Thread | running algorithm] In neutral zone, no new orders will be placed. Monitoring for TP conditions if any open positions exist.")
+                                logger.debug("[Placing Bot Thread | running algorithm] In neutral zone, no new orders will be placed. Monitoring for TP conditions if any open positions exist.")
                                 # TP conditions
                                 # This code got issued, snowball send order with prebious size e.g [1] 0.03 -> [2] 0.06 -> [3] -> 0.12 , ...
                                 # if position_amt != 0:
