@@ -116,8 +116,6 @@ def chase_order(symbol, quantity, side, max_retries=6, delay=1):
                     )
                 if not order_result:
                     logger.warning(f"Post-only order rejected at {target_price}. Will retry in next loop.")
-                else:
-                    # logger.info(f"Post-only order placed successfully: {order_result.get('order_id')}")
         except Exception as e:
             logger.error(f"Chase order error on attempt {attempt + 1}: {e}")
             break
