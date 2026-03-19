@@ -5,6 +5,8 @@ import json
 import time
 from app.utils.redis_client import get_redis_connection
 from app.utils.api.data import symbol_info_tick
+from app.quant.algorithms.arbitrage import config
+import threading
 
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,
@@ -24,26 +26,31 @@ client = DerivativesTradingUsdsFutures(config_ws_streams=configuration_ws_stream
 redis_conn = get_redis_connection()
 
 def subscribe_symbol_ticker_mt5(symbol: str):
-    tick = symbol_info_tick(symbol)
+    while True:
+        tick = symbol_info_tick(symbol)
 
-    if tick is not None and not tick.empty:
-        try:
-            ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
-            bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
+        if tick is not None and not tick.empty:
+            try:
+                ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
+                bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
 
-            tickert_key = f"ticker (MT5):{symbol}"
-            redis_conn.set(tickert_key, json.dumps({
-                        "best_ask": ask,
-                        "best_bid": bid,
-                    }))
-            redis_conn.publish(tickert_key, json.dumps({
-                "best_ask": ask,
-                "best_bid": bid,
-            }))
-            # logger.info("Successful add ticker MT5!!")
-            redis_conn.expire(tickert_key, 10)
-        except Exception as e:
-            logger.error(f"Failed to set MT5 ticker data because: {e}")
+                tickert_key = f"ticker (MT5):{symbol}"
+                redis_conn.set(tickert_key, json.dumps({
+                            "best_ask": ask,
+                            "best_bid": bid,
+                        }))
+                redis_conn.publish(tickert_key, json.dumps({
+                    "best_ask": ask,
+                    "best_bid": bid,
+                }))
+                # logger.info("Successful add ticker MT5!!")
+                redis_conn.expire(tickert_key, 10)
+            except asyncio.CancelledError:
+                logger.info(f"WebSocket MT5 ticker task for {symbol} cancelled. Closing connection.")
+                break
+            except Exception as e:
+                logger.error(f"WebSocket MT5 ticker task error for {symbol}: {e}. Retrying in 5 seconds...")
+                time.sleep(3)
 
 
 async def subscribe_symbol_ticker(symbol: str):
@@ -99,3 +106,14 @@ def get_ticker(symbol: str):
             "best_ask": ticker_data.get(b'best_ask').decode('utf-8'),
         }
     return None
+
+
+def fetch_ticker_data():
+    if os.environ.get('RUN_MAIN') != 'true':
+        return
+    PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
+    symbol = config.PAIRS[PAIR_INDEX]['binance']
+    symbol_mt5 = config.PAIRS[PAIR_INDEX]['mt5']
+    
+    threading.Thread(target=asyncio.run, args=(subscribe_symbol_ticker(symbol),), daemon=True).start()
+    threading.Thread(target=asyncio.run, args=(subscribe_symbol_ticker_mt5(symbol_mt5),), daemon=True).start()
