@@ -19,3 +19,6 @@ class QuantConfig(AppConfig):
 
         from .algorithms.arbitrage import grid_bot
         grid_bot.start_grid_bot_sync()
+
+        from app.connectors.binance.api.ticker import fetch_ticker_data
+        fetch_ticker_data()
