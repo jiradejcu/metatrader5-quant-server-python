@@ -23,6 +23,14 @@ def prepare_json(json_str, default_value):
             return default_value
     return json.loads(json_str)
 
+def clean_val(val):
+    if isinstance(val, bytes):
+        val = val.decode('utf-8')
+    try:
+        return float(val) if val is not None else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
 load_dotenv()
 logger = logging.getLogger(__name__)
 
@@ -124,31 +132,12 @@ async def subscribe_position_mt5_information(symbol: str):
                 "positionAmt": "0"
             }
 
-            tick = symbol_info_tick(mt5_symbol)
-            mark_price = 0
-
-            if tick is not None and not tick.empty:
-                try:
-                    ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
-                    bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
-
-                    # Save tick data into redis for using grid bot and price comparison
-                    mt5_ticker_key = f"ticker (MT5):{mt5_symbol}"
-                    redis_conn.set(mt5_ticker_key, json.dumps({
-                        "best_ask": ask,
-                        "best_bid": bid,
-                    }))
-                    redis_conn.publish(mt5_ticker_key, json.dumps({
-                        "best_ask": ask,
-                        "best_bid": bid,
-                    }))
-                    redis_conn.expire(mt5_ticker_key, 10)
-                except (AttributeError, KeyError, TypeError):
-                    ask = getattr(tick, 'ask', 0)
-                    bid = getattr(tick, 'bid', 0)
-                # todo refactor and if this logic is wrong, fixing it
-                mark_price = ask
-                result["markPrice"] = mark_price
+            ticker_mt5_key = f"ticker (MT5):{mt5_symbol}"
+            ticker_mt5 = prepare_json(redis_conn.get(ticker_mt5_key), {})
+            bid = clean_val(ticker_mt5.get('best_bid'))
+            ask = clean_val(ticker_mt5.get('best_ask'))
+            # todo refactor and if this logic is wrong, fixing it (How to select between bid and ask to be a mark price)
+            result["markPrice"] = ask
 
             if not positions.empty:
                 # Handling logic before calculating average
@@ -194,14 +183,6 @@ async def subscribe_spread_diff(binance_symbol: str, mt5_symbol: str):
             raw_ticker_binance = redis_conn.hgetall(ticker_binance_key)
             ticker_binance = raw_ticker_binance if raw_ticker_binance else {}
             ticker_mt5 = prepare_json(redis_conn.get(ticker_mt5_key), {})
-
-            def clean_val(val):
-                if isinstance(val, bytes):
-                    val = val.decode('utf-8')
-                try:
-                    return float(val) if val is not None else 0.0
-                except (ValueError, TypeError):
-                    return 0.0
 
             binance_best_bid = clean_val(ticker_binance.get(b'best_bid' if b'best_bid' in ticker_binance else 'best_bid'))
             binance_best_ask = clean_val(ticker_binance.get(b'best_ask' if b'best_ask' in ticker_binance else 'best_ask'))
