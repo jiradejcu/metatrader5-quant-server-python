@@ -30,6 +30,9 @@ def poller_snapshot_io_for_placing_bot(symbol):
         start_time = time.time() # Capture start time
         try:
             snapshot = get_latest_order_snapshot(symbol)
+            all_orders = get_open_orders(symbol)
+
+            # logger.debug(f"all_orders: {len(all_orders)}")
             
             with state.state_lock:
                 state.placing_order_state["order_id"] = snapshot.get('order_id', None) if snapshot else None
@@ -39,6 +42,7 @@ def poller_snapshot_io_for_placing_bot(symbol):
                 state.placing_order_state["is_clean"] = snapshot.get('is_clean', True) if snapshot else True
                 state.placing_order_state["price"] = snapshot.get('price', None) if snapshot else None
                 state.placing_order_state["orig_qty"] = snapshot.get('orig_qty', 0) if snapshot else 0
+                state.placing_order_state["total_orders"] = len(all_orders) if all_orders else 0
         except Exception as e:
             logger.error(f"Poller Thread Error: {e}")
             time.sleep(1) # Wait longer on error
@@ -143,6 +147,10 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                 if (latest_grid_settings and latest_upper is not None and 
                     latest_lower is not None and not is_paused):
                     allow_place_orders = True
+                
+                # Clear all orders if it has at least two orders on queue
+                if order_snapshot is not None and order_snapshot.get('total_orders') > 1:
+                    cancel_all_open_orders(symbol)
 
                 # TRADING LOGIC
                 if allow_place_orders:
@@ -150,7 +158,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         # Stamp reservation ticket and let others know is busy now
                         with state.state_lock:
                             if has_running_placing_bot:
-                                # logger.debug("[RACE GUARD] Another thread is already calling Binance. Skipping.")
                                 continue 
                             
                             # Claim the ticket
@@ -159,9 +166,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                             # We mark it as NOT clean immediately so Thread #2 
                             # sees it as dirty before Thread #1 even calls Binance.
                             state.placing_order_state["is_clean"] = False
-                        
-                        # Snapshot data (Now you have "ownership" of this cycle)
-                        # current_clean_status = False # We just forced it to False
 
                         # Snapshot from outside the lock
                         upper = latest_grid_settings['upper']
@@ -181,6 +185,8 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         
                         if position_amt > 0:
                              side_position = 'BUY'
+                        elif position_amt == 0:
+                            side_position = None
                         else:
                             side_position = 'SELL'
                         
@@ -188,7 +194,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         pending_order_size = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders)
 
                         # When user open reverse order
-                        # logger.debug(f"check reverse condition: {side_position != order_snapshot['side'] and side_position is not None}")
                         if side_position != order_snapshot['side'] and side_position is not None:
                             # logger.debug("[User manual order] user open reverse side order!!")
                             pending_order_size = (pending_order_size * -1)
@@ -211,13 +216,8 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         unfilled_position = ((Decimal(str(abs_position_amt)) * MINIMUM_TRADE_AMOUNT)*CONTRACT_SIZE) % CONTRACT_SIZE
                         same_direction_flag = (order_snapshot['side'] == 'BUY' and position_amt > 0) or (order_snapshot['side'] == 'SELL' and position_amt < 0)
                         dynamic_fraction_by_latest_status = (CONTRACT_SIZE-unfilled_position)  if same_direction_flag else unfilled_position
-                        fraction_size = (dynamic_fraction_by_latest_status / CONTRACT_SIZE) * MINIMUM_TRADE_AMOUNT
+                        fraction_size = (dynamic_fraction_by_latest_status / CONTRACT_SIZE) * MINIMUM_TRADE_AMOUNT if order_size > 0 else 0
                         has_fractional_position = unfilled_position != 0
-
-                        # Circuit remove pending open order if current position size hit limit max position
-                        # if is_reach_limit and open_orders:
-                        #     logger.debug("Circuit removing open order to prevent fill over max position size.")
-                        #     cancel_all_open_orders(symbol)
 
                         # Audit log for debugging
                         # logger.debug(f"[Audit placing thread] max_pos: {max_pos}")
@@ -239,25 +239,23 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                             side = order_snapshot['side']   # use latest order side for chasing order
                             optimal_price = best_bid - boundary_price if side == 'BUY' else best_ask + boundary_price
 
-                            if can_open_orders:
+                            if allow_chase_by_status:
+                                # logger.debug(f"[Fill remain process] Chasing fractional position. Side: {side}, Size: {fraction_size}")
+                                chase_order(symbol, fraction_size, side)
+
+                                optimistic_dirty_time = time.time()
+                            elif can_open_orders:
                                 # logger.debug(f"[Fill remain process] New fractional order. Side: {side}, Size: {fraction_size} >>> SENDING SELL ORDER")
                                 response = new_order(symbol, fraction_size, optimal_price, side)
-                                # logger.debug(f"[New order]: {response}")
 
                                 # OPTIMISTIC timestamp UPDATE: 
                                 optimistic_dirty_time = time.time()
                                 if response and response.order_id:
                                     last_acted_order_id = response.order_id
-                            else:
-                                if allow_chase_by_status:
-                                    # logger.debug(f"[Fill remain process] Chasing fractional position. Side: {side}, Size: {fraction_size}")
-                                    chase_order(symbol, fraction_size, side)
-
-                                    optimistic_dirty_time = time.time()
                         else:
                             side = order_snapshot['side']
                             
-                            # Sell zone d
+                            # Sell zone
                             if latest_upper >= upper:
                                 # logger.debug('[Placing Bot Thread | running algorithm]: Entry sell zone')
                                 if allow_chase_by_status:
@@ -267,7 +265,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                                     elif open_price_order != round(best_ask, 2) and pending_order_size > 0:
                                         chase_order(symbol, pending_order_size, side)                                  
                                 elif can_open_orders:
-                                    logger.info("[Placing Bot Thread | running algorithm] >>> SENDING SELL ORDER")
+                                    # logger.info("[Placing Bot Thread | running algorithm] >>> SENDING SELL ORDER")
                                     response = new_order(symbol, float(order_size), best_ask + boundary_price, 'SELL')
 
                                     # OPTIMISTIC timestamp UPDATE: 
@@ -285,7 +283,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                                     elif open_price_order != round(best_bid, 2) and pending_order_size > 0:
                                         chase_order(symbol, pending_order_size, side)
                                 elif can_open_orders:
-                                    logger.info("[Placing Bot Thread | running algorithm] >>> SENDING BUY ORDER")
+                                    # logger.info("[Placing Bot Thread | running algorithm] >>> SENDING BUY ORDER")
                                     response = new_order(symbol, float(order_size), best_bid - boundary_price, 'BUY')
 
                                     # OPTIMISTIC timestamp UPDATE: 
