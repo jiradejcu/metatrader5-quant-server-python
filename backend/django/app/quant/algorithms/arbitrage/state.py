@@ -8,7 +8,8 @@ placing_order_state = {
     "fill_pct": 0,
     "side": None,
     'price': None,
-    'orig_qty': 0
+    'orig_qty': 0,
+    'total_orders': 0
 }
 
 # Lock to ensure thread-safety when reading/writing to variable
