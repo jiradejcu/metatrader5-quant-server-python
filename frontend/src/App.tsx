@@ -12,6 +12,7 @@ function App() {
     botUrl,
     botUrl2,
     botUrl3
+    // ,botUrlDev
   } = useAllBots()
   // Now using color theme Intellectual Nonchalance (https://hookagency.com/blog/website-color-schemes-2020/)
   return (
@@ -33,6 +34,9 @@ function App() {
                   <ControlSection
                     apiUrl={botUrl3}
                   />
+                  {/* <ControlSection
+                    apiUrl={botUrlDev}
+                  /> */}
                 </div>
             </div>
 
