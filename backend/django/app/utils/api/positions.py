@@ -31,7 +31,7 @@ def get_positions() -> pd.DataFrame:
         response = requests.get(url, timeout=10)
         end_time = time.time()    # End timing
         duration = end_time - start_time
-        logger.info(f"Fetched positions in {duration:.2f} seconds")
+        logger.debug(f"Fetched positions in {duration:.2f} seconds")
 
         response.raise_for_status()
         
