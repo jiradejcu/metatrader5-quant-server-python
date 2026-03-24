@@ -109,6 +109,7 @@ INSTALLED_APPS = [
     'app.nexus',
     'app.quant.apps.QuantConfig',
     'app.connectors.binance',
+    'app.connectors.bybit',
     'app.ui_web'
 ]
 
