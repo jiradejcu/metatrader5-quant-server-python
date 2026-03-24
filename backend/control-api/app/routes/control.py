@@ -80,75 +80,73 @@ def get_django_status():
 @control_bp.route('/get-arbitrage-summary', methods=['GET'])
 def get_arbitrage_summary():
     try:
-        binance_symbol = PAIRS[PAIR_INDEX]['binance']
-        mt5_symbol = PAIRS[PAIR_INDEX]['mt5']
+        entry_symbol = PAIRS[PAIR_INDEX]['entry']['symbol']
+        hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
         ratio = RATIO_EXPOSE
 
-        binance_key = f"position:{binance_symbol}"
-        mt5_key = f"position: {mt5_symbol}"
+        entry_key = f"position:{entry_symbol}"
+        hedge_key = f"position:{hedge_symbol}"
         pause_position_key = "position_sync_paused_flag"
 
         redis_conn = get_redis_connection()
 
-        result = prepare_json(redis_conn.get(binance_key))
-        # logger.info(f"Get redis key: position: {binance_symbol} success")
-        mt5_result = prepare_json(redis_conn.get(mt5_key))
-        # logger.info(f"Get redis key: position: {mt5_symbol} success")
+        entry_result = prepare_json(redis_conn.get(entry_key))
+        hedge_result = prepare_json(redis_conn.get(hedge_key))
         pause_position = 'Active'
 
-        binance_action = 'SHORT'
-        mt5_action = 'SHORT'
+        entry_action = 'SHORT'
+        hedge_action = 'SHORT'
         pairStatus = 'Warning'
 
-        binance_size = float(result.get('positionAmt', 0))
-        mt5_size = float(mt5_result.get('positionAmt', 0))
-        unrealizes = [float(result.get('unRealizedProfit', 0)), float(mt5_result.get('unRealizedProfit', 0))]
-        netExpose = binance_size + (mt5_size * ratio) # 1 PAXG = 0.01 XAU
+        entry_size = float(entry_result.get('positionAmt', 0))
+        hedge_size = float(hedge_result.get('positionAmt', 0))
+        unrealizes = [float(entry_result.get('unRealizedProfit', 0)), float(hedge_result.get('unRealizedProfit', 0))]
+        netExpose = entry_size + (hedge_size * ratio)
         netExposeAction = 'Safe'
 
         # handle floating point issue
-        epsilon = 1e-12 
+        epsilon = 1e-12
         if abs(netExpose) < epsilon:
             netExpose = 0
 
         if netExpose != 0:
             netExposeAction = 'Unsafe'
 
-        if binance_size > 0:
-            binance_action = 'LONG'
-        elif binance_size == 0:
-            binance_action = 'None'
+        if entry_size > 0:
+            entry_action = 'LONG'
+        elif entry_size == 0:
+            entry_action = 'None'
 
-        if mt5_size > 0:
-            mt5_action = 'LONG'
-        elif mt5_size == 0:
-            mt5_action = 'None'
+        if hedge_size > 0:
+            hedge_action = 'LONG'
+        elif hedge_size == 0:
+            hedge_action = 'None'
 
         if netExpose == 0:
             pairStatus = 'Complete'
 
         if redis_conn.get(pause_position_key):
-            pause_position = 'Pause' 
+            pause_position = 'Pause'
 
         response_data = {
-            'binanceMarkPrice': result.get('markPrice'),
-            'mt5MarkPrice': mt5_result.get('markPrice'),
-            'binanceEntry': result.get('entryPrice'),
-            'mt5Entry': mt5_result.get('entryPrice'),
-            'spread': float(result.get('markPrice', 0)) - float(mt5_result.get('markPrice', 0)),
+            'entryMarkPrice': entry_result.get('markPrice'),
+            'hedgeMarkPrice': hedge_result.get('markPrice'),
+            'entryPrice': entry_result.get('entryPrice'),
+            'hedgePrice': hedge_result.get('entryPrice'),
+            'spread': float(entry_result.get('markPrice', 0)) - float(hedge_result.get('markPrice', 0)),
             'pairStatus': pairStatus,
-            'binanceSize': binance_size,
-            'binanceAction': binance_action,
-            'mt5Size': mt5_size,
+            'entrySize': entry_size,
+            'entryAction': entry_action,
+            'hedgeSize': hedge_size,
             'netExpose': netExpose,
             'netExposeAction': netExposeAction,
-            'mt5Action': mt5_action,
-            'unrealizedBinance': sum(unrealizes),
+            'hedgeAction': hedge_action,
+            'unrealizedTotal': sum(unrealizes),
             'pausePositionSync': pause_position,
-            'time_update_mt5': mt5_result.get('time_update'),
-            'time_update_binance': result.get('updateTime'),
-            'binanceSymbol': binance_symbol,
-            'mt5Symbol': mt5_symbol,
+            'time_update_hedge': hedge_result.get('time_update'),
+            'time_update_entry': entry_result.get('updateTime'),
+            'entrySymbol': entry_symbol,
+            'hedgeSymbol': hedge_symbol,
         }
 
         # logger.info("Successful get arbitrage information!!")
@@ -316,11 +314,11 @@ def set_grid_setting_values():
 
         # Process Redis Update
         PAIR_INDEX = int(os.getenv('PAIR_INDEX', 0))
-        binance_symbol = PAIRS[PAIR_INDEX]['binance']
-        mt5_symbol = PAIRS[PAIR_INDEX]['mt5']
-        
+        entry_symbol = PAIRS[PAIR_INDEX]['entry']['symbol']
+        hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
+
         redis_conn = get_redis_connection()
-        redis_key = f"setting_grid_channel:{binance_symbol}:{mt5_symbol}"
+        redis_key = f"setting_grid_channel:{entry_symbol}:{hedge_symbol}"
 
         grid_channel = {
             "upper_diff": upper,
