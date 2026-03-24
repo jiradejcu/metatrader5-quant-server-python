@@ -6,7 +6,7 @@ import threading
 from . import config
 from decimal import Decimal
 from app.utils.redis_client import get_redis_connection
-from app.utils.api.positions import get_position_by_symbol as get_mt5_position
+from app.utils.api.positions import get_position_by_symbol as get_hedge_position
 from app.utils.api.order import send_market_order
 
 logger = logging.getLogger(__name__)
@@ -49,29 +49,29 @@ def handle_position_update(pubsub):
                 )
                 
                 hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
-                mt5_position = get_mt5_position(hedge_symbol)
-                
-                mt5_volume = Decimal(str(mt5_position.get('volume', '0')))
-                mt5_time_update = mt5_position.get('time_update', None)
-                
+                hedge_position = get_hedge_position(hedge_symbol)
+
+                hedge_volume = Decimal(str(hedge_position.get('volume', '0')))
+                hedge_time_update = hedge_position.get('time_update', None)
+
                 if latest_update is not None:
-                    if mt5_time_update is None or latest_update >= mt5_time_update:
-                        logger.debug("No position information update from MT5. Skipping...")
+                    if hedge_time_update is None or latest_update >= hedge_time_update:
+                        logger.debug("No position information update from hedge. Skipping...")
                         continue
                     else:
-                        logger.debug("New position information from MT5. Reset latest update.")
+                        logger.debug("New position information from hedge. Reset latest update.")
                         latest_update = None
 
                 logger.debug(
-                    f"MT5 Position for {hedge_symbol} - "
-                    f"Volume: {mt5_volume}"
-                    f", Time Update: {mt5_time_update}"
+                    f"Hedge Position for {hedge_symbol} - "
+                    f"Volume: {hedge_volume}"
+                    f", Time Update: {hedge_time_update}"
                 )
-                
-                discrepancy = position_amt + mt5_volume * contract_size
-                
+
+                discrepancy = position_amt + hedge_volume * contract_size
+
                 logger.debug(
-                    f"Binance Amount: {position_amt}, MT5 Volume: {mt5_volume}. "
+                    f"Entry Amount: {position_amt}, Hedge Volume: {hedge_volume}. "
                     f"Position Size Difference: {discrepancy}."
                 )
                 
@@ -90,7 +90,7 @@ def handle_position_update(pubsub):
                     )
                     
                     if order:
-                        latest_update = mt5_time_update
+                        latest_update = hedge_time_update
                 else:
                     logger.debug(f"No significant discrepancy for {received_symbol}. No action taken.")
                 

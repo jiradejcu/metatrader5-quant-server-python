@@ -4,7 +4,6 @@ import asyncio
 import json
 from pybit.unified_trading import HTTP
 from app.utils.redis_client import get_redis_connection
-from app.utils.api.positions import get_positions as get_mt5_position
 from dotenv import load_dotenv
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
@@ -92,59 +91,6 @@ async def subscribe_position_information(symbol: str):
             logger.error(f"Position information subscription error for {symbol}: {e}. Retrying in 1 second...")
             await asyncio.sleep(1)
 
-
-async def subscribe_position_mt5_information(symbol: str):
-    while True:
-        try:
-            mt5_symbol = symbol
-            positions = get_mt5_position()
-            positions = positions[positions['symbol'] == mt5_symbol]
-            redis_key = f"position: {mt5_symbol}"
-
-            if redis_conn.exists(redis_key):
-                redis_conn.delete(redis_key)
-
-            now = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S")
-            result = {
-                "time_update": now,
-                "entryPrice": "0",
-                "markPrice": "0",
-                "unRealizedProfit": "0",
-                "positionAmt": "0"
-            }
-
-            ticker_mt5_key = f"ticker (MT5):{mt5_symbol}"
-            ticker_mt5 = prepare_json(redis_conn.get(ticker_mt5_key), {})
-            bid = clean_val(ticker_mt5.get('best_bid'))
-            ask = clean_val(ticker_mt5.get('best_ask'))
-            result["markPrice"] = ask
-
-            if not positions.empty:
-                positions['cal_type'] = positions['type'].apply(lambda x: -1 if x == 1 else 1)
-                positions['cal_volume'] = positions['volume'] * positions['cal_type']
-
-                total_volume = float(positions['cal_volume'].sum())
-                weighted_entry = float((positions['price_open'] * positions['cal_volume']).sum() / positions['cal_volume'].sum()) if total_volume != 0.0 else 0
-                total_profit = 0 if total_volume == 0.0 else float(positions['profit'].sum())
-                mark_price = float(ask if total_volume < 0 else bid)
-
-                result["entryPrice"] = f"{weighted_entry:.3f}"
-                result["markPrice"] = f"{mark_price:.3f}"
-                result["unRealizedProfit"] = f"{total_profit:.2f}"
-                result["positionAmt"] = f"{total_volume:.3f}"
-
-            data = json.dumps(result, cls=json_encoder)
-            redis_conn.set(redis_key, data)
-            redis_conn.publish(redis_key, data)
-            redis_conn.expire(redis_key, 10)
-
-            await asyncio.sleep(0.1)
-        except asyncio.CancelledError:
-            logger.error(f"MT5 position info task for {symbol} cancelled.")
-            break
-        except Exception as e:
-            logger.error(f"MT5 position info error for {symbol}: {e}. Retrying in 1 second...")
-            await asyncio.sleep(1)
 
 
 async def subscribe_spread_diff(bybit_symbol: str, mt5_symbol: str):
