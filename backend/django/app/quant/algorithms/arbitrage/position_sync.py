@@ -32,9 +32,9 @@ def handle_position_update(pubsub):
                 logger.debug('Position_sync is runing!!')
                 position_data = json.loads(message['data'])
                 received_symbol = position_data.get('symbol')
-                config_symbol = config.PAIRS[PAIR_INDEX]['binance']
-                if received_symbol != config_symbol:
-                    logger.debug(f"Ignoring position update for symbol {received_symbol}. Expected {config_symbol}.")
+                entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
+                if received_symbol != entry_symbol:
+                    logger.debug(f"Ignoring position update for symbol {received_symbol}. Expected {entry_symbol}.")
                     continue
                 position_amt = Decimal(str(position_data.get('positionAmt', '0')))
                 # position_amt = Decimal(str(position_data.get('positionAmt', '0'))) * contract_size # mock up Binance position amount
@@ -48,8 +48,8 @@ def handle_position_update(pubsub):
                     f", Mark Price: {mark_price}, Unrealized Profit: {unrealized_profit}"
                 )
                 
-                mt5_symbol = config.PAIRS[PAIR_INDEX]['mt5']
-                mt5_position = get_mt5_position(mt5_symbol)
+                hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
+                mt5_position = get_mt5_position(hedge_symbol)
                 
                 mt5_volume = Decimal(str(mt5_position.get('volume', '0')))
                 mt5_time_update = mt5_position.get('time_update', None)
@@ -63,7 +63,7 @@ def handle_position_update(pubsub):
                         latest_update = None
 
                 logger.debug(
-                    f"MT5 Position for {mt5_symbol} - "
+                    f"MT5 Position for {hedge_symbol} - "
                     f"Volume: {mt5_volume}"
                     f", Time Update: {mt5_time_update}"
                 )
@@ -84,7 +84,7 @@ def handle_position_update(pubsub):
                     )
                     
                     order = send_market_order(
-                        symbol=mt5_symbol,
+                        symbol=hedge_symbol,
                         volume=abs(order_amt / contract_size),
                         order_type='BUY' if order_amt > 0 else 'SELL',
                     )
@@ -104,14 +104,14 @@ def start_position_sync():
         return
     
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-    symbol = config.PAIRS[PAIR_INDEX]['binance']
-    logger.info(f"Starting position sync for {symbol}...")
+    entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
+    logger.info(f"Starting position sync for {entry_symbol}...")
 
     try:
         redis_conn = get_redis_connection()
         pubsub = redis_conn.pubsub()
-        pubsub.subscribe(f"position:{symbol}")
-        logger.info(f"Subscribed to Redis channel position:{symbol} for position updates.")
-        threading.Thread(target=handle_position_update, args=(pubsub,), daemon=True).start()       
+        pubsub.subscribe(f"position:{entry_symbol}")
+        logger.info(f"Subscribed to Redis channel position:{entry_symbol} for position updates.")
+        threading.Thread(target=handle_position_update, args=(pubsub,), daemon=True).start()
     except Exception as e:
-        logger.error(f"Error while syncing position for {symbol}: {e}", exc_info=True)
+        logger.error(f"Error while syncing position for {entry_symbol}: {e}", exc_info=True)
