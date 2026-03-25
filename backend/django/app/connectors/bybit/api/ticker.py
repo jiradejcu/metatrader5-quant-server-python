@@ -1,4 +1,3 @@
-import os
 import logging
 import time
 import threading
@@ -56,11 +55,5 @@ def get_ticker(symbol: str):
     return None
 
 
-def fetch_ticker_data():
-    if os.environ.get('RUN_MAIN') != 'true':
-        return
-    symbol = os.getenv('BYBIT_SYMBOL')
-    if not symbol:
-        logger.warning("BYBIT_SYMBOL env var not set, skipping Bybit ticker subscription")
-        return
+def fetch_ticker_data(symbol: str):
     threading.Thread(target=subscribe_symbol_ticker, args=(symbol,), daemon=True).start()
