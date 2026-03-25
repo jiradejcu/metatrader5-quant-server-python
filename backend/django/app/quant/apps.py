@@ -22,6 +22,9 @@ class QuantConfig(AppConfig):
         from .algorithms.arbitrage import grid_bot
         grid_bot.start_grid_bot_sync()
 
+        if os.environ.get('RUN_MAIN') != 'true':
+            return
+
         from app.quant.algorithms.arbitrage import config
         pair_index_env = os.getenv('PAIR_INDEX')
         if pair_index_env is not None:

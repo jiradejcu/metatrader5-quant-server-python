@@ -326,6 +326,8 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
 
 # function running new thread
 def start_grid_bot_sync():
+    if os.environ.get('RUN_MAIN') != 'true':
+        return
 
     try:
         PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
