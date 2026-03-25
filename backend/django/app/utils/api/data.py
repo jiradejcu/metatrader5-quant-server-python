@@ -98,3 +98,5 @@ def subscribe_symbol_ticker(symbol: str):
             except Exception as e:
                 logger.error(f"MT5 ticker task error for {symbol}: {e}. Retrying in 1 second...")
                 time.sleep(1)
+        else:
+            time.sleep(1)
