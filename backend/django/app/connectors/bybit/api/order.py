@@ -131,5 +131,5 @@ def get_latest_order_snapshot(symbol):
             "side": latest.get('side'),
         }
     except Exception as e:
-        logger.error(f"Error fetching order snapshot: {e}", exc_info=True)
+        logger.error(f"Error fetching order snapshot: {e}")
         return None
