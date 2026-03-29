@@ -1,116 +1,81 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import "./App.css";
-import { ControlSection } from "./components/control-section";
-import { ActiveUserSection } from "./components/active-user-section";
-import { PriceWatchSection } from "./components/price-watch-section";
-import { CurrentPositionSection } from "./components/current-position-section";
-import { ExposureSection } from "./components/exposure-section";
-import { useAllBots } from "./hooks/all-bot";
+import { useState } from "react";
+import LoginPage from "./pages/Login";
+import DashboardPage from "./pages/Dashboard";
+import { LayoutDashboard, LogOut, Menu, TrendingUp, User, X } from "lucide-react";
 
-function App() {
-  const { 
-    botUrl,
-    botUrl2,
-    botUrl3
-    // ,botUrlDev
-  } = useAllBots()
-  // Now using color theme Intellectual Nonchalance (https://hookagency.com/blog/website-color-schemes-2020/)
+// The Router
+const App: React.FC = () => {
+  const [currentPage, setCurrentPage] = useState<'login' | 'dashboard' | 'settings'>('login');
+  const [isSidebarOpen, setSidebarOpen] = useState(true);
+
+  // Simple routing logic
+  const renderPage = () => {
+    switch(currentPage) {
+      case 'dashboard': return <DashboardPage />;
+      default: return <LoginPage onLogin={() => setCurrentPage('dashboard')} />;
+    }
+  };
+
+  // If on login page, don't show the layout
+  if (currentPage === 'login') {
+    return <LoginPage onLogin={() => setCurrentPage('dashboard')} />;
+  }
+
   return (
-    <div className="p-4 sm:p-8 bg-[#f3f4f6] min-h-screen">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold text-gray-800 mb-6">Arbitrage Bot Health Status</h1>
+    <div className="min-h-screen bg-slate-50 flex">
+      {/* Sidebar Navigation */}
+      <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-slate-900 transition-all duration-300 flex flex-col`}>
+        <div className="p-6 flex items-center gap-3">
+          <TrendingUp className="text-blue-500" />
+          {isSidebarOpen && <span className="text-white font-bold text-lg">MT5 Quant</span>}
+        </div>
 
-        <section className="mt-6 grid gap-6">
-            {/* Cards use standard styling from HTML template */}
-            <div className="card bg-white p-6 rounded-xl shadow-lg border-l-4 border-[#e62739] flex flex-col max-w-3xl max-h-[500px]">
-                <h2 className="text-xl font-semibold text-[#e62739] mb-4">Control Channel</h2>
-                <div className="p-6 pt-2 overflow-y-auto custom-scrollbar scrollbar-red space-y-4">
-                  <ControlSection
-                  apiUrl={botUrl}
-                  />
-                  <ControlSection
-                    apiUrl={botUrl2}
-                  />
-                  <ControlSection
-                    apiUrl={botUrl3}
-                  />
-                  {/* <ControlSection
-                    apiUrl={botUrlDev}
-                  /> */}
-                </div>
+        <nav className="flex-1 px-4 space-y-2 mt-4">
+          <button 
+            onClick={() => setCurrentPage('dashboard')}
+            className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors ${currentPage === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+          >
+            <LayoutDashboard size={20} />
+            {isSidebarOpen && <span>Dashboard</span>}
+          </button>
+        </nav>
+
+        <div className="p-4 border-t border-slate-800">
+          <button 
+            onClick={() => setCurrentPage('login')}
+            className="w-full flex items-center gap-3 p-3 rounded-lg text-slate-400 hover:bg-red-900/20 hover:text-red-400 transition-colors"
+          >
+            <LogOut size={20} />
+            {isSidebarOpen && <span>Logout</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8">
+          <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="text-slate-500">
+            {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
+          </button>
+          <div className="flex items-center gap-4">
+            <div className="text-right hidden sm:block">
+              <div className="text-sm font-bold text-slate-900">Quant Trader</div>
+              <div className="text-xs text-slate-500">Pro Account</div>
             </div>
-
-
-            <div className="card bg-white p-6 rounded-xl shadow-lg border-l-4 border-[#37BCED] flex flex-col max-w-3xl max-h-[200px]">
-                <h2 className="text-xl font-semibold text-[#37BCED] mb-4">Active User</h2>
-                <div className="p-6 pt-2 overflow-y-auto custom-scrollbar scrollbar-blue space-y-4">
-                  <ActiveUserSection
-                    apiUrl={botUrl} 
-                  />
-                  <ActiveUserSection
-                    apiUrl={botUrl2} 
-                  />
-                  <ActiveUserSection
-                    apiUrl={botUrl3} 
-                  />
-                </div>
+            <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center">
+              <User className="text-slate-500" size={20} />
             </div>
+          </div>
+        </header>
 
-            <div className="card bg-white p-6 rounded-xl shadow-lg border-l-4 border-[#A5FF47] flex flex-col max-w-3xl max-h-[340px]">
-                <h2 className="text-xl font-semibold text-[#A5FF47] mb-4">Price Watch Channel</h2>
-                <div className="p-6 pt-2 overflow-y-auto custom-scrollbar scrollbar-green space-y-4">
-                    <PriceWatchSection 
-                      apiUrl={botUrl} 
-                    />
-                    <PriceWatchSection 
-                      apiUrl={botUrl2} 
-                    />
-                    <PriceWatchSection 
-                      apiUrl={botUrl3} 
-                    />
-                </div>
-            </div>
-            
-            <div className="card bg-white p-6 rounded-xl shadow-lg border-l-4 border-[#9068be] flex flex-col w-full max-w-3xl mx-auto overflow-hidden h-[530px]">
-                <h2 className="text-xl font-semibold text-[#9068be] mb-4">Current Positions</h2>
-
-                {/* Scrollable Container */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar scrollbar-purple p-6 flex flex-col items-center space-y-8">
-                    <CurrentPositionSection 
-                      apiUrl={botUrl}
-                    />
-                    <CurrentPositionSection 
-                      apiUrl={botUrl2}
-                    />
-                    <CurrentPositionSection 
-                        apiUrl={botUrl3}
-                    />
-                </div>
-
-                {/* ตกแต่ง Footer */}
-                <div className="p-3 bg-gray-50 text-[10px] text-center text-gray-400 uppercase tracking-widest">
-                  Live Monitor Mode
-                </div>
-            </div>
-
-            <div className="card bg-white p-6 rounded-xl shadow-lg border-l-4 border-[#6ed3cf] flex flex-col max-w-3xl max-h-[200px]">
-              <div className="p-6 pt-2 overflow-y-auto custom-scrollbar scrollbar-cray space-y-4">
-                <h2 className="text-xl font-semibold text-[#6ed3cf] mb-4">Summary</h2>
-                <ExposureSection 
-                  apiUrl={botUrl}
-                />
-                <ExposureSection 
-                  apiUrl={botUrl2}
-                />
-                <ExposureSection 
-                  apiUrl={botUrl3}
-                />
-              </div>
-            </div>
-        </section>
-      </div>
+        <div className="flex-1 overflow-y-auto">
+          {renderPage()}
+        </div>
+      </main>
     </div>
   );
-}
+};
 
 export default App;
