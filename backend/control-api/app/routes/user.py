@@ -9,6 +9,7 @@ from database import db
 from models.user import User
 from werkzeug.security import generate_password_hash, check_password_hash
 from utils.authetication import token_required, roles_allowed
+from utils.redis_client import get_redis_connection
 import jwt
 
 
@@ -145,6 +146,46 @@ def verify_token(current_user):
         "message": "Token is active",
         "user": current_user.to_dict()
     }), 200
+
+@user_bp.route('/logout', methods=['POST'])
+@token_required
+def logout(current_user):
+    """
+    Logout endpoint to blacklist the current token.
+    Requires valid token in Authorization header.
+    """
+    try:
+        # Extract token from Authorization header
+        token = None
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            try:
+                token = auth_header.split(" ")[1]
+            except IndexError:
+                return jsonify({"message": "Token format is 'Bearer <token>'"}), 401
+        
+        if not token:
+            return jsonify({"message": "Token is missing"}), 401
+        
+        # Decode token to get expiration time
+        data = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        exp_timestamp = data.get('exp')
+        
+        # Add token to blacklist with TTL equal to token expiration time
+        redis_conn = get_redis_connection()
+        if exp_timestamp:
+            ttl = exp_timestamp - datetime.datetime.now(timezone.utc).timestamp()
+            if ttl > 0:
+                redis_conn.setex(f"blacklist:{token}", int(ttl), "revoked")
+        
+        return jsonify({
+            "status": "success",
+            "message": f"User {current_user.username} logged out successfully",
+            "user_id": current_user.id
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # Error handler for 401 within this blueprint
 @user_bp.errorhandler(401)
