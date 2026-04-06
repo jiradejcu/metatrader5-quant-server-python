@@ -104,7 +104,7 @@ def login():
     return jsonify({"message": "Invalid username or password"}), 401
 
 @user_bp.route('/me', methods=['GET'])
-@token_required
+@token_required(pass_user= True)
 def get_my_profile(current_user):
     return jsonify({
         "status": "success",
@@ -112,12 +112,12 @@ def get_my_profile(current_user):
     }), 200
 
 @user_bp.route('/users/<string:user_id>', methods=['DELETE'])
-@token_required
+@token_required(pass_user= True)
 @roles_allowed('admin')  # Only admins can delete users
 def delete_user(current_user, user_id):
-    # # Only admins should delete users
-    # if current_user.role != 'admin':
-    #     return jsonify({"message": "Permission denied"}), 403
+    # Only admins should delete users
+    if current_user.role != 'admin':
+        return jsonify({"message": "Permission denied"}), 403
 
     try:
         user = User.query.get(user_id)
@@ -135,7 +135,7 @@ def delete_user(current_user, user_id):
 
 
 @user_bp.route('/verify-token', methods=['GET'])
-@token_required
+@token_required(pass_user= True)
 def verify_token(current_user):
     """
     Endpoint for the frontend to check if the token in localStorage is valid.
@@ -148,7 +148,7 @@ def verify_token(current_user):
     }), 200
 
 @user_bp.route('/logout', methods=['POST'])
-@token_required
+@token_required(pass_user= True)
 def logout(current_user):
     """
     Logout endpoint to blacklist the current token.

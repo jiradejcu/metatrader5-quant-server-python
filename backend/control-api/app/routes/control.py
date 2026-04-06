@@ -8,6 +8,7 @@ import os
 from dotenv import load_dotenv
 from constants.config import PAIRS
 from events.master import event_quants_master_data
+from utils.authetication import token_required
 
 load_dotenv()
 MT5_URL = os.getenv('API_DOMAIN')
@@ -26,6 +27,7 @@ def prepare_json(json_str):
     return json.loads(json_str)
 
 @control_bp.route('/stop-quant', methods=['POST'])
+@token_required()
 def stop_quant_container():
     try:
         client = docker.from_env()
@@ -54,6 +56,7 @@ def stop_quant_container():
         }), 500
 
 @control_bp.route('/get-django-status', methods=['GET'])
+@token_required()
 def get_django_status():
     try:
         client = docker.from_env()
@@ -78,6 +81,7 @@ def get_django_status():
         }), 500
 
 @control_bp.route('/get-arbitrage-summary', methods=['GET'])
+@token_required()
 def get_arbitrage_summary():
     try:
         binance_symbol = PAIRS[PAIR_INDEX]['binance']
@@ -159,6 +163,7 @@ def get_arbitrage_summary():
         return jsonify({"message": f"Server error: {str(e)}", "data": None}), 500
 
 @control_bp.route('/pause-position-sync', methods=['POST'])
+@token_required()
 def handle_pause_position_sync():
     try:
         redis_key = "position_sync_paused_flag"
@@ -184,6 +189,7 @@ def handle_pause_position_sync():
         return jsonify({"message": f"Server error: {str(e)}", "is_paused": None}), 500
 
 @control_bp.route('/pause-grid-bot', methods=['POST'])
+@token_required()
 def handle_pause_grid_bot():
     try:
         redis_key = "grid_bot_paused_flag"
@@ -209,6 +215,7 @@ def handle_pause_grid_bot():
         return jsonify({"message": f"Server error: {str(e)}", "is_paused": None}), 500
 
 @control_bp.route('/user-info', methods=['GET'])
+@token_required()
 def get_active_user_info():
     try:
         api_url = 'https://' + MT5_URL + '/account_info'
@@ -231,6 +238,7 @@ def get_active_user_info():
         }), 500
 
 @control_bp.route('/restart', methods=['POST'])
+@token_required()
 def restart_container():
     try:
         data = request.get_json()
@@ -261,6 +269,7 @@ def restart_container():
         }), 500
 
 @control_bp.route('/set-grid-channel', methods=['POST'])
+@token_required()
 def set_grid_setting_values():
     try:
         data = request.get_json()
@@ -350,5 +359,6 @@ def set_grid_setting_values():
 
 
 @control_bp.route('/stream/quants', methods=['GET'])
+@token_required()
 def stream_quant_master_data():
     return Response(stream_with_context(event_quants_master_data()), mimetype="text/event-stream")
