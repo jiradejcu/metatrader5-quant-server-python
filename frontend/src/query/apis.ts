@@ -1,12 +1,19 @@
 import type { SettingGridProps } from "../interfaces/setting-grid.interface";
 
+// Global helper to get authorization headers
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('access_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token && { 'Authorization': `Bearer ${token}` }),
+  };
+};
+
 export async function pauseDisplay(API_BASE_URL: string): Promise<Response> {
   const url = `${API_BASE_URL}/pause-position-sync`;
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeaders(),
   });
 
   if (!response.ok) {
@@ -20,9 +27,7 @@ export async function pauseGridBot(API_BASE_URL: string): Promise<Response> {
   const url = `${API_BASE_URL}/pause-grid-bot`;
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeaders(),
   });
 
   if (!response.ok) {
@@ -36,9 +41,7 @@ export async function setupGridParameters(API_BASE_URL: string, parameters: Sett
   const url = `${API_BASE_URL}/set-grid-channel`;
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeaders(),
     body: JSON.stringify(parameters),
   });
   
@@ -53,9 +56,7 @@ export async function stopBotService(API_BASE_URL: string): Promise<Response> {
   const url = `${API_BASE_URL}/stop-quant`
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    }
+    headers: getAuthHeaders()
   })
 
   if (!response.ok) {
@@ -69,11 +70,9 @@ export async function restartBotService(API_BASE_URL: string): Promise<Response>
   const url = `${API_BASE_URL}/restart`
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers: getAuthHeaders(),
     body: JSON.stringify({
-    "container": "django"
+      "container": "django"
     })
   })
 
@@ -87,7 +86,8 @@ export async function restartBotService(API_BASE_URL: string): Promise<Response>
 export async function getBotContainerStatus(API_BASE_URL: string): Promise<Response> {
   const url = `${API_BASE_URL}/get-django-status`
   const response = await fetch(url, {
-    method: 'GET'
+    method: 'GET',
+    headers: getAuthHeaders()
   })
 
   if (!response.ok) {
@@ -101,6 +101,7 @@ export async function getArbitrageSummary(API_BASE_URL: string): Promise<Respons
   const url = `${API_BASE_URL}/get-arbitrage-summary`
   const response = await fetch(url, {
     method: 'GET',
+    headers: getAuthHeaders()
   })
 
   if (!response.ok) {
@@ -113,7 +114,8 @@ export async function getArbitrageSummary(API_BASE_URL: string): Promise<Respons
 export async function getActiveUserInfo(API_BASE_URL: string): Promise<Response> {
   const url =`${API_BASE_URL}/user-info`
   const response = await fetch(url, {
-    method: 'GET'
+    method: 'GET',
+    headers: getAuthHeaders()
   })
 
   if (!response.ok) {
