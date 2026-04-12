@@ -18,10 +18,11 @@ grid_data_default = {'upper_diff': 0.0, 'lower_diff': 0.0, 'max_position_size': 
 def get_grid_parameters_data():
         redis_conn = get_redis_connection()
         try:
+                entry_exchange = PAIRS[PAIR_INDEX]['entry']['exchange']
                 entry_symbol = PAIRS[PAIR_INDEX]['entry']['symbol']
                 hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
 
-                entry_key = f"position:{entry_symbol}"
+                entry_key = f"position:{entry_exchange}:{entry_symbol}"
                 grid_parameters_key = f"setting_grid_channel:{entry_symbol}:{hedge_symbol}"
                 result = prepare_json(redis_conn.get(entry_key), entry_data_default)
                 grid_data = prepare_json(redis_conn.get(grid_parameters_key), grid_data_default)

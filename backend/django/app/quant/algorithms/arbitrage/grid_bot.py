@@ -331,6 +331,7 @@ def start_grid_bot_sync():
 
     try:
         PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
+        entry_exchange = config.PAIRS[PAIR_INDEX]['entry']['exchange']
         entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
         hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
         logger.info(f"Starting grid trading process for {entry_symbol} ...")
@@ -338,7 +339,7 @@ def start_grid_bot_sync():
         redis_conn = get_redis_connection()
         pubsub = redis_conn.pubsub()
 
-        price_diff = f"place order of {entry_symbol}"
+        price_diff = f"spread:{entry_exchange}:{entry_symbol}"
         grid_range = f"setting_grid_channel:{entry_symbol}:{hedge_symbol}"
         pubsub.subscribe(price_diff, grid_range)
 

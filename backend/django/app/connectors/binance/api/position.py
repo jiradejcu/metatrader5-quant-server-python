@@ -112,8 +112,8 @@ async def subscribe_position_information(symbol: str):
 async def subscribe_spread_diff(binance_symbol: str, mt5_symbol: str):
     while True:
         try:
-            ticker_binance_key = f"ticker:{binance_symbol}"
-            ticker_mt5_key = f"ticker (MT5):{mt5_symbol}"
+            ticker_binance_key = f"ticker:binance:{binance_symbol}"
+            ticker_mt5_key = f"ticker:mt5:{mt5_symbol}"
 
             raw_ticker_binance = redis_conn.hgetall(ticker_binance_key)
             ticker_binance = raw_ticker_binance if raw_ticker_binance else {}
@@ -129,7 +129,7 @@ async def subscribe_spread_diff(binance_symbol: str, mt5_symbol: str):
             current_upper_diff = round(binance_best_ask - mt5_best_bid,2)
             current_lower_diff = round(binance_best_bid - mt5_best_ask,2)
 
-            grid_bot_boundary_key = f"place order of {binance_symbol}"
+            grid_bot_boundary_key = f"spread:binance:{binance_symbol}"
             redis_conn.set(grid_bot_boundary_key, json.dumps({
                             "current_upper_diff": current_upper_diff,
                             "current_lower_diff": current_lower_diff,

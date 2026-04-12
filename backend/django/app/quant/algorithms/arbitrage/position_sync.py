@@ -27,9 +27,8 @@ def handle_position_update(pubsub):
     try:
         for message in pubsub.listen():
             is_pause = get_pause_status()
-            # If the condition is true, position sync logic is running
             if message['type'] == 'message' and is_pause is None:
-                logger.debug('Position_sync is runing!!')
+                logger.debug('Position Message Received')
                 position_data = json.loads(message['data'])
                 received_symbol = position_data.get('symbol')
                 entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
@@ -104,14 +103,15 @@ def start_position_sync():
         return
     
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
+    entry_exchange = config.PAIRS[PAIR_INDEX]['entry']['exchange']
     entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
     logger.info(f"Starting position sync for {entry_symbol}...")
 
     try:
         redis_conn = get_redis_connection()
         pubsub = redis_conn.pubsub()
-        pubsub.subscribe(f"position:{entry_symbol}")
-        logger.info(f"Subscribed to Redis channel position:{entry_symbol} for position updates.")
+        pubsub.subscribe(f"position:{entry_exchange}:{entry_symbol}")
+        logger.info(f"Subscribed to Redis channel position:{entry_exchange}:{entry_symbol} for position updates.")
         threading.Thread(target=handle_position_update, args=(pubsub,), daemon=True).start()
     except Exception as e:
         logger.error(f"Error while syncing position for {entry_symbol}: {e}", exc_info=True)

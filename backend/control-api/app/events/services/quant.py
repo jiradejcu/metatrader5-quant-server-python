@@ -20,24 +20,26 @@ def get_arbitrage_summary():
     global latest_response_data
     redis_conn = get_redis_connection()
     try:
+        entry_exchange = PAIRS[PAIR_INDEX]['entry']['exchange']
+        hedge_exchange = PAIRS[PAIR_INDEX]['hedge']['exchange']
         entry_symbol = PAIRS[PAIR_INDEX]['entry']['symbol']
         hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
         ratio = RATIO_EXPOSE
 
-        entry_key = f"position:{entry_symbol}"
-        hedge_key = f"position:{hedge_symbol}"
+        entry_key = f"position:{entry_exchange}:{entry_symbol}"
+        hedge_key = f"position:{hedge_exchange}:{hedge_symbol}"
         pause_position_key = "position_sync_paused_flag"
         grid_bot_pause_key = "grid_bot_paused_flag"
 
         redis_conn = get_redis_connection()
 
         entry_result = prepare_json(redis_conn.get(entry_key), position_data_default)
-        logger.info(f"Get redis key: position:{entry_symbol} success")
+        logger.info(f"Get redis key: {entry_key} success")
         hedge_result = prepare_json(redis_conn.get(hedge_key), position_data_default)
-        logger.info(f"Get redis key: position:{hedge_symbol} success")
+        logger.info(f"Get redis key: {hedge_key} success")
         price_diff = prepare_json(redis_conn.get(f"price_comparison:{entry_symbol}:{hedge_symbol}"), {})
 
-        place_order_key = f"place order of {entry_symbol}"
+        place_order_key = f"spread:{entry_exchange}:{entry_symbol}"
         place_order_data = prepare_json(redis_conn.get(place_order_key), {})
 
         pause_position = 'Active'

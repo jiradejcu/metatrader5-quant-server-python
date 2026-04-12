@@ -20,8 +20,8 @@ def health_check_page(request):
     ratio = 1 # edit to 100 after changing contract_size in position_sync
 
     redis_conn = get_redis_connection()
-    entry_key = f"position:{entry_symbol}"
-    hedge_key = f"position:{hedge_symbol}"
+    entry_key = f"position:binance:{entry_symbol}"
+    hedge_key = f"position:mt5:{hedge_symbol}"
     pause_position_key = f"position_sync_paused_flag"
 
     # Retrieve cache data
@@ -86,8 +86,8 @@ def get_arbitrage_summary(request):
         ratio = 1 # edit to 100 after changing contract_size in position_sync
 
         redis_conn = get_redis_connection()
-        entry_key = f"position:{entry_symbol}"
-        hedge_key = f"position:{hedge_symbol}"
+        entry_key = f"position:binance:{entry_symbol}"
+        hedge_key = f"position:mt5:{hedge_symbol}"
         pause_position_key = f"position_sync_paused_flag"
 
         # Retrieve cache data

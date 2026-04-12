@@ -87,7 +87,7 @@ def subscribe_symbol_ticker(symbol: str):
                 ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
                 bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
 
-                ticker_key = f"ticker (MT5):{symbol}"
+                ticker_key = f"ticker:mt5:{symbol}"
                 redis_conn.set(ticker_key, json.dumps({"best_ask": ask, "best_bid": bid}))
                 redis_conn.publish(ticker_key, json.dumps({"best_ask": ask, "best_bid": bid}))
                 redis_conn.expire(ticker_key, 10)

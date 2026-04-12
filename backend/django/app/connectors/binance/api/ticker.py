@@ -39,7 +39,7 @@ async def subscribe_symbol_ticker(symbol: str):
 
             def handle_message(data):
                 nonlocal last_log_time
-                redis_key = f"ticker:{symbol}"
+                redis_key = f"ticker:binance:{symbol}"
                 redis_conn.hset(redis_key, mapping={"best_bid": data.b, "best_ask": data.a})
                 redis_conn.expire(redis_key, 10)
                 
@@ -68,7 +68,7 @@ async def subscribe_symbol_ticker(symbol: str):
                     logger.warning(f"Error while closing connection for {symbol}: {close_err}")
 
 def get_ticker(symbol: str):
-    redis_key = f"ticker:{symbol}"
+    redis_key = f"ticker:binance:{symbol}"
     ticker_data = redis_conn.hgetall(redis_key)
     # logger.debug(f"Fetched ticker data from Redis {redis_key}: {ticker_data}")
     if ticker_data:

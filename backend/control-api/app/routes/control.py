@@ -84,8 +84,8 @@ def get_arbitrage_summary():
         hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
         ratio = RATIO_EXPOSE
 
-        entry_key = f"position:{entry_symbol}"
-        hedge_key = f"position:{hedge_symbol}"
+        entry_key = f"position:{PAIRS[PAIR_INDEX]['entry']['exchange']}:{entry_symbol}"
+        hedge_key = f"position:{PAIRS[PAIR_INDEX]['hedge']['exchange']}:{hedge_symbol}"
         pause_position_key = "position_sync_paused_flag"
 
         redis_conn = get_redis_connection()

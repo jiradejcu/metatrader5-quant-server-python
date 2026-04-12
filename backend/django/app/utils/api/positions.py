@@ -105,7 +105,7 @@ async def subscribe_hedge_position(symbol: str):
         try:
             positions = get_positions()
             positions = positions[positions['symbol'] == symbol]
-            redis_key = f"position:{symbol}"
+            redis_key = f"position:mt5:{symbol}"
 
             if redis_conn.exists(redis_key):
                 redis_conn.delete(redis_key)
@@ -119,7 +119,7 @@ async def subscribe_hedge_position(symbol: str):
                 "positionAmt": "0"
             }
 
-            ticker_hedge_key = f"ticker (MT5):{symbol}"
+            ticker_hedge_key = f"ticker:mt5:{symbol}"
             ticker_hedge_raw = redis_conn.get(ticker_hedge_key)
             ticker_hedge = json.loads(ticker_hedge_raw) if ticker_hedge_raw else {}
             bid = float(ticker_hedge.get('best_bid') or 0.0)

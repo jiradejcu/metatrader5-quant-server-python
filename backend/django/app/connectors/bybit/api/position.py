@@ -97,7 +97,7 @@ async def subscribe_spread_diff(bybit_symbol: str, mt5_symbol: str):
     while True:
         try:
             ticker_bybit_key = f"ticker:bybit:{bybit_symbol}"
-            ticker_mt5_key = f"ticker (MT5):{mt5_symbol}"
+            ticker_mt5_key = f"ticker:mt5:{mt5_symbol}"
 
             raw_ticker_bybit = redis_conn.hgetall(ticker_bybit_key)
             ticker_bybit = raw_ticker_bybit if raw_ticker_bybit else {}
@@ -111,7 +111,7 @@ async def subscribe_spread_diff(bybit_symbol: str, mt5_symbol: str):
             current_upper_diff = round(bybit_best_ask - mt5_best_bid, 2)
             current_lower_diff = round(bybit_best_bid - mt5_best_ask, 2)
 
-            grid_bot_boundary_key = f"place order of bybit:{bybit_symbol}"
+            grid_bot_boundary_key = f"spread:bybit:{bybit_symbol}"
             redis_conn.set(grid_bot_boundary_key, json.dumps({
                 "current_upper_diff": current_upper_diff,
                 "current_lower_diff": current_lower_diff,
