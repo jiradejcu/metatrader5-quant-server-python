@@ -342,6 +342,7 @@ def start_grid_bot_sync():
         price_diff = f"spread:{entry_exchange}:{entry_symbol}"
         grid_range = f"setting_grid_channel:{entry_symbol}:{hedge_symbol}"
         pubsub.subscribe(price_diff, grid_range)
+        logger.info(f"Grid bot subscribed to channels: [{price_diff}], [{grid_range}].")
 
         threading.Thread(
             target=handle_grid_flow,

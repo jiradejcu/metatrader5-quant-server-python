@@ -44,6 +44,7 @@ def clean_val(val):
 
 
 async def subscribe_position_information(symbol: str):
+    logger.info(f"Starting bybit position subscription for {symbol}.")
     while True:
         try:
             response = session.get_positions(category="linear", symbol=symbol)
@@ -94,6 +95,7 @@ async def subscribe_position_information(symbol: str):
 
 
 async def subscribe_spread_diff(bybit_symbol: str, mt5_symbol: str):
+    logger.info(f"Starting bybit spread diff subscription for {bybit_symbol}/{mt5_symbol}.")
     while True:
         try:
             ticker_bybit_key = f"ticker:bybit:{bybit_symbol}"

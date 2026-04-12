@@ -78,11 +78,22 @@ def fetch_data_range(symbol: str, timeframe: MT5Timeframe, from_date: datetime, 
         logger.error(error_msg)
 
 
+STALE_THRESHOLD = 30  # seconds without a tick before logging a warning
+
+
 def subscribe_symbol_ticker(symbol: str):
+    logger.info(f"Starting MT5 ticker subscription for {symbol}.")
+    first_message_received = False
+    last_success_time = time.time()
+
     while True:
         tick = symbol_info_tick(symbol)
 
         if tick is not None and not tick.empty:
+            if not first_message_received:
+                first_message_received = True
+                logger.info(f"First ticker data received from MT5 for {symbol}.")
+            last_success_time = time.time()
             try:
                 ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
                 bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
@@ -99,4 +110,9 @@ def subscribe_symbol_ticker(symbol: str):
                 logger.error(f"MT5 ticker task error for {symbol}: {e}. Retrying in 1 second...")
                 time.sleep(1)
         else:
+            elapsed = time.time() - last_success_time
+            if elapsed > STALE_THRESHOLD:
+                logger.warning(
+                    f"MT5 ticker for {symbol} has been unavailable for {elapsed:.0f}s."
+                )
             time.sleep(1)

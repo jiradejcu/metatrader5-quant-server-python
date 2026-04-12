@@ -29,29 +29,36 @@ async def subscribe_symbol_ticker(symbol: str):
         connection = None
         try:
             connection = await client.websocket_streams.create_connection()
-            # logger.info(f"WebSocket connection for {symbol} ticker established.")
+            logger.info(f"WebSocket connection for {symbol} ticker established.")
 
             stream = await connection.individual_symbol_book_ticker_streams(
                 symbol=symbol,
             )
 
-            last_log_time = 0
+            last_message_time = [time.time()]
+            first_message_received = [False]
 
             def handle_message(data):
-                nonlocal last_log_time
                 redis_key = f"ticker:binance:{symbol}"
                 redis_conn.hset(redis_key, mapping={"best_bid": data.b, "best_ask": data.a})
                 redis_conn.expire(redis_key, 10)
-                
-                current_time = time.time()
-                if current_time - last_log_time >= 1:
-                    # logger.debug(f"Updated Redis {redis_key} -> Best Bid: {data.b}, Best Ask: {data.a}")
-                    last_log_time = current_time
+                last_message_time[0] = time.time()
+                if not first_message_received[0]:
+                    first_message_received[0] = True
+                    logger.info(f"First ticker message received for {symbol} (binance).")
 
             stream.on("message", handle_message)
 
+            STALE_THRESHOLD = 30
+
             while True:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(5)
+                elapsed = time.time() - last_message_time[0]
+                if elapsed > STALE_THRESHOLD:
+                    logger.warning(
+                        f"No ticker message from binance for {symbol} in {elapsed:.0f}s. Reconnecting..."
+                    )
+                    break
 
         except asyncio.CancelledError:
             logger.error(f"WebSocket task for {symbol} cancelled. Closing connection.")

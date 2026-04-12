@@ -34,7 +34,6 @@ def get_positions() -> pd.DataFrame:
         response = requests.get(url, timeout=10)
         end_time = time.time()    # End timing
         duration = end_time - start_time
-        logger.debug(f"Fetched positions in {duration:.2f} seconds")
 
         response.raise_for_status()
         
@@ -100,6 +99,7 @@ def get_position_list_by_symbol(symbol: str) -> List[Dict]:
     return symbol_positions.to_dict('records')
 
 async def subscribe_hedge_position(symbol: str):
+    logger.info(f"Starting MT5 hedge position subscription for {symbol}.")
     redis_conn = get_redis_connection()
     while True:
         try:

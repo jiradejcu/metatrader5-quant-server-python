@@ -23,12 +23,13 @@ def get_pause_status():
 def handle_position_update(pubsub):
     global latest_update
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
+    entry_exchange = config.PAIRS[PAIR_INDEX]['entry']['exchange']
+    hedge_exchange = config.PAIRS[PAIR_INDEX]['hedge']['exchange']
     contract_size = Decimal(os.getenv('CONTRACT_SIZE'))
     try:
         for message in pubsub.listen():
             is_pause = get_pause_status()
             if message['type'] == 'message' and is_pause is None:
-                logger.debug('Position Message Received')
                 position_data = json.loads(message['data'])
                 received_symbol = position_data.get('symbol')
                 entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
@@ -36,15 +37,13 @@ def handle_position_update(pubsub):
                     logger.debug(f"Ignoring position update for symbol {received_symbol}. Expected {entry_symbol}.")
                     continue
                 position_amt = Decimal(str(position_data.get('positionAmt', '0')))
-                # position_amt = Decimal(str(position_data.get('positionAmt', '0'))) * contract_size # mock up Binance position amount
+                # position_amt = Decimal(str(position_data.get('positionAmt', '0'))) * contract_size # mock up position amount
                 entry_price = Decimal(str(position_data.get('entryPrice', '0')))
                 mark_price = Decimal(str(position_data.get('markPrice', '0')))
-                unrealized_profit = Decimal(str(position_data.get('unRealizedProfit', '0')))
 
                 logger.debug(
-                    f"Binance Position for {received_symbol} - "
-                    f"Amount: {position_amt}, Entry Price: {entry_price}"
-                    f", Mark Price: {mark_price}, Unrealized Profit: {unrealized_profit}"
+                    f"Entry Position {entry_exchange}:{entry_symbol} - "
+                    f"Amount: {position_amt}, Entry Price: {entry_price}, Mark Price: {mark_price}"
                 )
                 
                 hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
@@ -62,9 +61,8 @@ def handle_position_update(pubsub):
                         latest_update = None
 
                 logger.debug(
-                    f"Hedge Position for {hedge_symbol} - "
-                    f"Volume: {hedge_volume}"
-                    f", Time Update: {hedge_time_update}"
+                    f"Hedge Position {hedge_exchange}:{hedge_symbol} - "
+                    f"Volume: {hedge_volume}, Time Update: {hedge_time_update}"
                 )
 
                 discrepancy = position_amt + hedge_volume * contract_size
