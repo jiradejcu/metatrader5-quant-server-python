@@ -83,7 +83,7 @@ async def subscribe_position_information(symbol: str):
                 if redis_conn.exists(redis_key):
                     redis_conn.delete(redis_key)
 
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)
 
         except asyncio.CancelledError:
             logger.error(f"Position task for {symbol} cancelled.")
@@ -124,7 +124,7 @@ async def subscribe_spread_diff(bybit_symbol: str, mt5_symbol: str):
             }))
             redis_conn.expire(grid_bot_boundary_key, 10)
 
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)
         except asyncio.CancelledError:
             logger.error(f"Spread diff task for {bybit_symbol}/{mt5_symbol} cancelled.")
             break

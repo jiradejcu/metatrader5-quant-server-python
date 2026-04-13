@@ -144,7 +144,7 @@ async def subscribe_hedge_position(symbol: str):
             redis_conn.publish(redis_key, data)
             redis_conn.expire(redis_key, 10)
 
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)
         except asyncio.CancelledError:
             logger.error(f"Hedge position subscription for {symbol} cancelled.")
             break

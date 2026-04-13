@@ -102,7 +102,7 @@ def subscribe_symbol_ticker(symbol: str):
                 redis_conn.set(ticker_key, json.dumps({"best_ask": ask, "best_bid": bid}))
                 redis_conn.publish(ticker_key, json.dumps({"best_ask": ask, "best_bid": bid}))
                 redis_conn.expire(ticker_key, 10)
-                time.sleep(0.1)
+                time.sleep(0.2)
             except asyncio.CancelledError:
                 logger.error(f"MT5 ticker task for {symbol} cancelled.")
                 break
