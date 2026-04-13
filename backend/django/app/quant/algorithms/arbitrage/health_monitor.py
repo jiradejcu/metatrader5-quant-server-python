@@ -46,6 +46,9 @@ def _check_loop(entry_exchange: str, entry_symbol: str, hedge_symbol: str):
             labels = ", ".join(keys[k] for k in still_unhealthy)
             logger.warning(f"SUBSCRIPTIONS STILL UNHEALTHY: {labels}.")
 
+        if not unhealthy:
+            logger.info("Health monitor OK — all subscriptions healthy.")
+
         previously_unhealthy = unhealthy
         time.sleep(CHECK_INTERVAL)
 
