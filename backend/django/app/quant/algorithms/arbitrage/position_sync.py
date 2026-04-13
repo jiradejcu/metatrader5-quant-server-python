@@ -88,6 +88,8 @@ def handle_position_update(pubsub):
 
                     if order:
                         latest_update = hedge_time_update
+                        redis_conn = get_redis_connection()
+                        redis_conn.delete(f"position:mt5:{hedge_symbol}")
                 else:
                     logger.debug(f"No significant discrepancy for {received_symbol}. No action taken.")
 
