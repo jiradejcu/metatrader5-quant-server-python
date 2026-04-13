@@ -39,10 +39,11 @@ def handle_position_update(pubsub):
                 # position_amt = Decimal(str(position_data.get('positionAmt', '0'))) * contract_size # mock up position amount
                 entry_price = Decimal(str(position_data.get('entryPrice', '0')))
                 mark_price = Decimal(str(position_data.get('markPrice', '0')))
+                update_time = position_data.get('updateTime', None)
 
                 logger.debug(
                     f"Entry Position {entry_exchange}:{entry_symbol} - "
-                    f"Amount: {position_amt}, Entry Price: {entry_price}, Mark Price: {mark_price}"
+                    f"Amount: {position_amt}, Entry Price: {entry_price}, Mark Price: {mark_price}, Update Time: {update_time}"
                 )
 
                 hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
