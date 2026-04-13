@@ -74,7 +74,7 @@ def get_position_by_symbol(symbol: str) -> Dict:
 
     positions_df = get_positions()
     symbol_positions = positions_df[positions_df['symbol'] == symbol]
-    latest_update = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+    latest_update = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
     if symbol_positions.empty:
         return {
@@ -110,7 +110,7 @@ async def subscribe_hedge_position(symbol: str):
             if redis_conn.exists(redis_key):
                 redis_conn.delete(redis_key)
 
-            now = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+            now = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
             result = {
                 "time_update": now,
                 "entryPrice": "0",

@@ -78,7 +78,7 @@ async def subscribe_position_information(symbol: str):
                     position_data = symbol_open_position_df.iloc[0].to_dict()
                     
                     thailand_tz = timezone(timedelta(hours=7))
-                    latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S")
+                    latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
                     position_data['updateTime'] = latest_update
                     
                     # Save data into redis

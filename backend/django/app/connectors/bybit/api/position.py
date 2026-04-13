@@ -64,7 +64,7 @@ async def subscribe_position_information(symbol: str):
 
             if open_position:
                 thailand_tz = timezone(timedelta(hours=7))
-                latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S")
+                latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
                 position_data = {
                     "symbol": open_position.get('symbol'),
