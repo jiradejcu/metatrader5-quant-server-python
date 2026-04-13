@@ -10,7 +10,6 @@ from app.utils.api.positions import get_position_by_symbol as get_hedge_position
 from app.utils.api.order import send_market_order
 
 logger = logging.getLogger(__name__)
-# contract_size = Decimal('100')
 
 latest_update = None
 
