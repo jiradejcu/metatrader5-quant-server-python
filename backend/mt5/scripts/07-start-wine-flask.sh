@@ -9,6 +9,8 @@ log_message "INFO" "Starting Flask server in Wine environment..."
 while true; do
     if [ "${DEBUGPY_ENABLED:-false}" = "true" ]; then
         log_message "INFO" "Starting with debugpy on 0.0.0.0:5678..."
+        pkill -f "debugpy.adapter" 2>/dev/null || true
+        sleep 1
         wine python -m debugpy --listen 0.0.0.0:5678 /app/app.py
     else
         wine python /app/app.py
