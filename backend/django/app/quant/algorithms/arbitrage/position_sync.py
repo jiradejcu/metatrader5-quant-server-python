@@ -26,8 +26,8 @@ def handle_position_update(pubsub):
     entry_exchange = config.PAIRS[PAIR_INDEX]['entry']['exchange']
     hedge_exchange = config.PAIRS[PAIR_INDEX]['hedge']['exchange']
     contract_size = Decimal(os.getenv('CONTRACT_SIZE'))
-    try:
-        for message in pubsub.listen():
+    for message in pubsub.listen():
+        try:
             is_pause = get_pause_status()
             if message['type'] == 'message' and is_pause is None:
                 position_data = json.loads(message['data'])
@@ -45,7 +45,7 @@ def handle_position_update(pubsub):
                     f"Entry Position {entry_exchange}:{entry_symbol} - "
                     f"Amount: {position_amt}, Entry Price: {entry_price}, Mark Price: {mark_price}"
                 )
-                
+
                 hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
                 hedge_position = get_hedge_position(hedge_symbol)
 
@@ -71,30 +71,30 @@ def handle_position_update(pubsub):
                     f"Entry Amount: {position_amt}, Hedge Volume: {hedge_volume}. "
                     f"Position Size Difference: {discrepancy}."
                 )
-                
+
                 order_amt = Decimal(int(-discrepancy))
-                
+
                 if abs(order_amt) >= Decimal('1.00'):
                     logger.info(
                         f"Discrepancy detected for {received_symbol}. "
                         f"Placing order to adjust by {order_amt}."
                     )
-                    
+
                     order = send_market_order(
                         symbol=hedge_symbol,
                         volume=abs(order_amt / contract_size),
                         order_type='BUY' if order_amt > 0 else 'SELL',
                     )
-                    
+
                     if order:
                         latest_update = hedge_time_update
                 else:
                     logger.debug(f"No significant discrepancy for {received_symbol}. No action taken.")
-                
+
             time.sleep(0.1)
 
-    except Exception as e:
-        logger.error(f"Error processing position update: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Error processing position update: {e}", exc_info=True)
 
 def start_position_sync():
     if os.environ.get('RUN_MAIN') != 'true':
