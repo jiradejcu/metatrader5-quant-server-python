@@ -82,6 +82,11 @@ def close_position_endpoint():
             return jsonify({"error": "MT5 busy, try again"}), 503
         try:
             result = close_position(data['position'])
+            if result is not None:
+                total = mt5.positions_total()
+                if total is not None:
+                    raw = mt5.positions_get() if total > 0 else []
+                    state.update_positions([p._asdict() for p in raw] if raw else [])
         finally:
             state.mt5_lock.release()
 
@@ -162,6 +167,10 @@ def close_all_positions_endpoint():
             return jsonify({"error": "MT5 busy, try again"}), 503
         try:
             results = close_all_positions(order_type, magic)
+            total = mt5.positions_total()
+            if total is not None:
+                raw = mt5.positions_get() if total > 0 else []
+                state.update_positions([p._asdict() for p in raw] if raw else [])
         finally:
             state.mt5_lock.release()
 
@@ -255,6 +264,11 @@ def modify_sl_tp_endpoint():
             return jsonify({"error": "MT5 busy, try again"}), 503
         try:
             result = mt5.order_send(request_data)
+            if result.retcode == mt5.TRADE_RETCODE_DONE:
+                total = mt5.positions_total()
+                if total is not None:
+                    raw = mt5.positions_get() if total > 0 else []
+                    state.update_positions([p._asdict() for p in raw] if raw else [])
         finally:
             state.mt5_lock.release()
 

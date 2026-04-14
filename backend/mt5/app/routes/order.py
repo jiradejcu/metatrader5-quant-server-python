@@ -127,6 +127,12 @@ def send_market_order_endpoint():
             logger.info(f"Order Request Data: {request_data}")
 
             result = mt5.order_send(request_data)
+
+            # Immediately refresh positions cache so the next poll isn't stale
+            total = mt5.positions_total()
+            if total is not None:
+                raw = mt5.positions_get() if total > 0 else []
+                state.update_positions([p._asdict() for p in raw] if raw else [])
         finally:
             state.mt5_lock.release()
 
