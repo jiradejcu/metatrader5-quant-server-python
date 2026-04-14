@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify
 import MetaTrader5 as mt5
 from flasgger import swag_from
 import logging
+import state
 
 symbol_bp = Blueprint('symbol', __name__)
 logger = logging.getLogger(__name__)
@@ -43,12 +44,11 @@ def get_symbol_info_tick_endpoint(symbol):
     ---
     description: Retrieve the latest tick information for a given symbol.
     """
-    tick = mt5.symbol_info_tick(symbol)
+    state.register_symbol(symbol)
+    tick = state.get_tick(symbol)
     if tick is None:
         return jsonify({"error": "Failed to get symbol tick info"}), 404
-    
-    tick_dict = tick._asdict()
-    return jsonify(tick_dict)
+    return jsonify(tick)
 
 @symbol_bp.route('/symbol_info/<symbol>', methods=['GET'])
 @swag_from({

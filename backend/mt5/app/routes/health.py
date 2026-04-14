@@ -30,10 +30,10 @@ def health_check():
       200:
         description: Health check successful
     """
-    initialized = mt5.initialize() if mt5 is not None else False
+    initialized = mt5.terminal_info() is not None
     return jsonify({
         "status": "healthy",
-        "mt5_connected": mt5 is not None,
+        "mt5_connected": initialized,
         "mt5_initialized": initialized
     }), 200
 
@@ -57,10 +57,10 @@ def health_check():
 })
 def get_account_info():
     try:
-        if not mt5.initialize():
-            print("initialize() failed, error code =",mt5.last_error())
-        account_info = mt5.account_info()._asdict()
-
+        account_info = mt5.account_info()
+        if account_info is None:
+            return jsonify({'status': 'error', 'reason': 'Failed to get account info'}), 500
+        account_info = account_info._asdict()
         return jsonify({
             'status': 'successful',
             'login': account_info['login'],
