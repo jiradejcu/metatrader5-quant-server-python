@@ -14,7 +14,6 @@ MT5_URL = os.getenv('API_DOMAIN')
 BINANCE_KEY = os.getenv('API_KEY_BINANCE')
 HOLDER_NAME = os.getenv('HOLDER_NAME')
 PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-RATIO_EXPOSE= int(os.getenv('CONTRACT_SIZE'))
 
 logger = logging.getLogger(__name__)
 control_bp = Blueprint('control', __name__)
@@ -82,7 +81,7 @@ def get_arbitrage_summary():
     try:
         entry_symbol = PAIRS[PAIR_INDEX]['entry']['symbol']
         hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
-        ratio = RATIO_EXPOSE
+        ratio = PAIRS[PAIR_INDEX]['contract_size']
 
         entry_key = f"position:{PAIRS[PAIR_INDEX]['entry']['exchange']}:{entry_symbol}"
         hedge_key = f"position:{PAIRS[PAIR_INDEX]['hedge']['exchange']}:{hedge_symbol}"

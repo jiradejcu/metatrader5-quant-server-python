@@ -64,8 +64,8 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
     global last_acted_order_id, optimistic_dirty_time
     global order_snapshot
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-    CONTRACT_SIZE = int(os.getenv('CONTRACT_SIZE'))
-    MINIMUM_TRADE_AMOUNT = int(os.getenv('MINIMUM_TRADE_AMOUNT'))
+    CONTRACT_SIZE = config.PAIRS[PAIR_INDEX]['contract_size']
+    MINIMUM_TRADE_AMOUNT = config.PAIRS[PAIR_INDEX]['minimum_trade_amount']
     entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
 
     # --- Initial Fetch for Grid Settings ---

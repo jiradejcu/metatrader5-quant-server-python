@@ -24,7 +24,7 @@ def handle_position_update(pubsub):
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
     entry_exchange = config.PAIRS[PAIR_INDEX]['entry']['exchange']
     hedge_exchange = config.PAIRS[PAIR_INDEX]['hedge']['exchange']
-    contract_size = Decimal(os.getenv('CONTRACT_SIZE'))
+    contract_size = Decimal(config.PAIRS[PAIR_INDEX]['contract_size'])
     for message in pubsub.listen():
         try:
             is_pause = get_pause_status()

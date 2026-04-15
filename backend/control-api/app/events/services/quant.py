@@ -10,7 +10,6 @@ from utils.prepare_json import prepare_json
 
 load_dotenv()
 PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-RATIO_EXPOSE= int(os.getenv('CONTRACT_SIZE'))
 logger = logging.getLogger(__name__)
 
 position_data_default = {'positionAmt': 0, 'markPrice': 0, 'unRealizedProfit': 0, 'time_update': None, 'updateTime': None}
@@ -24,7 +23,7 @@ def get_arbitrage_summary():
         hedge_exchange = PAIRS[PAIR_INDEX]['hedge']['exchange']
         entry_symbol = PAIRS[PAIR_INDEX]['entry']['symbol']
         hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
-        ratio = RATIO_EXPOSE
+        ratio = PAIRS[PAIR_INDEX]['contract_size']
 
         entry_key = f"position:{entry_exchange}:{entry_symbol}"
         hedge_key = f"position:{hedge_exchange}:{hedge_symbol}"
