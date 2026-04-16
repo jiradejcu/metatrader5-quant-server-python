@@ -68,17 +68,17 @@ const PairDetails = (arg: IPairDetails) => {
   ];
 
   return (
-    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 max-w-md">
-      <ul className="divide-y divide-gray-100">
+    <div className="bg-white dark:bg-gray-700/50 p-4 rounded-lg shadow-sm border border-gray-100 dark:border-gray-600 max-w-md w-full">
+      <ul className="divide-y divide-gray-100 dark:divide-gray-600">
         {dataRows.map((row, index) => (
           <li key={index} className="py-2.5 flex justify-between items-start text-sm">
-            <span className="text-gray-500 font-medium">{row.label}</span>
+            <span className="text-gray-500 dark:text-gray-400 font-medium">{row.label}</span>
             <div className="text-right">
-              <span className={`block ${row.valueClass || 'text-gray-900'}`}>
+              <span className={`block ${row.valueClass || 'text-gray-900 dark:text-gray-100'}`}>
                 {row.value}
               </span>
               {row.subValue && (
-                <span className="text-[10px] text-gray-400 block mt-0.5 uppercase">
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 block mt-0.5 uppercase">
                   {row.subValue}
                 </span>
               )}
@@ -132,7 +132,7 @@ export const CurrentPositionSection = (arg: ICardSection) => {
     }
     return (
         <div className="w-full max-w-md">
-            <h2 className="text-lg font-bold mb-4">
+            <h2 className="text-sm font-bold mb-3 text-gray-800 dark:text-gray-100">
                 {activeUser?.name}
             </h2>
             <PairDetails {...input_pair_data} />

@@ -16,8 +16,8 @@ export const ExposureSection = (arg: ICardSection) => {
     }
     return (
         <>
-            <h3>{activeUser?.name}</h3>
-            <p>Net Expose: {netExpose} ({netExposeAction})</p>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">{activeUser?.name}</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Net Expose: {netExpose} ({netExposeAction})</p>
         </>
     )
 }
