@@ -36,11 +36,11 @@ export const PriceWatchSection = (arg: ICardSection) => {
     const { apiUrl } = arg
     const { 
       isLoading,
-      binanceSymbol,
-      mt5Symbol,
+      entrySymbol,
+      hedgeSymbol,
       spread,
-      binanceMarkPrice,
-      mt5MarkPrice
+      entryMarkPrice,
+      hedgeMarkPrice
     } = useGetSummaryStreamData(apiUrl)
     
     if (isLoading) {
@@ -53,21 +53,21 @@ export const PriceWatchSection = (arg: ICardSection) => {
             <div className="space-y-4">
                 <div className="flex justify-between items-end">
                     <div>
-                    <p className="text-[10px] font-bold text-blue-500 uppercase tracking-tighter">Binance</p>
-                    <p className="text-sm font-medium text-slate-600">{binanceSymbol}</p>
+                    <p className="text-[10px] font-bold text-blue-500 uppercase tracking-tighter">Entry Symbol</p>
+                    <p className="text-sm font-medium text-slate-600">{entrySymbol}</p>
                     </div>
                     <span className="font-mono text-slate-900 font-bold text-base tracking-tight">
-                    {binanceMarkPrice.toFixed(2)}
+                    {entryMarkPrice.toFixed(2)}
                     </span>
                 </div>
                 
                 <div className="flex justify-between items-end">
                     <div>
-                    <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-tighter">MetaTrader 5</p>
-                    <p className="text-sm font-medium text-slate-600">{mt5Symbol}</p>
+                    <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-tighter">Hedge Symbol</p>
+                    <p className="text-sm font-medium text-slate-600">{hedgeSymbol}</p>
                     </div>
                     <span className="font-mono text-slate-900 font-bold text-base tracking-tight">
-                    {mt5MarkPrice.toFixed(2)}
+                    {hedgeMarkPrice.toFixed(2)}
                     </span>
                 </div>
             </div>

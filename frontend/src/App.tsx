@@ -79,7 +79,7 @@ function App() {
                       apiUrl={botUrl2}
                     />
                     <CurrentPositionSection 
-                        apiUrl={botUrl3}
+                      apiUrl={botUrl3}
                     />
                 </div>
 
