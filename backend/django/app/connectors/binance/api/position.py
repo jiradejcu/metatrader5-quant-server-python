@@ -4,7 +4,6 @@ import asyncio
 import pandas as pd
 import json
 from app.utils.redis_client import get_redis_connection
-from app.utils.api.positions import get_positions as get_mt5_position
 from app.utils.api.data import symbol_info_tick
 from dotenv import load_dotenv
 from decimal import Decimal
@@ -73,13 +72,13 @@ async def subscribe_position_information(symbol: str):
                 df['positionAmt'] = pd.to_numeric(df['positionAmt'])
                 symbol_open_position_df = df[(df['symbol'] == symbol)]
 
-                redis_key = f"position:{symbol}"
+                redis_key = f"position:binance:{symbol}"
 
                 if not symbol_open_position_df.empty:
                     position_data = symbol_open_position_df.iloc[0].to_dict()
                     
                     thailand_tz = timezone(timedelta(hours=7))
-                    latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S")
+                    latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
                     position_data['updateTime'] = latest_update
                     
                     # Save data into redis
@@ -93,7 +92,7 @@ async def subscribe_position_information(symbol: str):
                         redis_conn.delete(redis_key)
                         # logger.debug(f"Deleted Redis key {redis_key} as no position data found for {symbol}.")
 
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.2)
 
         except asyncio.CancelledError:
             logger.error(f"WebSocket task for {symbol} position cancelled. Closing connection.")
@@ -109,76 +108,12 @@ async def subscribe_position_information(symbol: str):
                 except Exception as close_err:
                     logger.warning(f"Error while closing connection for {symbol}: {close_err}")
 
-async def subscribe_position_mt5_information(symbol: str):
-    while True:
-        try:
-            mt5_symbol = symbol
-            # todo: if user has two symbols, we must write more code to filter using only mt5_symbol attribute
-            # add map filter position.symbol to select only match with mt5_symbol, now considering all
-            positions = get_mt5_position()
-            positions = positions[positions['symbol'] == mt5_symbol]
-            redis_key = f"position: {mt5_symbol}"
-
-            if redis_conn.exists(redis_key):
-                redis_conn.delete(redis_key)
-                # logger.debug(f"Delete Redis key {redis_key} as no position data found for {symbol}.")
-            
-            now = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S") # use UTC(+7) Thailand time zone
-            result = {
-                "time_update": now,
-                "entryPrice": "0",
-                "markPrice": "0",
-                "unRealizedProfit": "0",
-                "positionAmt": "0"
-            }
-
-            ticker_mt5_key = f"ticker (MT5):{mt5_symbol}"
-            ticker_mt5 = prepare_json(redis_conn.get(ticker_mt5_key), {})
-            bid = clean_val(ticker_mt5.get('best_bid'))
-            ask = clean_val(ticker_mt5.get('best_ask'))
-            # todo refactor and if this logic is wrong, fixing it (How to select between bid and ask to be a mark price)
-            result["markPrice"] = ask
-
-            if not positions.empty:
-                # Handling logic before calculating average
-                positions['cal_type'] = positions['type'].apply(lambda x: -1 if x == 1 else 1)
-                positions['cal_volume'] = positions['volume'] * positions['cal_type']
-                
-                total_volume = float(positions['cal_volume'].sum())
-                # todo handle case when fully hedging working and you add one more position without closing fully hedge (MT5)
-                weighted_entry = float((positions['price_open'] * positions['cal_volume']).sum() / positions['cal_volume'].sum()) if total_volume != 0.0 else 0
-                total_profit = 0 if total_volume == 0.0 else float(positions['profit'].sum())
-                mark_price = float(ask if total_volume < 0 else bid)
-                
-                # logger.debug(f"Set new data for {redis_key}")
-
-                result["entryPrice"] = f"{weighted_entry:.3f}"
-                result["markPrice"] = f"{mark_price:.3f}"
-                result["unRealizedProfit"] = f"{total_profit:.2f}"
-                result["positionAmt"] = f"{total_volume:.3f}"
-
-            # Save data into redis
-            data = json.dumps(result, cls=json_encoder)
-            redis_conn.set(redis_key, data)
-            redis_conn.publish(redis_key, data)
-            redis_conn.expire(redis_key, 10)
-
-            # logger.debug(f"Updated Redis {redis_key} success")
-                
-            await asyncio.sleep(0.1)
-        except asyncio.CancelledError:
-            logger.error(f"MT5 position info task for {symbol} cancelled.")
-            break
-        except Exception as e:
-            logger.error(f"MT5 position info error for {symbol}: {e}. Retrying in 5 seconds...")
-            await asyncio.sleep(1)
-
 
 async def subscribe_spread_diff(binance_symbol: str, mt5_symbol: str):
     while True:
         try:
-            ticker_binance_key = f"ticker:{binance_symbol}"
-            ticker_mt5_key = f"ticker (MT5):{mt5_symbol}"
+            ticker_binance_key = f"ticker:binance:{binance_symbol}"
+            ticker_mt5_key = f"ticker:mt5:{mt5_symbol}"
 
             raw_ticker_binance = redis_conn.hgetall(ticker_binance_key)
             ticker_binance = raw_ticker_binance if raw_ticker_binance else {}
@@ -194,7 +129,7 @@ async def subscribe_spread_diff(binance_symbol: str, mt5_symbol: str):
             current_upper_diff = round(binance_best_ask - mt5_best_bid,2)
             current_lower_diff = round(binance_best_bid - mt5_best_ask,2)
 
-            grid_bot_boundary_key = f"place order of {binance_symbol}"
+            grid_bot_boundary_key = f"spread:binance:{binance_symbol}"
             redis_conn.set(grid_bot_boundary_key, json.dumps({
                             "current_upper_diff": current_upper_diff,
                             "current_lower_diff": current_lower_diff,
@@ -205,7 +140,7 @@ async def subscribe_spread_diff(binance_symbol: str, mt5_symbol: str):
             }))
             redis_conn.expire(grid_bot_boundary_key, 10)
 
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)
         except asyncio.CancelledError:
             logger.error(f"Spread diff task for {binance_symbol}/{mt5_symbol} cancelled.")
             break
@@ -215,7 +150,7 @@ async def subscribe_spread_diff(binance_symbol: str, mt5_symbol: str):
 
 
 def get_position(symbol: str):
-    redis_key = f"position:{symbol}"
+    redis_key = f"position:binance:{symbol}"
     position_data = redis_conn.get(redis_key)
     if position_data:
         return json.loads(position_data)

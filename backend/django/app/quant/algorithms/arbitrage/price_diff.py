@@ -16,52 +16,52 @@ redis_conn = get_redis_connection()
         
 def compare():
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-    binance_symbol = config.PAIRS[PAIR_INDEX]['binance']
-    mt5_symbol = config.PAIRS[PAIR_INDEX]['mt5']
+    entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
+    hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
     
-    binance_ticker = get_ticker(binance_symbol)
-    mt5_tick = symbol_info_tick(mt5_symbol)
-    
-    if binance_ticker is None:
-        logger.warning(f"No binance ticker data for {binance_symbol} in Redis")
+    entry_ticker = get_ticker(entry_symbol)
+    hedge_tick = symbol_info_tick(hedge_symbol)
+
+    if entry_ticker is None:
+        logger.warning(f"No entry ticker data for {entry_symbol} in Redis")
         return
-        
-    if mt5_tick is None or mt5_tick.empty:
-        logger.warning(f"No MT5 tick data for {mt5_symbol}")
+
+    if hedge_tick is None or hedge_tick.empty:
+        logger.warning(f"No hedge tick data for {hedge_symbol}")
         return
 
     try:
-        binance_ask = Decimal(binance_ticker['best_ask'])
-        binance_bid = Decimal(binance_ticker['best_bid'])
-        
-        mt5_ask = Decimal(str(mt5_tick.ask[0]))
-        mt5_bid = Decimal(str(mt5_tick.bid[0]))
+        entry_ask = Decimal(entry_ticker['best_ask'])
+        entry_bid = Decimal(entry_ticker['best_bid'])
+
+        hedge_ask = Decimal(str(hedge_tick.ask[0]))
+        hedge_bid = Decimal(str(hedge_tick.bid[0]))
     except (KeyError, IndexError, AttributeError) as e:
-        logger.error(f"Error parsing ticker data for {binance_symbol}/{mt5_symbol}: {e}")
+        logger.error(f"Error parsing ticker data for {entry_symbol}/{hedge_symbol}: {e}")
         return
-    
+
     percent_change_premium = None
     percent_change_discount = None
-    
+
     try:
-        percent_change_premium = (binance_ask - mt5_ask) / mt5_ask * Decimal('100')
-        percent_change_discount = (binance_bid - mt5_bid) / mt5_bid * Decimal('100')
+        percent_change_premium = (entry_ask - hedge_ask) / hedge_ask * Decimal('100')
+        percent_change_discount = (entry_bid - hedge_bid) / hedge_bid * Decimal('100')
         
     except Exception as e:
-        logger.exception(f"Error calculating percent change for {binance_symbol} and {mt5_symbol}: {e}")
+        logger.exception(f"Error calculating percent change for {entry_symbol} and {hedge_symbol}: {e}")
         return
 
     result = {
-        "binance_symbol": binance_symbol,
-        "mt5_symbol": mt5_symbol,
+        "entry_symbol": entry_symbol,
+        "hedge_symbol": hedge_symbol,
         "percent_change_premium": str(percent_change_premium),
         "percent_change_discount": str(percent_change_discount)
     }
     
-    logger.info(f"Price comparison for {binance_symbol} and {mt5_symbol}: {result}")
+    logger.info(f"Price comparison for {entry_symbol} and {hedge_symbol}: {result}")
     
     try:
-        redis_key = f"price_comparison:{binance_symbol}:{mt5_symbol}"
+        redis_key = f"price_comparison:{entry_symbol}:{hedge_symbol}"
         redis_conn.set(redis_key, json.dumps(result))
         redis_conn.expire(redis_key, 10)
         

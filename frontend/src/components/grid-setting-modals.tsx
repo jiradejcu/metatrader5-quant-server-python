@@ -27,8 +27,8 @@ export const GridSettingModal = (
         current_upper_diff, 
         current_lower_diff, 
         gridBotStatus, 
-        time_update_binance: time_update, 
-        binanceSymbol  
+        time_update_entry: time_update, 
+        entrySymbol  
     } = useGetSummaryStreamData(url)
 
     const setupGridMutation = useMutation({
@@ -128,7 +128,7 @@ export const GridSettingModal = (
                                 <div className="mt-2 inline-block px-4 py-2 bg-slate-100 rounded-3xl">
                                     <div className="flex flex-col items-center justify-center space-y-0.5">
                                         <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">
-                                            Symbol: <span className="text-[#FFC640]">{binanceSymbol}</span> 
+                                            Symbol: <span className="text-[#FFC640]">{entrySymbol}</span> 
                                         </p>
 
                                         <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">

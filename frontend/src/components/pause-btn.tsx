@@ -3,71 +3,59 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { pauseDisplay } from '../query/apis';
 import { SECOND } from '../constant/time';
 import type { IDokcerAPIBtnProps } from '../interfaces/ button-docker.interface';
+import { useGetSummaryStreamData } from '../hooks/summary';
 
 function PausePositionBtn({ url }: IDokcerAPIBtnProps) {
   const queryClient = useQueryClient();
+  const { pausePositionSync } = useGetSummaryStreamData(url);
+  const isPaused = pausePositionSync !== 'Active';
 
   const pauseMutation = useMutation({
     mutationFn: (url: string) => pauseDisplay(url),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['arbitrageSummary'] });
-      
-      // revert the button state after 1.5 seconds
-      setTimeout(() => {
-        pauseMutation.reset();
-      }, 2 * SECOND);
+      setTimeout(() => pauseMutation.reset(), 2 * SECOND);
     },
     onError: (error: any) => {
-      console.error('Error pausing display:', error);
-
-      setTimeout(() => {
-        pauseMutation.reset();
-      }, 4 * SECOND);
+      console.error('Error toggling position sync:', error);
+      setTimeout(() => pauseMutation.reset(), 4 * SECOND);
     },
   });
 
-  const handlePause = () => {
-    pauseMutation.mutate(url); 
-  };
-
-  // Derive all UI states directly from the mutation object
-  let btnText = 'Pause position sync toggle';
-  let btnClasses = "mt-4 font-semibold py-2 px-4 rounded transition duration-200 border ";
-  let message = "";
-  let messageClass = "mt-2 h-5 text-sm font-semibold ";
+  const label = isPaused ? 'Resume Position Sync' : 'Pause Position Sync';
+  let btnClass = 'w-full mt-3 py-2 px-4 rounded-lg font-semibold text-sm transition-all duration-200 ';
+  let statusText = '';
+  let statusClass = 'mt-1 h-4 text-xs font-medium ';
 
   if (pauseMutation.isPending) {
-    btnText = 'Calling API...';
-    btnClasses += "bg-gray-400 text-[#e62739] opacity-75 cursor-not-allowed";
-    message = "Sending request to toggle pause...";
+    btnClass += 'opacity-50 cursor-not-allowed ';
+    btnClass += isPaused
+      ? 'bg-green-500 dark:bg-green-600 text-white'
+      : 'bg-amber-400 dark:bg-amber-500 text-gray-900';
   } else if (pauseMutation.isSuccess) {
-    btnText = 'Toggle pause success!';
-    btnClasses += "bg-green-500 hover:bg-green-600 text-[#e62739]";
-    message = "API call successful.";
-    messageClass += "text-green-500";
+    btnClass += 'bg-green-500 hover:bg-green-600 text-white';
+    statusText = 'Success.';
+    statusClass += 'text-green-500';
   } else if (pauseMutation.isError) {
-    btnText = 'Error! Try Again';
-    btnClasses += "bg-red-500 hover:bg-red-600 text-[#e62739]";
-    message = (pauseMutation.error as any)?.message || "API call failed.";
-    messageClass += "text-red-500";
+    btnClass += 'bg-red-500 hover:bg-red-600 text-white';
+    statusText = (pauseMutation.error as any)?.message ?? 'API call failed.';
+    statusClass += 'text-red-500';
+  } else if (isPaused) {
+    btnClass += 'bg-green-500 hover:bg-green-600 dark:bg-green-600 dark:hover:bg-green-700 text-white';
   } else {
-    // Initial / Idle state (Matches HTML blue outline style)
-    btnClasses += "hover:bg-blue-500 text-blue-700 border-blue-500 hover:border-transparent hover:text-[#e62739]";
+    btnClass += 'bg-amber-400 hover:bg-amber-500 dark:bg-amber-500 dark:hover:bg-amber-600 text-gray-900';
   }
 
   return (
     <>
-      <button 
-        onClick={handlePause} 
+      <button
+        onClick={() => pauseMutation.mutate(url)}
         disabled={pauseMutation.isPending}
-        className={btnClasses}
+        className={btnClass}
       >
-        {btnText}
+        {label}
       </button>
-      
-      <p className={messageClass}>
-        {message}
-      </p>
+      <p className={statusClass}>{statusText}</p>
     </>
   );
 }

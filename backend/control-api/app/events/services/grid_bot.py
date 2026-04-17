@@ -12,18 +12,19 @@ load_dotenv()
 PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
 logger = logging.getLogger(__name__)
 
-binance_data_default = {'positionAmt': 0, 'markPrice': 0, 'unRealizedProfit': 0, 'time_update': None, 'updateTime': None}
+entry_data_default = {'positionAmt': 0, 'markPrice': 0, 'unRealizedProfit': 0, 'time_update': None, 'updateTime': None}
 grid_data_default = {'upper_diff': 0.0, 'lower_diff': 0.0, 'max_position_size': 0.0, 'order_size': 0.0, 'close_long': 0.0, 'close_short': 0.0 } 
 
 def get_grid_parameters_data():
         redis_conn = get_redis_connection()
         try:
-                binance_symbol = PAIRS[PAIR_INDEX]['binance']
-                mt5_symbol = PAIRS[PAIR_INDEX]['mt5']
+                entry_exchange = PAIRS[PAIR_INDEX]['entry']['exchange']
+                entry_symbol = PAIRS[PAIR_INDEX]['entry']['symbol']
+                hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
 
-                binance_key = f"position:{binance_symbol}"
-                grid_parameters_key = f"setting_grid_channel:{binance_symbol}:{mt5_symbol}"
-                result = prepare_json(redis_conn.get(binance_key), binance_data_default)
+                entry_key = f"position:{entry_exchange}:{entry_symbol}"
+                grid_parameters_key = f"setting_grid_channel:{entry_symbol}:{hedge_symbol}"
+                result = prepare_json(redis_conn.get(entry_key), entry_data_default)
                 grid_data = prepare_json(redis_conn.get(grid_parameters_key), grid_data_default)
 
                 ict_now = datetime.utcnow() + timedelta(hours=7)

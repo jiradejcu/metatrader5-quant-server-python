@@ -10,7 +10,6 @@ from utils.prepare_json import prepare_json
 
 load_dotenv()
 PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-RATIO_EXPOSE= int(os.getenv('CONTRACT_SIZE'))
 logger = logging.getLogger(__name__)
 
 position_data_default = {'positionAmt': 0, 'markPrice': 0, 'unRealizedProfit': 0, 'time_update': None, 'updateTime': None}
@@ -20,114 +19,92 @@ def get_arbitrage_summary():
     global latest_response_data
     redis_conn = get_redis_connection()
     try:
-        binance_symbol = PAIRS[PAIR_INDEX]['binance']
-        mt5_symbol = PAIRS[PAIR_INDEX]['mt5']
-        ratio = RATIO_EXPOSE
+        entry_exchange = PAIRS[PAIR_INDEX]['entry']['exchange']
+        hedge_exchange = PAIRS[PAIR_INDEX]['hedge']['exchange']
+        entry_symbol = PAIRS[PAIR_INDEX]['entry']['symbol']
+        hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
+        ratio = PAIRS[PAIR_INDEX]['contract_size']
 
-        binance_key = f"position:{binance_symbol}"
-        mt5_key = f"position: {mt5_symbol}"
+        entry_key = f"position:{entry_exchange}:{entry_symbol}"
+        hedge_key = f"position:{hedge_exchange}:{hedge_symbol}"
         pause_position_key = "position_sync_paused_flag"
         grid_bot_pause_key = "grid_bot_paused_flag"
 
         redis_conn = get_redis_connection()
 
-        result = prepare_json(redis_conn.get(binance_key), position_data_default)
-        logger.info(f"Get redis key: position: {binance_symbol} success")
-        mt5_result = prepare_json(redis_conn.get(mt5_key), position_data_default)
-        logger.info(f"Get redis key: position: {mt5_symbol} success")
-        price_diff = prepare_json(redis_conn.get(f"price_comparison:{binance_symbol}:{mt5_symbol}"), {})
+        entry_result = prepare_json(redis_conn.get(entry_key), position_data_default)
+        logger.info(f"Get redis key: {entry_key} success")
+        hedge_result = prepare_json(redis_conn.get(hedge_key), position_data_default)
+        logger.info(f"Get redis key: {hedge_key} success")
+        price_diff = prepare_json(redis_conn.get(f"price_comparison:{entry_symbol}:{hedge_symbol}"), {})
 
-        place_order_key = f"place order of {binance_symbol}"
+        place_order_key = f"spread:{entry_exchange}:{entry_symbol}"
         place_order_data = prepare_json(redis_conn.get(place_order_key), {})
-        
+
         pause_position = 'Active'
         grid_bot_status = 'Active'
-        binance_action = 'SHORT'
-        mt5_action = 'SHORT'
         pairStatus = 'Warning'
 
-        binance_size = float(result.get('positionAmt', 0))
-        mt5_size = float(mt5_result.get('positionAmt', 0))
-        unrealizes = [float(result.get('unRealizedProfit', 0)), float(mt5_result.get('unRealizedProfit', 0))]
-        
+        entry_size = float(entry_result.get('positionAmt', 0))
+        hedge_size = float(hedge_result.get('positionAmt', 0))
+        unrealizes = [float(entry_result.get('unRealizedProfit', 0)), float(hedge_result.get('unRealizedProfit', 0))]
 
         if redis_conn.get(pause_position_key):
-            pause_position = 'Pause' 
-        
+            pause_position = 'Pause'
+
         if redis_conn.get(grid_bot_pause_key):
             grid_bot_status = 'Pause'
 
         now = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S") # use UTC(+7) Thailand time zone
         response_data = {
-            'binanceMarkPrice': float(result.get('markPrice', 0)),
-            'mt5MarkPrice': float(mt5_result.get('markPrice', 0)),
-            'binanceEntry': float(result.get('entryPrice', 0)),
-            'mt5Entry': float(mt5_result.get('entryPrice',0)),
-            'binanceSize': binance_size,
-            'mt5Size': mt5_size,
+            'entryMarkPrice': float(entry_result.get('markPrice', 0)),
+            'hedgeMarkPrice': float(hedge_result.get('markPrice', 0)),
+            'entryPrice': float(entry_result.get('entryPrice', 0)),
+            'hedgePrice': float(hedge_result.get('entryPrice', 0)),
+            'entrySize': entry_size,
+            'hedgeSize': hedge_size,
             'pausePositionSync': pause_position,
             'gridBotStatus': grid_bot_status,
-            'time_update_mt5': now,
-            'time_update_binance': now,
-            'binanceSymbol': binance_symbol,
-            'mt5Symbol': mt5_symbol,
-            'binance_unrealized_profit': float(result.get('unRealizedProfit', 0)),
-            'mt5_unrealized_profit': float(mt5_result.get('unRealizedProfit', 0)),
+            'time_update_hedge': now,
+            'time_update_entry': now,
+            'entrySymbol': entry_symbol,
+            'hedgeSymbol': hedge_symbol,
+            'entry_unrealized_profit': float(entry_result.get('unRealizedProfit', 0)),
+            'hedge_unrealized_profit': float(hedge_result.get('unRealizedProfit', 0)),
             'price_diff_percent': round(float(price_diff.get('percent_change_premium', "0")), 3),
             'current_upper_diff': place_order_data.get('current_upper_diff', None),
             'current_lower_diff': place_order_data.get('current_lower_diff', None),
         }
 
-        # Fill missing data from the latest response (Clean data)
-        # if latest_response_data != {} and response_data['binanceMarkPrice'] == 0 and latest_response_data['binanceMarkPrice'] != 0:
-        #     response_data['binanceMarkPrice'] = latest_response_data['binanceMarkPrice']
-        # if latest_response_data != {} and response_data['mt5MarkPrice'] == 0 and latest_response_data['mt5MarkPrice'] != 0:
-        #     response_data['mt5MarkPrice'] = latest_response_data['mt5MarkPrice']
-        # if latest_response_data != {} and response_data['binanceEntry'] == 0 and latest_response_data['binanceEntry'] != 0:
-        #     response_data['binanceEntry'] = latest_response_data['binanceEntry']
-        # if latest_response_data != {} and response_data['mt5Entry'] == 0 and latest_response_data['mt5Entry'] != 0:
-        #     response_data['mt5Entry'] = latest_response_data['mt5Entry']
-        # if latest_response_data != {} and response_data['binanceSize'] == 0 and latest_response_data['binanceSize'] != 0:
-        #     response_data['binanceSize'] = latest_response_data['binanceSize']
-        # if latest_response_data != {} and response_data['mt5Size'] == 0 and latest_response_data['mt5Size'] != 0:
-        #     response_data['mt5Size'] = latest_response_data['mt5Size']
-        # if latest_response_data != {} and response_data['binance_unrealized_profit'] == 0 and latest_response_data['unrealizedBinance'] != 0:
-        #     response_data['binance_unrealized_profit'] = latest_response_data['binance_unrealized_profit']
-        # if latest_response_data != {} and response_data['mt5_unrealized_profit'] == 0 and latest_response_data['mt5_unrealized_profit'] != 0:
-        #     response_data['mt5_unrealized_profit'] = latest_response_data['mt5_unrealized_profit']
-
-        response_data['netExpose'] = response_data['binanceSize'] + (response_data['mt5Size'] * ratio) # 1 PAXG = 0.01 XAU
-        response_data['spread'] = response_data['binanceMarkPrice'] - response_data['mt5MarkPrice']
-        response_data['unrealizedBinance'] = response_data['binance_unrealized_profit'] + response_data['mt5_unrealized_profit']
+        response_data['netExpose'] = response_data['entrySize'] + (response_data['hedgeSize'] * ratio)
+        response_data['spread'] = response_data['entryMarkPrice'] - response_data['hedgeMarkPrice']
+        response_data['unrealizedTotal'] = response_data['entry_unrealized_profit'] + response_data['hedge_unrealized_profit']
         response_data['netExposeAction'] = 'Safe'
 
         # handle floating point issue
-        epsilon = 1e-12 
+        epsilon = 1e-12
         if abs(response_data['netExpose']) < epsilon:
             response_data['netExpose'] = 0
 
         if response_data['netExpose'] != 0:
             response_data['netExposeAction'] = 'Unsafe'
 
-        if response_data['binanceSize'] > 0:
-            response_data['binanceAction'] = 'LONG'
-        elif response_data['binanceSize'] == 0:
-            response_data['binanceAction'] = 'None'
+        if response_data['entrySize'] > 0:
+            response_data['entryAction'] = 'LONG'
+        elif response_data['entrySize'] == 0:
+            response_data['entryAction'] = 'None'
         else:
-            response_data['binanceAction'] = 'SHORT'
+            response_data['entryAction'] = 'SHORT'
 
-        if response_data['mt5Size'] > 0:
-            response_data['mt5Action'] = 'LONG'
-        elif response_data['mt5Size'] == 0:
-            response_data['mt5Action'] = 'None'
+        if response_data['hedgeSize'] > 0:
+            response_data['hedgeAction'] = 'LONG'
+        elif response_data['hedgeSize'] == 0:
+            response_data['hedgeAction'] = 'None'
         else:
-            response_data['mt5Action'] = 'SHORT'
+            response_data['hedgeAction'] = 'SHORT'
 
         if response_data['netExpose'] == 0:
-            response_data['pairStatus'] = 'Complete'    
-        
-        # Update the latest response data for future reference
-        # latest_response_data = response_data
+            response_data['pairStatus'] = 'Complete'
 
         return response_data
     except Exception as e:

@@ -115,11 +115,6 @@ def close_all_positions(order_type='all', magic=None, type_filling=mt5.ORDER_FIL
         return []
 
 def get_positions(magic=None):
-    # First check if MT5 is initialized
-    if not mt5.initialize():
-        logger.error("Failed to initialize MT5.")
-        return pd.DataFrame()
-
     total_positions = mt5.positions_total()
     if total_positions is None:
         logger.error("Failed to get positions total.")

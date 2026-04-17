@@ -32,13 +32,13 @@ export const ControlSection = (arg: ICardSection) => {
 
     return (
         <div>
-            <h3 className="text-lg font-semibold text-[#705A5A] mb-4">{activeUser?.name}</h3>
+            <h3 className="text-base font-semibold text-[#705A5A] dark:text-[#c49a9a] mb-4">{activeUser?.name}</h3>
             {/* grid parameter settings */}
             <GridSettingModal
-              url={apiUrl}            
+              url={apiUrl}
             />
 
-            <p className="text-base font-medium">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Bot sync status: <span className={`font-bold ${pausePositionSync === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
                     {pausePositionSync}
                   </span>
@@ -46,24 +46,17 @@ export const ControlSection = (arg: ICardSection) => {
                 <PausePositionBtn
                   url={apiUrl}
                 />
-                
-                <p className="text-lg fint-medium">
-                  Bot server status: <span className="font-bold text-gray-500">
+
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Bot server status: <span className="font-bold text-gray-500 dark:text-gray-400">
                     {botServer?.status ?? 'Fetching'}
                   </span>
                 </p>
-                {/* <StopBotContainerBtn 
-                  url={apiUrl}
-                /> */}
 
-                <p>Press this button when position value lost.</p>
-                <RestartBotContainerBtn 
+                <p className="text-sm text-gray-600 dark:text-gray-400">Press this button when position value lost.</p>
+                <RestartBotContainerBtn
                   url={apiUrl}
                 />
-
-                <div className="h-10 bg-gray-25 rounded flex items-center justify-center text-xs text-gray-400 border border-dashed">
-                  End of Pairs
-                </div>
         </div>
     )
 }

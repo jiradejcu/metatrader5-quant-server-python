@@ -1,16 +1,20 @@
 import os
+import json
+import time
+import asyncio
 import requests
 import traceback
-from typing import List, Dict
 import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
 import logging
 
 from app.utils.constants import MT5Timeframe
+from app.utils.redis_client import get_redis_connection
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+redis_conn = get_redis_connection()
 
 BASE_URL = os.getenv('MT5_API_URL')
 
@@ -65,10 +69,50 @@ def fetch_data_range(symbol: str, timeframe: MT5Timeframe, from_date: datetime, 
         }
         response = requests.post(url, params=params)
         response.raise_for_status()
-        
+
         data = response.json()
         df = pd.DataFrame(data)
         return df
     except Exception as e:
         error_msg = f"Exception fetching data for {symbol} on {timeframe}: {e}\n{traceback.format_exc()}"
         logger.error(error_msg)
+
+
+STALE_THRESHOLD = 30  # seconds without a tick before logging a warning
+
+
+def subscribe_symbol_ticker(symbol: str):
+    logger.info(f"Starting MT5 ticker subscription for {symbol}.")
+    first_message_received = False
+    last_success_time = time.time()
+
+    while True:
+        tick = symbol_info_tick(symbol)
+
+        if tick is not None and not tick.empty:
+            if not first_message_received:
+                first_message_received = True
+                logger.info(f"First ticker data received from MT5 for {symbol}.")
+            last_success_time = time.time()
+            try:
+                ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
+                bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
+
+                ticker_key = f"ticker:mt5:{symbol}"
+                redis_conn.set(ticker_key, json.dumps({"best_ask": ask, "best_bid": bid}))
+                redis_conn.publish(ticker_key, json.dumps({"best_ask": ask, "best_bid": bid}))
+                redis_conn.expire(ticker_key, 10)
+                time.sleep(0.2)
+            except asyncio.CancelledError:
+                logger.error(f"MT5 ticker task for {symbol} cancelled.")
+                break
+            except Exception as e:
+                logger.error(f"MT5 ticker task error for {symbol}: {e}. Retrying in 1 second...")
+                time.sleep(1)
+        else:
+            elapsed = time.time() - last_success_time
+            if elapsed > STALE_THRESHOLD:
+                logger.warning(
+                    f"MT5 ticker for {symbol} has been unavailable for {elapsed:.0f}s."
+                )
+            time.sleep(1)

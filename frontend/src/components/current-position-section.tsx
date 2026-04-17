@@ -6,17 +6,17 @@ import type { IPairDetails } from "../interfaces/current-position.interface";
 const PairDetails = (arg: IPairDetails) => {
   const {
     pairStatus,
-    binanceAction,
-    binanceSize,
-    binanceSymbol,
-    time_update_binance,
-    mt5Action,
-    mt5Size,
-    mt5Symbol,
-    time_update_mt5,
-    binanceEntry,
-    mt5Entry,
-    unrealizedBinance,
+    entryAction,
+    entrySize,
+    entrySymbol,
+    time_update_entry,
+    hedgeAction,
+    hedgeSize,
+    hedgeSymbol,
+    time_update_hedge,
+    entryPrice,
+    hedgePrice,
+    unrealizedTotal,
     current_upper_diff,
     current_lower_diff
   } = arg
@@ -28,14 +28,14 @@ const PairDetails = (arg: IPairDetails) => {
       valueClass: pairStatus === 'Warning' ? 'text-red-600 font-bold' : 'text-green-600 font-bold' 
     },
     { 
-      label: 'Binance', 
-      value: `${binanceAction} ${binanceSize} ${binanceSymbol}`, 
-      subValue: `(${time_update_binance})` 
+      label: 'Entry Position Info', 
+      value: `${entryAction} ${entrySize} ${entrySymbol}`, 
+      subValue: `(${time_update_entry})` 
     },
     { 
-      label: 'MT5', 
-      value: `${mt5Action} ${mt5Size} ${mt5Symbol}`, 
-      subValue: `(${time_update_mt5})` 
+      label: 'Hedge Position Info', 
+      value: `${hedgeAction} ${hedgeSize} ${hedgeSymbol}`, 
+      subValue: `(${time_update_hedge})` 
     },
     {
       label: 'Current Upper Diff',
@@ -48,37 +48,37 @@ const PairDetails = (arg: IPairDetails) => {
       valueClass: current_lower_diff !== undefined ? (current_lower_diff > 0 ? 'text-green-500' : 'text-red-500') : 'text-gray-400'
     },
     { 
-      label: 'Binance Entry', 
-      value: binanceEntry ? binanceEntry.toFixed(2) : 0.00 
+      label: 'Entry Price', 
+      value: entryPrice ? entryPrice.toFixed(2) : 0.00 
     },
     { 
-      label: 'MT5 Entry', 
-      value: mt5Entry ? mt5Entry.toFixed(2) : 0.00 
+      label: 'Hedge Price', 
+      value: hedgePrice ? hedgePrice.toFixed(2) : 0.00 
     },
     { 
-      label: 'Entry Diff', 
-      value: (binanceEntry && mt5Entry) ? (binanceEntry - mt5Entry).toFixed(2) : 0.00,
+      label: 'Price Diff', 
+      value: (entryPrice && hedgePrice) ? (entryPrice - hedgePrice).toFixed(2) : 0.00,
       valueClass: 'font-mono'
     },
     { 
       label: 'PNL', 
-      value: `${unrealizedBinance ? unrealizedBinance.toFixed(2) : 0.00} USD`, 
-      valueClass: (unrealizedBinance && unrealizedBinance >= 0) ? 'text-green-500 font-bold' : 'text-red-500 font-bold' 
+      value: `${unrealizedTotal ? unrealizedTotal.toFixed(2) : 0.00} USD`, 
+      valueClass: (unrealizedTotal && unrealizedTotal >= 0) ? 'text-green-500 font-bold' : 'text-red-500 font-bold' 
     }
   ];
 
   return (
-    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 max-w-md">
-      <ul className="divide-y divide-gray-100">
+    <div className="bg-white dark:bg-gray-700/50 p-4 rounded-lg shadow-sm border border-gray-100 dark:border-gray-600 max-w-md w-full">
+      <ul className="divide-y divide-gray-100 dark:divide-gray-600">
         {dataRows.map((row, index) => (
           <li key={index} className="py-2.5 flex justify-between items-start text-sm">
-            <span className="text-gray-500 font-medium">{row.label}</span>
+            <span className="text-gray-500 dark:text-gray-400 font-medium">{row.label}</span>
             <div className="text-right">
-              <span className={`block ${row.valueClass || 'text-gray-900'}`}>
+              <span className={`block ${row.valueClass || 'text-gray-900 dark:text-gray-100'}`}>
                 {row.value}
               </span>
               {row.subValue && (
-                <span className="text-[10px] text-gray-400 block mt-0.5 uppercase">
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 block mt-0.5 uppercase">
                   {row.subValue}
                 </span>
               )}
@@ -95,34 +95,34 @@ export const CurrentPositionSection = (arg: ICardSection) => {
         const { 
           isLoading,
           pairStatus,
-          binanceAction,
-          binanceSize,
-          binanceSymbol,
-          time_update_binance,
-          mt5Action,
-          mt5Size,
-          mt5Symbol,
-          time_update_mt5,
-          binanceEntry,
-          mt5Entry,
-          unrealizedBinance,
+          entryAction,
+          entrySize,
+          entrySymbol,
+          time_update_entry,
+          hedgeAction,
+          hedgeSize,
+          hedgeSymbol,
+          time_update_hedge,
+          entryPrice,
+          hedgePrice,
+          unrealizedTotal,
           current_upper_diff,
           current_lower_diff
         } = useGetSummaryStreamData(apiUrl)
         const { activeUser } = useGetActiveUser(apiUrl)
         const input_pair_data: IPairDetails = {
           pairStatus,
-          binanceAction,
-          binanceSize,
-          binanceSymbol,
-          time_update_binance,
-          mt5Action,
-          mt5Size,
-          mt5Symbol,
-          time_update_mt5,
-          binanceEntry,
-          mt5Entry,
-          unrealizedBinance,
+          entryAction,
+          entrySize,
+          entrySymbol,
+          time_update_entry,
+          hedgeAction,
+          hedgeSize,
+          hedgeSymbol,
+          time_update_hedge,
+          entryPrice,
+          hedgePrice,
+          unrealizedTotal,
           current_upper_diff,
           current_lower_diff
         }
@@ -132,7 +132,7 @@ export const CurrentPositionSection = (arg: ICardSection) => {
     }
     return (
         <div className="w-full max-w-md">
-            <h2 className="text-lg font-bold mb-4">
+            <h2 className="text-sm font-bold mb-3 text-gray-800 dark:text-gray-100">
                 {activeUser?.name}
             </h2>
             <PairDetails {...input_pair_data} />

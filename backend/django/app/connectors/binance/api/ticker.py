@@ -4,8 +4,6 @@ import asyncio
 import json
 import time
 from app.utils.redis_client import get_redis_connection
-from app.utils.api.data import symbol_info_tick
-from app.quant.algorithms.arbitrage import config
 import threading
 
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
@@ -25,63 +23,42 @@ configuration_ws_streams = ConfigurationWebSocketStreams(
 client = DerivativesTradingUsdsFutures(config_ws_streams=configuration_ws_streams)
 redis_conn = get_redis_connection()
 
-def subscribe_symbol_ticker_mt5(symbol: str):
-    while True:
-        tick = symbol_info_tick(symbol)
-
-        if tick is not None and not tick.empty:
-            try:
-                ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
-                bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
-
-                tickert_key = f"ticker (MT5):{symbol}"
-                redis_conn.set(tickert_key, json.dumps({
-                            "best_ask": ask,
-                            "best_bid": bid,
-                        }))
-                redis_conn.publish(tickert_key, json.dumps({
-                    "best_ask": ask,
-                    "best_bid": bid,
-                }))
-                # logger.info("Successful add ticker MT5!!")
-                redis_conn.expire(tickert_key, 10)
-                time.sleep(0.1)
-            except asyncio.CancelledError:
-                logger.error(f"WebSocket MT5 ticker task for {symbol} cancelled. Closing connection.")
-                break
-            except Exception as e:
-                logger.error(f"WebSocket MT5 ticker task error for {symbol}: {e}. Retrying in 1 seconds...")
-                time.sleep(1)
-
 
 async def subscribe_symbol_ticker(symbol: str):
     while True:
         connection = None
         try:
             connection = await client.websocket_streams.create_connection()
-            # logger.info(f"WebSocket connection for {symbol} ticker established.")
+            logger.info(f"WebSocket connection for {symbol} ticker established.")
 
             stream = await connection.individual_symbol_book_ticker_streams(
                 symbol=symbol,
             )
 
-            last_log_time = 0
+            last_message_time = [time.time()]
+            first_message_received = [False]
 
             def handle_message(data):
-                nonlocal last_log_time
-                redis_key = f"ticker:{symbol}"
+                redis_key = f"ticker:binance:{symbol}"
                 redis_conn.hset(redis_key, mapping={"best_bid": data.b, "best_ask": data.a})
                 redis_conn.expire(redis_key, 10)
-                
-                current_time = time.time()
-                if current_time - last_log_time >= 1:
-                    # logger.debug(f"Updated Redis {redis_key} -> Best Bid: {data.b}, Best Ask: {data.a}")
-                    last_log_time = current_time
+                last_message_time[0] = time.time()
+                if not first_message_received[0]:
+                    first_message_received[0] = True
+                    logger.info(f"First ticker message received for {symbol} (binance).")
 
             stream.on("message", handle_message)
 
+            STALE_THRESHOLD = 30
+
             while True:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(5)
+                elapsed = time.time() - last_message_time[0]
+                if elapsed > STALE_THRESHOLD:
+                    logger.warning(
+                        f"No ticker message from binance for {symbol} in {elapsed:.0f}s. Reconnecting..."
+                    )
+                    break
 
         except asyncio.CancelledError:
             logger.error(f"WebSocket task for {symbol} cancelled. Closing connection.")
@@ -98,7 +75,7 @@ async def subscribe_symbol_ticker(symbol: str):
                     logger.warning(f"Error while closing connection for {symbol}: {close_err}")
 
 def get_ticker(symbol: str):
-    redis_key = f"ticker:{symbol}"
+    redis_key = f"ticker:binance:{symbol}"
     ticker_data = redis_conn.hgetall(redis_key)
     # logger.debug(f"Fetched ticker data from Redis {redis_key}: {ticker_data}")
     if ticker_data:
@@ -109,12 +86,5 @@ def get_ticker(symbol: str):
     return None
 
 
-def fetch_ticker_data():
-    if os.environ.get('RUN_MAIN') != 'true':
-        return
-    PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-    symbol = config.PAIRS[PAIR_INDEX]['binance']
-    symbol_mt5 = config.PAIRS[PAIR_INDEX]['mt5']
-    
+def fetch_ticker_data(symbol: str):
     threading.Thread(target=asyncio.run, args=(subscribe_symbol_ticker(symbol),), daemon=True).start()
-    threading.Thread(target=asyncio.run, args=(subscribe_symbol_ticker_mt5(symbol_mt5),), daemon=True).start()

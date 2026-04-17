@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 import MetaTrader5 as mt5
 import logging
 from flasgger import swag_from
+import state
 
 order_bp = Blueprint('order', __name__)
 logger = logging.getLogger(__name__)
@@ -68,6 +69,9 @@ def send_market_order_endpoint():
     ---
     description: Execute a market order for a specified symbol with optional parameters.
     """
+    if state.poll_age() > state.WATCHDOG_TIMEOUT:
+        return jsonify({"error": "MT5 unavailable"}), 503
+
     try:
         data = request.get_json()
         if not data:
@@ -88,41 +92,52 @@ def send_market_order_endpoint():
             "type_filling": data.get('type_filling', mt5.ORDER_FILLING_IOC),
         }
 
-        # Get current price
-        tick = mt5.symbol_info_tick(data['symbol'])
-        if tick is None:
-            return jsonify({"error": "Failed to get symbol price"}), 400
+        acquired = state.mt5_lock.acquire(timeout=state.LOCK_TIMEOUT)
+        if not acquired:
+            return jsonify({"error": "MT5 busy, try again"}), 503
+        try:
+            # Get current price
+            tick = mt5.symbol_info_tick(data['symbol'])
+            if tick is None:
+                return jsonify({"error": "Failed to get symbol price"}), 400
 
-        # Set price based on order type
-        if request_data["type"] == mt5.ORDER_TYPE_BUY:
-            request_data["price"] = tick.ask
-        elif request_data["type"] == mt5.ORDER_TYPE_SELL:
-            request_data["price"] = tick.bid
-        elif request_data["type"] == mt5.ORDER_TYPE_CLOSE_BY:
-            pass
-        else:
-            return jsonify({"error": "Invalid order type"}), 400
+            # Set price based on order type
+            if request_data["type"] == mt5.ORDER_TYPE_BUY:
+                request_data["price"] = tick.ask
+            elif request_data["type"] == mt5.ORDER_TYPE_SELL:
+                request_data["price"] = tick.bid
+            elif request_data["type"] == mt5.ORDER_TYPE_CLOSE_BY:
+                pass
+            else:
+                return jsonify({"error": "Invalid order type"}), 400
 
-        # Add optional SL/TP if provided
-        if 'sl' in data:
-            request_data["sl"] = data['sl']
-        if 'tp' in data:
-            request_data["tp"] = data['tp']
+            # Add optional SL/TP if provided
+            if 'sl' in data:
+                request_data["sl"] = data['sl']
+            if 'tp' in data:
+                request_data["tp"] = data['tp']
 
-        if 'position' in data:
-            request_data["position"] = data.get('position')
-        if 'position_by' in data:
-            request_data["position_by"] = data.get('position_by')
-        else:
-            request_data["volume"] = float(data['volume'])
-            
-        logger.info(f"Order Request Data: {request_data}")
-        
-        # Send order
-        result = mt5.order_send(request_data)
+            if 'position' in data:
+                request_data["position"] = data.get('position')
+            if 'position_by' in data:
+                request_data["position_by"] = data.get('position_by')
+            else:
+                request_data["volume"] = float(data['volume'])
+
+            logger.info(f"Order Request Data: {request_data}")
+
+            result = mt5.order_send(request_data)
+
+            # Immediately refresh positions cache so the next poll isn't stale
+            total = mt5.positions_total()
+            if total is not None:
+                raw = mt5.positions_get() if total > 0 else []
+                state.update_positions([p._asdict() for p in raw] if raw else [])
+        finally:
+            state.mt5_lock.release()
+
         if result.retcode != mt5.TRADE_RETCODE_DONE:
             error_code, error_str = mt5.last_error()
-            
             return jsonify({
                 "error": f"Order failed: {result.comment}",
                 "mt5_error": error_str,
@@ -133,7 +148,7 @@ def send_market_order_endpoint():
             "message": "Order executed successfully",
             "result": result._asdict()
         })
-    
+
     except Exception as e:
         logger.error(f"Error in send_market_order: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
