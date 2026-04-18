@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from database import db
 from models.user import User
 from werkzeug.security import generate_password_hash, check_password_hash
-from utils.authetication import token_required, roles_allowed
+from utils.authentication import token_required, roles_allowed
 from utils.redis_client import get_redis_connection
 import jwt
 

@@ -8,7 +8,7 @@ import os
 from dotenv import load_dotenv
 from constants.config import PAIRS
 from events.master import event_quants_master_data
-from utils.authetication import token_required
+from utils.authentication import token_required
 
 load_dotenv()
 MT5_URL = os.getenv('API_DOMAIN')
