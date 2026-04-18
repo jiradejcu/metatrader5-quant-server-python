@@ -21,10 +21,18 @@ user_bp = Blueprint('user', __name__)
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD')
 TEST_PASSWORD = os.getenv('TEST_PASSWORD')
 SECRET_KEY = os.getenv('SECRET_KEY')
+INIT_DB_SECRET = os.getenv('INIT_DB_SECRET')
 ALGORITHM = "HS256"
 
 @user_bp.route('/init-db', methods=['POST'])
 def initialize_db():
+        if not INIT_DB_SECRET:
+            return jsonify({"message": "Init endpoint is disabled"}), 403
+
+        data = request.get_json() or {}
+        if data.get('secret') != INIT_DB_SECRET:
+            return jsonify({"message": "Invalid secret"}), 403
+
         try:
             # Create tables if they don't exist
             db.create_all()
@@ -115,10 +123,6 @@ def get_my_profile(current_user):
 @token_required(pass_user= True)
 @roles_allowed('admin')  # Only admins can delete users
 def delete_user(current_user, user_id):
-    # Only admins should delete users
-    if current_user.role != 'admin':
-        return jsonify({"message": "Permission denied"}), 403
-
     try:
         user = User.query.get(user_id)
         if not user:
