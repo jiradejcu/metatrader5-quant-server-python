@@ -9,7 +9,9 @@ from utils.redis_client import get_redis_connection
 load_dotenv()
 
 # Configuration
-SECRET_KEY = os.getenv('SECRET_KEY', 'jwt-secret-key') 
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY environment variable is not set")
 ALGORITHM = "HS256"
 
 def token_required(pass_user=False):
@@ -41,11 +43,14 @@ def token_required(pass_user=False):
                 return jsonify({"message": "Token is missing"}), 401
 
             try:
-                # Check if token is blacklisted
-                redis_conn = get_redis_connection()
-                if redis_conn.exists(f"blacklist:{token}"):
-                    return jsonify({"message": "Token has been revoked"}), 401
-                
+                # Check if token is blacklisted (skip if Redis is unavailable)
+                try:
+                    redis_conn = get_redis_connection()
+                    if redis_conn.exists(f"blacklist:{token}"):
+                        return jsonify({"message": "Token has been revoked"}), 401
+                except Exception:
+                    pass
+
                 # PyJWT v2.0+ returns a dict directly
                 data = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
                 current_user = User.query.filter_by(id=data.get('user_id')).first()
