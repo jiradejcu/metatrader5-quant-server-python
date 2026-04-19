@@ -5,3 +5,7 @@ redis
 docker
 python-dotenv
 gevent
+flask-sqlalchemy 
+psycopg2-binary
+PyJWT
+cryptography

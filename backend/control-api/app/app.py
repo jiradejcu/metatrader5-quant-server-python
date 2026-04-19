@@ -1,12 +1,19 @@
-from flask import Flask
+from flask import Flask, jsonify
 from dotenv import load_dotenv
 from flask_cors import CORS
 import os
 from werkzeug.middleware.proxy_fix import ProxyFix
 import logging
 import sys
+from sqlalchemy.sql import text
+from database import db, init_db
 
+# Routes
 from routes.control import control_bp
+from routes.user import user_bp
+
+# Models
+from models.user import User
 
 load_dotenv()
 logging.basicConfig(
@@ -26,9 +33,13 @@ def create_app():
     app.config['PREFERRED_URL_SCHEME'] = 'https'
 
     app.register_blueprint(control_bp)
+    app.register_blueprint(user_bp)
 
     # ทำให้ communicate between user and server (Docker, external)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
+    # Initial database
+    init_db(app)
 
     @app.route('/')
     def hello():
