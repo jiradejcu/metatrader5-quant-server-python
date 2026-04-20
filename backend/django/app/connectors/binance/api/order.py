@@ -1,8 +1,6 @@
 import os
 import logging
-import time
 from dotenv import load_dotenv
-from .ticker import get_ticker
 
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,
@@ -12,6 +10,8 @@ from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futur
 from binance_sdk_derivatives_trading_usds_futures.rest_api.models import (
     NewOrderSideEnum,
     NewOrderTimeInForceEnum,
+    ModifyOrderSideEnum,
+    ModifyOrderPriceMatchEnum,
 )
 
 load_dotenv()
@@ -85,42 +85,32 @@ def get_open_orders(symbol):
     except Exception as e:
         logger.error(f"Get open orders error: {e}")
 
-def chase_order(symbol, quantity, side, max_retries=6, delay=1):
-    # logger.debug("[Chase order] entry!!")
-    for attempt in range(max_retries):
-        try:
-            ticker = get_ticker(symbol)
-            if not ticker:
-                logger.warning(f"Ticker data not available for symbol={symbol}. Retrying...")
-                time.sleep(delay)
-                continue
-
-            target_price = float(ticker['best_bid']) if side == "BUY" else float(ticker['best_ask'])
-            # logger.info(f"Chase order attempt {attempt + 1}: Placing {side} order for {quantity} {symbol} at price {target_price}")
-
-            open_orders = get_open_orders(symbol)
-            matching_order = next((order for order in open_orders if round(float(getattr(open_orders[0], 'price', 0)), 4) == float(target_price)), None)
-            if matching_order:
-                # logger.info(f"Matching order already exists at price {target_price}. No new order placed.")
-                return matching_order
-            else:
-                if open_orders:
-                    # logger.info(f"Price moved to {target_price}. Cancelling old orders...")
-                    cancel_all_open_orders(symbol)
-
-                order_result = new_order(
-                    symbol=symbol, 
-                    quantity=quantity, 
-                    price= target_price, 
-                    side=side
-                    )
-                if not order_result:
-                    logger.warning(f"Post-only order rejected at {target_price}. Will retry in next loop.")
-        except Exception as e:
-            logger.error(f"Chase order error on attempt {attempt + 1}: {e}")
-            break
-
-    logger.error(f"Chase order failed after {max_retries} attempts.")
+def chase_order(symbol, quantity, side):
+    try:
+        open_orders = get_open_orders(symbol)
+        if open_orders:
+            order_id = getattr(open_orders[0], 'order_id', None)
+            response = client.rest_api.modify_order(
+                symbol=symbol,
+                side=ModifyOrderSideEnum[side].value,
+                quantity=quantity,
+                price=None,
+                order_id=order_id,
+                price_match=ModifyOrderPriceMatchEnum["OPPONENT"].value,
+            )
+        else:
+            response = client.rest_api.new_order(
+                symbol=symbol,
+                quantity=quantity,
+                side=NewOrderSideEnum[side].value,
+                type="LIMIT",
+                time_in_force=NewOrderTimeInForceEnum["GTX"].value,
+                price_match="OPPONENT",
+            )
+        return response.data()
+    except Exception as e:
+        logger.error(f"Chase order error: {e}")
+        return None
 
 def get_latest_order_snapshot(symbol):
     """

@@ -17,7 +17,6 @@ latest_grid_settings = None
 latest_upper = None
 latest_lower = None
 boundary_price = 500.0
-has_running_placing_bot = False  # reservation ticket: only one placing cycle runs at a time
 last_acted_order_id = None
 optimistic_dirty_time = 0
 
@@ -30,8 +29,6 @@ def _parse_grid_settings(grid_dict):
         "lower": float(grid_dict.get('lower_diff', 0.0)),
         "max_position_size": float(grid_dict.get('max_position_size', 0.0)),
         "order_size": float(grid_dict.get('order_size', 0.0)),
-        "close_long": float(grid_dict.get('close_long', 0.0)),
-        "close_short": float(grid_dict.get('close_short', 0.0)),
     }
 
 
@@ -45,10 +42,10 @@ def _record_new_order(response):
 def _execute_zone(entry_symbol, zone_side, chase_side, market_price, order_size,
                   open_price_order, pending_order_size, remaining_capacity,
                   allow_chase, can_open):
-    if allow_chase:
-        if remaining_capacity < 0:
-            cancel_all_open_orders(entry_symbol)
-        elif open_price_order != round(market_price, 2) and pending_order_size > 0:
+    if remaining_capacity < 0:
+        cancel_all_open_orders(entry_symbol)
+    elif allow_chase:
+        if open_price_order != round(market_price, 2) and pending_order_size > 0:
             chase_order(entry_symbol, pending_order_size, chase_side)
     elif can_open:
         price = market_price + boundary_price if zone_side == 'SELL' else market_price - boundary_price
@@ -90,7 +87,7 @@ def get_pause_status():
 
 
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
-    global latest_grid_settings, has_running_placing_bot, latest_upper, latest_lower
+    global latest_grid_settings, latest_upper, latest_lower
     global last_acted_order_id, optimistic_dirty_time
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
     CONTRACT_SIZE = config.PAIRS[PAIR_INDEX]['contract_size']
@@ -117,7 +114,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                 now = time.time()
                 with state.state_lock:
                     # LATENCY GUARD: wait 500ms after sending an order
-                    if now - optimistic_dirty_time < 0.5 or has_running_placing_bot:
+                    if now - optimistic_dirty_time < 0.5:
                         continue
                     order_snapshot = state.placing_order_state.copy()
 
@@ -136,9 +133,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                 elif channel == grid_range_key:
                     latest_grid_settings = _parse_grid_settings(json.loads(data_payload) if data_payload else {})
 
-                if order_snapshot.get('total_orders') > 1:
-                    cancel_all_open_orders(entry_symbol)
-
                 allow_place_orders = (
                     latest_grid_settings is not None
                     and latest_upper is not None
@@ -148,10 +142,12 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
 
                 # TRADING LOGIC
                 if allow_place_orders:
+                    if order_snapshot.get('total_orders') > 1:
+                        cancel_all_open_orders(entry_symbol)
+
                     try:
                         with state.state_lock:
-                            has_running_placing_bot = True
-                            # Mark dirty immediately so other threads see it before we call Binance
+                            # Mark dirty immediately so the poller sees it before we call Binance
                             state.placing_order_state["is_clean"] = False
 
                         upper = latest_grid_settings['upper']
@@ -167,16 +163,16 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         best_ask = float(ticker.get('best_ask', 0))
                         position_amt = float(positions.get('positionAmt', '0'))
                         abs_position_amt = abs(position_amt)
-                        side_position = 'BUY' if position_amt > 0 else ('SELL' if position_amt < 0 else None)
 
-                        open_price_order = round(float(getattr(open_orders[0], 'price', 0)), 2) if open_orders else 0.0
-                        pending_order_size = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders)
+                        first_order = open_orders[0] if open_orders else None
+                        open_price_order = round(float(getattr(first_order, 'price', 0)), 2) if first_order else 0.0
+                        pending_order_size = float(getattr(first_order, 'orig_qty', 0)) if first_order else 0.0
 
-                        # When user opens a reverse order, pending size works against current position
-                        if side_position != order_snapshot['side'] and side_position is not None:
-                            pending_order_size *= -1
+                        buy_pending = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders if getattr(o, 'side', '') == 'BUY')
+                        sell_pending = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders if getattr(o, 'side', '') == 'SELL')
+                        net_pending = buy_pending - sell_pending
 
-                        remaining_capacity = max_pos - (abs_position_amt + pending_order_size)
+                        remaining_capacity = max_pos - abs(position_amt + net_pending)
                         can_open_orders = remaining_capacity > 0
                         allow_chase_by_status = remaining_capacity >= 0 and order_snapshot['status'] in OPEN_ORDER_STATUSES
 
@@ -216,7 +212,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                             state.placing_order_state["is_clean"] = True
                         time.sleep(1)
 
-                has_running_placing_bot = False
                 time.sleep(0.1)
         except Exception as e:
             logger.error(f"[Placing Bot Thread] Critical PubSub failure: {e}. Reconnecting in 1s...", exc_info=True)
