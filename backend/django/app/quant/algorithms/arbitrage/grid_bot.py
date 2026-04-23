@@ -160,7 +160,7 @@ def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amo
             logger.debug(f"[Tick] No zone triggered: within range")
 
 
-def poller_snapshot_io_for_placing_bot(entry_symbol):
+def poll_order_state(entry_symbol):
     logger.info(f"[Poller Order Status Thread] Starting Background Poller for {entry_symbol}")
     while True:
         start_time = time.time()
@@ -298,7 +298,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                             state.placing_order_state["is_clean"] = True
                         time.sleep(1)
 
-                time.sleep(0.1)
+                time.sleep(0.25)
         except Exception as e:
             logger.error(f"[Placing Bot Thread] Critical PubSub failure: {e}. Reconnecting in 1s...", exc_info=True)
             time.sleep(1)
@@ -328,7 +328,7 @@ def start_grid_bot_sync():
             args=(pubsub, price_diff, grid_range), daemon=True
         ).start()
         threading.Thread(
-            target=poller_snapshot_io_for_placing_bot,
+            target=poll_order_state,
             args=(entry_symbol,), daemon=True
         ).start()
         logger.info("Grid Bot thread started and running in background.")
