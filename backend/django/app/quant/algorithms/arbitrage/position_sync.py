@@ -36,7 +36,8 @@ def handle_position_update(pubsub):
                     logger.debug(f"Ignoring position update for symbol {received_symbol}. Expected {entry_symbol}.")
                     continue
                 position_amt = Decimal(str(position_data.get('positionAmt', '0')))
-                # position_amt = Decimal(str(position_data.get('positionAmt', '0'))) * contract_size # mock up position amount
+                if os.getenv('MOCK_ENTRY_POSITION_AMT', 'false').lower() == 'true':
+                    position_amt *= contract_size
                 entry_price = Decimal(str(position_data.get('entryPrice', '0')))
                 mark_price = Decimal(str(position_data.get('markPrice', '0')))
                 update_time = position_data.get('updateTime', None)
