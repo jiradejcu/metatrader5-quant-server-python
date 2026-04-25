@@ -18,6 +18,7 @@ latest_upper = None
 latest_lower = None
 boundary_price = 500.0
 last_acted_order_id = None
+last_handled_fill_order_id = None
 optimistic_dirty_time = 0
 
 OPEN_ORDER_STATUSES = ['NEW', 'PARTIALLY_FILLED']
@@ -33,41 +34,86 @@ def _parse_grid_settings(grid_dict):
 
 
 def _record_new_order(response):
-    global optimistic_dirty_time, last_acted_order_id
+    global optimistic_dirty_time, last_acted_order_id, last_handled_fill_order_id
     optimistic_dirty_time = time.time()
     if response and response.order_id:
         last_acted_order_id = response.order_id
+        last_handled_fill_order_id = None
 
 
-def _execute_zone(entry_symbol, zone_side, chase_side, market_price, order_size,
-                  open_price_order, pending_order_size, remaining_capacity,
-                  allow_chase, can_open):
-    if remaining_capacity < 0:
+def _determine_zone(current_upper_diff, current_lower_diff, upper_limit, lower_limit):
+    if current_upper_diff >= upper_limit:
+        return 'SELL'
+    if current_lower_diff <= lower_limit:
+        return 'BUY'
+    return 'NEUTRAL'
+
+
+def _compute_target(zone, order_snapshot, best_bid, best_ask, order_size, remaining_capacity):
+    """Return (side, price, size) for the desired open limit order, or None if no order needed."""
+    if remaining_capacity <= 0:
+        logger.info(f"[Target] Capacity exhausted (remaining={remaining_capacity:.4f}) → None")
+        return None
+
+    if zone == 'SELL':
+        return ('SELL', round(best_ask + boundary_price, 2), order_size)
+    if zone == 'BUY':
+        return ('BUY', round(best_bid - boundary_price, 2), order_size)
+
+    # NEUTRAL: place hedge if the last order filled and we have not acted on it yet
+    filled_id = order_snapshot.get('order_id')
+    filled_side = order_snapshot.get('side')
+    if (order_snapshot.get('status') == 'FILLED'
+            and filled_side is not None
+            and filled_id != last_handled_fill_order_id):
+        opposite = 'BUY' if filled_side == 'SELL' else 'SELL'
+        price = round(best_bid - boundary_price if opposite == 'BUY' else best_ask + boundary_price, 2)
+        logger.info(f"[Target] Neutral: {filled_side} filled → hedge {opposite}@{price}")
+        return (opposite, price, order_size)
+
+    return None
+
+
+def _reconcile(entry_symbol, target, open_orders, order_snapshot):
+    """Take the minimal action to move current open orders to the target state."""
+    global optimistic_dirty_time, last_handled_fill_order_id
+
+    if target is None:
+        if open_orders:
+            logger.info(f"[Reconcile] Target=None: cancelling {len(open_orders)} open order(s)")
+            cancel_all_open_orders(entry_symbol)
+        else:
+            logger.debug("[Reconcile] Target=None: no open orders — nothing to do")
+        return
+
+    target_side, target_price, target_size = target
+
+    if not open_orders:
+        if order_snapshot.get('status') == 'FILLED':
+            last_handled_fill_order_id = order_snapshot.get('order_id')
+        logger.info(f"[Reconcile] No open order → placing {target_side}@{target_price}, size={target_size}")
+        _record_new_order(new_order(entry_symbol, float(target_size), target_price, target_side))
+        return
+
+    first = open_orders[0]
+    current_side = getattr(first, 'side', None)
+    current_price = round(float(getattr(first, 'price', 0)), 2)
+    current_size = float(getattr(first, 'orig_qty', 0))
+
+    if current_side != target_side:
         logger.info(
-            f"[Zone:{zone_side}] Capacity exceeded (remaining={remaining_capacity:.4f}) — cancelling all orders"
+            f"[Reconcile] Wrong side ({current_side} vs target {target_side}) — cancelling, will re-place next tick"
         )
         cancel_all_open_orders(entry_symbol)
-    elif allow_chase:
-        if open_price_order != round(market_price, 2) and pending_order_size > 0:
-            logger.info(
-                f"[Zone:{zone_side}] Chasing order: open_price={open_price_order:.2f} → market={market_price:.2f}, "
-                f"size={pending_order_size}"
-            )
-            chase_order(entry_symbol, pending_order_size, chase_side)
-        else:
-            logger.debug(
-                f"[Zone:{zone_side}] Chase skipped: price aligned "
-                f"(open={open_price_order:.2f}, market={round(market_price, 2):.2f}) or no pending qty"
-            )
-    elif can_open:
-        price = market_price + boundary_price if zone_side == 'SELL' else market_price - boundary_price
-        logger.info(f"[Zone:{zone_side}] Placing new order @ {price:.2f}, size={order_size}")
-        _record_new_order(new_order(entry_symbol, float(order_size), price, zone_side))
-    else:
-        logger.debug(
-            f"[Zone:{zone_side}] No action "
-            f"(allow_chase={allow_chase}, can_open={can_open}, capacity={remaining_capacity:.4f})"
-        )
+        return
+
+    if current_price != target_price:
+        logger.info(f"[Reconcile] Chasing {target_side}: {current_price} → {target_price}, size={current_size}")
+        chase_order(entry_symbol, current_size, target_side)
+        optimistic_dirty_time = time.time()
+        return
+
+    logger.debug(f"[Reconcile] {target_side}@{target_price} already in place — no action")
 
 
 def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amount,
@@ -91,34 +137,25 @@ def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amo
         f"upper_diff={current_upper_diff:.2f} lower_diff={current_lower_diff:.2f}"
     )
 
-    first_order = open_orders[0] if open_orders else None
-    open_price_order = round(float(getattr(first_order, 'price', 0)), 2) if first_order else 0.0
-    pending_order_size = float(getattr(first_order, 'orig_qty', 0)) if first_order else 0.0
-
     buy_pending = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders if getattr(o, 'side', '') == 'BUY')
     sell_pending = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders if getattr(o, 'side', '') == 'SELL')
     net_pending = buy_pending - sell_pending
-
     remaining_capacity = max_pos - abs(position_amt + net_pending)
-    can_open_orders = remaining_capacity > 0
-    allow_chase_by_status = remaining_capacity >= 0 and order_snapshot['status'] in OPEN_ORDER_STATUSES
 
     logger.debug(
         f"[Tick] net_pending={net_pending} remaining_capacity={remaining_capacity:.4f} "
-        f"can_open={can_open_orders} allow_chase={allow_chase_by_status} "
         f"snapshot_status={order_snapshot['status']} snapshot_side={order_snapshot['side']}"
     )
 
+    # --- Fractional position: lot-size alignment edge case ---
     unfilled_position = ((Decimal(str(abs_position_amt)) * minimum_trade_amount) * contract_size) % contract_size
-    order_aligns_with_position = (
-        (order_snapshot['side'] == 'BUY' and position_amt > 0) or
-        (order_snapshot['side'] == 'SELL' and position_amt < 0)
-    )
-    fraction_adjustment = (contract_size - unfilled_position) if order_aligns_with_position else unfilled_position
-    fraction_size = (fraction_adjustment / contract_size) * minimum_trade_amount if order_size > 0 else 0
-    has_fractional_position = unfilled_position != 0
-
-    if has_fractional_position:
+    if unfilled_position != 0:
+        order_aligns_with_position = (
+            (order_snapshot['side'] == 'BUY' and position_amt > 0) or
+            (order_snapshot['side'] == 'SELL' and position_amt < 0)
+        )
+        fraction_adjustment = (contract_size - unfilled_position) if order_aligns_with_position else unfilled_position
+        fraction_size = (fraction_adjustment / contract_size) * minimum_trade_amount if order_size > 0 else 0
         side = order_snapshot['side']
         if side is None:
             logger.warning("[Tick] Fractional: skipping — order_snapshot side is None")
@@ -131,36 +168,33 @@ def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amo
         if remaining_capacity < 0:
             logger.info(f"[Tick] Fractional: capacity exceeded — cancelling all orders")
             cancel_all_open_orders(entry_symbol)
-        if allow_chase_by_status:
+            return
+        if order_snapshot['status'] in OPEN_ORDER_STATUSES:
             logger.info(f"[Tick] Fractional: chasing {side} order, size={fraction_size:.4f}")
             chase_order(entry_symbol, fraction_size, side)
             optimistic_dirty_time = time.time()
-        elif can_open_orders:
+        elif remaining_capacity > 0:
             logger.info(f"[Tick] Fractional: placing new {side} @ {optimal_price:.2f}, size={fraction_size:.4f}")
             _record_new_order(new_order(entry_symbol, fraction_size, optimal_price, side))
         else:
-            logger.debug(
-                f"[Tick] Fractional: no action "
-                f"(allow_chase={allow_chase_by_status}, can_open={can_open_orders})"
-            )
-    else:
-        logger.debug(
-            f"[Tick] Zone check: upper_diff={current_upper_diff:.2f} (limit={upper_limit:.2f}), "
-            f"lower_diff={current_lower_diff:.2f} (limit={lower_limit:.2f})"
-        )
-        side = order_snapshot['side']
-        if current_upper_diff >= upper_limit:
-            logger.info(f"[Tick] SELL zone triggered: upper_diff={current_upper_diff:.2f} >= {upper_limit:.2f}")
-            _execute_zone(entry_symbol, 'SELL', side, best_ask, order_size,
-                          open_price_order, pending_order_size, remaining_capacity,
-                          allow_chase_by_status, can_open_orders)
-        elif current_lower_diff <= lower_limit:
-            logger.info(f"[Tick] BUY zone triggered: lower_diff={current_lower_diff:.2f} <= {lower_limit:.2f}")
-            _execute_zone(entry_symbol, 'BUY', side, best_bid, order_size,
-                          open_price_order, pending_order_size, remaining_capacity,
-                          allow_chase_by_status, can_open_orders)
-        else:
-            logger.debug(f"[Tick] No zone triggered: within range")
+            logger.debug(f"[Tick] Fractional: no action (capacity={remaining_capacity:.4f})")
+        return
+
+    # --- Normal grid logic: zone → target → reconcile ---
+    if len(open_orders) > 1:
+        logger.info(f"[Tick] Multiple open orders ({len(open_orders)}) — cancelling all before reconcile")
+        cancel_all_open_orders(entry_symbol)
+        return
+
+    zone = _determine_zone(current_upper_diff, current_lower_diff, upper_limit, lower_limit)
+    logger.debug(
+        f"[Tick] Zone={zone}: upper_diff={current_upper_diff:.2f} (limit={upper_limit:.2f}), "
+        f"lower_diff={current_lower_diff:.2f} (limit={lower_limit:.2f})"
+    )
+
+    target = _compute_target(zone, order_snapshot, best_bid, best_ask, order_size, remaining_capacity)
+    logger.debug(f"[Tick] Target={target}")
+    _reconcile(entry_symbol, target, open_orders, order_snapshot)
 
 
 def poll_order_state(entry_symbol):
@@ -199,7 +233,7 @@ def get_pause_status():
 
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
     global latest_grid_settings, latest_upper, latest_lower
-    global last_acted_order_id, optimistic_dirty_time
+    global last_acted_order_id, last_handled_fill_order_id, optimistic_dirty_time
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
     CONTRACT_SIZE = config.PAIRS[PAIR_INDEX]['contract_size']
     MINIMUM_TRADE_AMOUNT = config.PAIRS[PAIR_INDEX]['minimum_trade_amount']
@@ -272,12 +306,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
 
                 # TRADING LOGIC
                 if allow_place_orders:
-                    if order_snapshot.get('total_orders') > 1:
-                        logger.info(
-                            f"[Grid] Multiple open orders ({order_snapshot['total_orders']}) — cancelling all"
-                        )
-                        cancel_all_open_orders(entry_symbol)
-
                     try:
                         with state.state_lock:
                             # Mark dirty immediately so the poller sees it before we call Binance
