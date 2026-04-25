@@ -124,10 +124,8 @@ async def subscribe_spread_diff(binance_symbol: str, mt5_symbol: str):
             mt5_best_bid = clean_val(ticker_mt5.get('best_bid'))
             mt5_best_ask = clean_val(ticker_mt5.get('best_ask'))
 
-            # Upper diff : BN_best_ask - MT5_buy
-            # Lower diff : BN_best_bid - MT5_sell
-            current_upper_diff = round(binance_best_ask - mt5_best_bid,2)
-            current_lower_diff = round(binance_best_bid - mt5_best_ask,2)
+            current_upper_diff = round(binance_best_ask - mt5_best_ask, 2)
+            current_lower_diff = round(binance_best_bid - mt5_best_bid, 2)
 
             grid_bot_boundary_key = f"spread:binance:{binance_symbol}"
             redis_conn.set(grid_bot_boundary_key, json.dumps({

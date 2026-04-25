@@ -110,8 +110,8 @@ async def subscribe_spread_diff(bybit_symbol: str, mt5_symbol: str):
             mt5_best_bid = clean_val(ticker_mt5.get('best_bid'))
             mt5_best_ask = clean_val(ticker_mt5.get('best_ask'))
 
-            current_upper_diff = round(bybit_best_ask - mt5_best_bid, 2)
-            current_lower_diff = round(bybit_best_bid - mt5_best_ask, 2)
+            current_upper_diff = round(bybit_best_ask - mt5_best_ask, 2)
+            current_lower_diff = round(bybit_best_bid - mt5_best_bid, 2)
 
             grid_bot_boundary_key = f"spread:bybit:{bybit_symbol}"
             redis_conn.set(grid_bot_boundary_key, json.dumps({
