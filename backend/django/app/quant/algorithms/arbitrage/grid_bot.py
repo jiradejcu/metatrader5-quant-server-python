@@ -224,7 +224,7 @@ def poll_order_state(entry_symbol):
 
         # 500ms ≈ 120 calls/min, well under the 2,400/min limit
         elapsed = time.time() - start_time
-        time.sleep(max(0.01, 1 - elapsed))
+        time.sleep(max(0.01, 0.5 - elapsed))
 
 
 def get_pause_status():
@@ -329,7 +329,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                             state.placing_order_state["is_clean"] = True
                         time.sleep(1)
 
-                time.sleep(1)
+                time.sleep(0.1)
         except Exception as e:
             logger.error(f"[Placing Bot Thread] Critical PubSub failure: {e}. Reconnecting in 1s...", exc_info=True)
             time.sleep(1)
