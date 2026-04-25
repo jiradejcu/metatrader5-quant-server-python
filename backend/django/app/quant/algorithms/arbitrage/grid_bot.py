@@ -120,6 +120,9 @@ def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amo
 
     if has_fractional_position:
         side = order_snapshot['side']
+        if side is None:
+            logger.warning("[Tick] Fractional: skipping — order_snapshot side is None")
+            return
         optimal_price = best_bid - boundary_price if side == 'BUY' else best_ask + boundary_price
         logger.info(
             f"[Tick] Fractional position: unfilled={unfilled_position} fraction_size={fraction_size:.4f} "
@@ -187,7 +190,7 @@ def poll_order_state(entry_symbol):
 
         # 500ms ≈ 120 calls/min, well under the 2,400/min limit
         elapsed = time.time() - start_time
-        time.sleep(max(0.01, 0.5 - elapsed))
+        time.sleep(max(0.01, 1 - elapsed))
 
 
 def get_pause_status():
@@ -298,7 +301,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                             state.placing_order_state["is_clean"] = True
                         time.sleep(1)
 
-                time.sleep(0.25)
+                time.sleep(1)
         except Exception as e:
             logger.error(f"[Placing Bot Thread] Critical PubSub failure: {e}. Reconnecting in 1s...", exc_info=True)
             time.sleep(1)

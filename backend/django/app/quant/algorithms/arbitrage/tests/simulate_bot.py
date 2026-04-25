@@ -49,12 +49,9 @@ from app.utils.redis_client import get_redis_connection
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s.%(msecs)03d  %(levelname)-7s  %(name)s: %(message)s",
-    datefmt="%H:%M:%S",
+sim_log = logging.getLogger(
+    os.path.splitext(os.path.relpath(__file__, _PROJECT_ROOT))[0].replace(os.sep, ".")
 )
-sim_log = logging.getLogger("SIM")
 
 # Quieten noisy background loggers
 logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -288,6 +285,23 @@ def main():
     sim_log.info(f"  Settings ch : {grid_range_key}")
     sim_log.info(f"  Market      : bid={args.bid}  ask={args.ask}  position={args.position}")
     sim_log.info(f"  Grid limits : upper={args.upper_limit}  lower={args.lower_limit}")
+
+    # ---- print incoming parameters ----
+    sim_log.info("--- Parameters ---")
+    sim_log.info(f"  scenario    : {args.scenario}")
+    sim_log.info(f"  upper_diff  : {args.upper_diff}")
+    sim_log.info(f"  lower_diff  : {args.lower_diff}")
+    sim_log.info(f"  count       : {args.count}")
+    sim_log.info(f"  interval    : {args.interval}")
+    sim_log.info(f"  repeat      : {args.repeat}")
+    sim_log.info(f"  bid         : {args.bid}")
+    sim_log.info(f"  ask         : {args.ask}")
+    sim_log.info(f"  position    : {args.position}")
+    sim_log.info(f"  upper_limit : {args.upper_limit}")
+    sim_log.info(f"  lower_limit : {args.lower_limit}")
+    sim_log.info(f"  max_pos     : {args.max_pos}")
+    sim_log.info(f"  order_size  : {args.order_size}")
+    sim_log.info(f"  live_channels: {args.live_channels}")
 
     # ---- patch + start bot ----
     patch_grid_bot()
