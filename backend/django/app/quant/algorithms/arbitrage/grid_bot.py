@@ -6,8 +6,7 @@ from . import config
 from decimal import Decimal
 import json
 from app.utils.redis_client import get_redis_connection
-from app.connectors.binance.api.order import get_open_orders, cancel_all_open_orders, chase_order, new_order, get_latest_order_snapshot
-from app.connectors.binance.api.ticker import get_ticker
+from app.connectors.binance.api.order import get_open_orders, cancel_all_open_orders, chase_order, get_latest_order_snapshot
 from app.connectors.binance.api.position import get_position
 from . import state
 
@@ -16,12 +15,9 @@ logger = logging.getLogger(__name__)
 latest_grid_settings = None
 latest_upper = None
 latest_lower = None
-boundary_price = 500.0
 last_acted_order_id = None
 last_handled_fill_order_id = None
 optimistic_dirty_time = 0
-
-OPEN_ORDER_STATUSES = ['NEW', 'PARTIALLY_FILLED']
 
 
 def _parse_grid_settings(grid_dict):
@@ -48,16 +44,16 @@ def _determine_zone(current_upper_diff, current_lower_diff, upper_limit, lower_l
     return 'NEUTRAL'
 
 
-def _compute_target(zone, order_snapshot, best_bid, best_ask, order_size, remaining_capacity):
-    """Return (side, price, size) for the desired open limit order, or None if no order needed."""
+def _compute_target(zone, order_snapshot, order_size, remaining_capacity):
+    """Return (side, size) for the desired open limit order, or None if no order needed."""
     if remaining_capacity <= 0:
         logger.info(f"[Target] Capacity exhausted (remaining={remaining_capacity:.4f}) → None")
         return None
 
     if zone == 'SELL':
-        return ('SELL', round(best_ask + boundary_price, 2), order_size)
+        return ('SELL', order_size)
     if zone == 'BUY':
-        return ('BUY', round(best_bid - boundary_price, 2), order_size)
+        return ('BUY', order_size)
 
     # NEUTRAL: place hedge if the last order filled and we have not acted on it yet
     filled_id = order_snapshot.get('order_id')
@@ -66,16 +62,15 @@ def _compute_target(zone, order_snapshot, best_bid, best_ask, order_size, remain
             and filled_side is not None
             and filled_id != last_handled_fill_order_id):
         opposite = 'BUY' if filled_side == 'SELL' else 'SELL'
-        price = round(best_bid - boundary_price if opposite == 'BUY' else best_ask + boundary_price, 2)
-        logger.info(f"[Target] Neutral: {filled_side} filled → hedge {opposite}@{price}")
-        return (opposite, price, order_size)
+        logger.info(f"[Target] Neutral: {filled_side} filled → hedge {opposite}")
+        return (opposite, order_size)
 
     return None
 
 
-def _reconcile(entry_symbol, target, open_orders, order_snapshot):
+def _reconcile(entry_symbol, target, open_orders):
     """Take the minimal action to move current open orders to the target state."""
-    global optimistic_dirty_time, last_handled_fill_order_id
+    global optimistic_dirty_time
 
     if target is None:
         if open_orders:
@@ -85,22 +80,15 @@ def _reconcile(entry_symbol, target, open_orders, order_snapshot):
             logger.debug("[Reconcile] Target=None: no open orders — nothing to do")
         return
 
-    target_side, target_price, target_size = target
+    target_side, target_size = target
 
     if not open_orders:
-        is_hedge = order_snapshot.get('status') == 'FILLED'
-        if is_hedge:
-            last_handled_fill_order_id = order_snapshot.get('order_id')
-        logger.info(f"[Reconcile] No open order → placing {target_side}@{target_price}, size={target_size}")
-        _record_new_order(new_order(entry_symbol, float(target_size), target_price, target_side))
-        if is_hedge and last_acted_order_id:
-            # Mark the hedge order itself as handled so its fill doesn't trigger a second hedge
-            last_handled_fill_order_id = last_acted_order_id
+        logger.info(f"[Reconcile] No open order → chasing {target_side}, size={target_size}")
+        _record_new_order(chase_order(entry_symbol, float(target_size), target_side))
         return
 
     first = open_orders[0]
     current_side = getattr(first, 'side', None)
-    current_price = round(float(getattr(first, 'price', 0)), 2)
     current_size = float(getattr(first, 'orig_qty', 0))
 
     if current_side != target_side:
@@ -110,32 +98,25 @@ def _reconcile(entry_symbol, target, open_orders, order_snapshot):
         cancel_all_open_orders(entry_symbol)
         return
 
-    if current_price != target_price:
-        logger.info(f"[Reconcile] Chasing {target_side}: {current_price} → {target_price}, size={current_size}")
-        chase_order(entry_symbol, current_size, target_side)
-        optimistic_dirty_time = time.time()
-        return
-
-    logger.debug(f"[Reconcile] {target_side}@{target_price} already in place — no action")
+    logger.debug(f"[Reconcile] Chasing {target_side}, size={current_size}")
+    chase_order(entry_symbol, current_size, target_side)
+    optimistic_dirty_time = time.time()
 
 
 def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amount,
                   upper_limit, lower_limit, max_pos, order_size,
                   current_upper_diff, current_lower_diff):
     """Execute one trading decision from a pubsub tick."""
-    global optimistic_dirty_time
+    global optimistic_dirty_time, last_handled_fill_order_id
 
     open_orders = get_open_orders(entry_symbol)
-    ticker = get_ticker(entry_symbol)
     positions = get_position(entry_symbol)
 
-    best_bid = float(ticker.get('best_bid', 0))
-    best_ask = float(ticker.get('best_ask', 0))
     position_amt = float(positions.get('positionAmt', '0'))
     abs_position_amt = abs(position_amt)
 
     logger.debug(
-        f"[Tick] bid={best_bid:.2f} ask={best_ask:.2f} pos={position_amt} "
+        f"[Tick] pos={position_amt} "
         f"open_orders={len(open_orders or [])} "
         f"upper_diff={current_upper_diff:.2f} lower_diff={current_lower_diff:.2f}"
     )
@@ -163,24 +144,17 @@ def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amo
         if side is None:
             logger.warning("[Tick] Fractional: skipping — order_snapshot side is None")
             return
-        optimal_price = best_bid - boundary_price if side == 'BUY' else best_ask + boundary_price
         logger.info(
             f"[Tick] Fractional position: unfilled={unfilled_position} fraction_size={fraction_size:.4f} "
-            f"side={side} optimal_price={optimal_price:.2f} aligns_with_pos={order_aligns_with_position}"
+            f"side={side} aligns_with_pos={order_aligns_with_position}"
         )
         if remaining_capacity < 0:
             logger.info(f"[Tick] Fractional: capacity exceeded — cancelling all orders")
             cancel_all_open_orders(entry_symbol)
             return
-        if order_snapshot['status'] in OPEN_ORDER_STATUSES:
-            logger.info(f"[Tick] Fractional: chasing {side} order, size={fraction_size:.4f}")
-            chase_order(entry_symbol, fraction_size, side)
-            optimistic_dirty_time = time.time()
-        elif remaining_capacity > 0:
-            logger.info(f"[Tick] Fractional: placing new {side} @ {optimal_price:.2f}, size={fraction_size:.4f}")
-            _record_new_order(new_order(entry_symbol, fraction_size, optimal_price, side))
-        else:
-            logger.debug(f"[Tick] Fractional: no action (capacity={remaining_capacity:.4f})")
+        logger.info(f"[Tick] Fractional: chasing {side} order, size={fraction_size:.4f}")
+        chase_order(entry_symbol, fraction_size, side)
+        optimistic_dirty_time = time.time()
         return
 
     # --- Normal grid logic: zone → target → reconcile ---
@@ -195,9 +169,16 @@ def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amo
         f"lower_diff={current_lower_diff:.2f} (limit={lower_limit:.2f})"
     )
 
-    target = _compute_target(zone, order_snapshot, best_bid, best_ask, order_size, remaining_capacity)
+    target = _compute_target(zone, order_snapshot, order_size, remaining_capacity)
     logger.debug(f"[Tick] Target={target}")
-    _reconcile(entry_symbol, target, open_orders, order_snapshot)
+
+    if zone == 'NEUTRAL' and target is not None:
+        last_handled_fill_order_id = order_snapshot.get('order_id')
+
+    _reconcile(entry_symbol, target, open_orders)
+
+    if zone == 'NEUTRAL' and target is not None and last_acted_order_id:
+        last_handled_fill_order_id = last_acted_order_id
 
 
 def poll_order_state(entry_symbol):

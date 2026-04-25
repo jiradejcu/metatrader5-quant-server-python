@@ -38,9 +38,9 @@ docker exec -w $WORKDIR $CONTAINER \
 # docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
 #   python $BASE/simulate_bot.py --scenario buy_zone --interval 0.8
 
-# Sweep: cycles through neutral → sell → neutral → buy → deep zones
+# Complete: no-fill chase → partial fill → full fill → SELL/BUY zone with hedges
 docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
-  python $BASE/simulate_bot.py --scenario sweep --interval 0.8
+  python $BASE/simulate_bot.py --scenario complete --interval 0.8
 
 # # Capacity exceeded: position at max → expects cancel instead of new order
 # docker exec -w $WORKDIR $SIM_ENV $CONTAINER \

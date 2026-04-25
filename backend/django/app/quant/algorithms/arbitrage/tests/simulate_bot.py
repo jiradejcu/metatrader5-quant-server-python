@@ -2,7 +2,7 @@
 """
 Grid bot simulation — runs the real handle_grid_flow with mocked Binance API.
 
-All exchange calls (new_order, cancel, chase, get_open_orders, get_ticker,
+All exchange calls (cancel, chase_order, get_open_orders,
 get_position) are intercepted and logged.  No real orders are placed.
 
 Usage (inside the django container, from /app):
@@ -16,7 +16,7 @@ Usage (inside the django container, from /app):
   # Live channels — ⚠️  only when live bot is stopped
   PAIR_INDEX=1 python ... --live-channels --scenario sweep
 
-Scenarios: sell_zone | buy_zone | sweep | capacity_exceeded
+Scenarios: complete
 """
 
 import os
@@ -61,10 +61,12 @@ logging.getLogger("asyncio").setLevel(logging.WARNING)
 # Mutable market state — set from CLI args before starting threads
 # ---------------------------------------------------------------------------
 _market = {
-    "bid": 3300.0,
-    "ask": 3301.0,
+    "bid": 1000.0,
+    "ask": 1001.0,
     "position": 0.0,
-    "open_orders": [],  # list of SimpleNamespace(side, price, orig_qty)
+    "open_orders": [],   # list of SimpleNamespace(order_id, side, orig_qty)
+    "last_snapshot": {}, # latest order snapshot returned to the poller
+    "fill_pct": 1.0,     # 0.0 = no fill, 0.5 = partial, 1.0 = full (default)
 }
 
 _order_counter = 0
@@ -74,32 +76,62 @@ _order_counter = 0
 # Mock interceptors
 # ---------------------------------------------------------------------------
 
-def mock_new_order(symbol, quantity, price, side):
-    global _order_counter
-    _order_counter += 1
-    oid = f"SIM_{_order_counter:04d}"
-    sim_log.info(f"  🟢 new_order  {side:4s}  qty={quantity}  price={price:.2f}  id={oid}")
-    return SimpleNamespace(order_id=oid, status="NEW",
-                           price=price, orig_qty=quantity, side=side)
-
-
 def mock_cancel_all_open_orders(symbol):
     sim_log.info(f"  🔴 cancel_all_open_orders  {symbol}")
+    if _market["open_orders"]:
+        _market["last_snapshot"] = {**_market["last_snapshot"], "status": "CANCELED"}
     _market["open_orders"].clear()
     return None
 
 
 def mock_chase_order(symbol, quantity, side):
-    sim_log.info(f"  🟡 chase_order  {side:4s}  qty={quantity}")
-    return None
+    global _order_counter
+
+    if _market["open_orders"]:
+        # Existing open order — update to current OPPONENT price (best market price)
+        order = _market["open_orders"][0]
+        sim_log.info(
+            f"  🟡 chase_order  {side:4s}  qty={quantity}  id={order.order_id}  "
+            f"(OPPONENT: bid={_market['bid']}  ask={_market['ask']})"
+        )
+        return SimpleNamespace(order_id=order.order_id)
+
+    # No open order — place new via OPPONENT price match
+    _order_counter += 1
+    oid = f"SIM_{_order_counter:04d}"
+    fill_pct = _market["fill_pct"]
+    filled_qty = round(quantity * fill_pct, 8)
+    remaining_qty = round(quantity - filled_qty, 8)
+
+    delta = filled_qty if side == 'BUY' else -filled_qty
+    _market["position"] = round(_market["position"] + delta, 8)
+
+    if remaining_qty > 0:
+        status = "PARTIALLY_FILLED" if fill_pct > 0 else "NEW"
+        order = SimpleNamespace(order_id=oid, side=side, orig_qty=remaining_qty)
+        _market["open_orders"].append(order)
+        _market["last_snapshot"] = {
+            "order_id": oid, "status": status, "side": side,
+            "orig_qty": quantity, "fill_pct": fill_pct * 100, "is_clean": True,
+        }
+        sim_log.info(
+            f"  🟢 chase_order (new)  {side:4s}  qty={quantity}  id={oid}  "
+            f"fill={fill_pct*100:.0f}%  remaining={remaining_qty}  position={_market['position']:+.4f}"
+        )
+    else:
+        status = "FILLED"
+        _market["last_snapshot"] = {
+            "order_id": oid, "status": "FILLED", "side": side,
+            "orig_qty": quantity, "fill_pct": 100, "is_clean": True,
+        }
+        sim_log.info(f"  🟢 chase_order (new)  {side:4s}  qty={quantity}  id={oid}")
+        sim_log.info(f"  💰 filled             {side:4s}  qty={quantity}  position={_market['position']:+.4f}")
+
+    return SimpleNamespace(order_id=oid, status=status, orig_qty=quantity, side=side)
 
 
 def mock_get_open_orders(symbol):
     return list(_market["open_orders"])
-
-
-def mock_get_ticker(symbol):
-    return {"best_bid": str(_market["bid"]), "best_ask": str(_market["ask"])}
 
 
 def mock_get_position(symbol):
@@ -107,7 +139,10 @@ def mock_get_position(symbol):
 
 
 def mock_get_latest_order_snapshot(symbol):
-    return {}
+    # Clear last_acted_order_id once the poller reads the snapshot so the stale
+    # guard releases and subsequent ticks (e.g. chase) are not blocked.
+    grid_bot.last_acted_order_id = None
+    return _market["last_snapshot"]
 
 
 # ---------------------------------------------------------------------------
@@ -115,11 +150,9 @@ def mock_get_latest_order_snapshot(symbol):
 # ---------------------------------------------------------------------------
 
 def patch_grid_bot():
-    grid_bot.new_order = mock_new_order
     grid_bot.cancel_all_open_orders = mock_cancel_all_open_orders
     grid_bot.chase_order = mock_chase_order
     grid_bot.get_open_orders = mock_get_open_orders
-    grid_bot.get_ticker = mock_get_ticker
     grid_bot.get_position = mock_get_position
     grid_bot.get_latest_order_snapshot = mock_get_latest_order_snapshot
     sim_log.info("Binance API patched — no real orders will be placed")
@@ -155,36 +188,37 @@ def publish_price_tick(r, price_diff_key, upper_diff, lower_diff, label=""):
 
 
 # ---------------------------------------------------------------------------
-# Named scenarios  (upper_diff, lower_diff, label)
+# Named scenarios
+#
+# Each step is a tuple: (upper_diff, lower_diff, label, bid, ask, fill_pct)
+#   bid, ask, fill_pct are optional; omit trailing fields to keep current values.
+#
+# fill_pct: 0.0=no fill, 0.5=partial, 1.0=full fill
 # ---------------------------------------------------------------------------
 
 SCENARIOS: dict[str, list[tuple]] = {
-    "sell_zone": [
-        (2.0,  2.0,  "within range"),
-        (6.0,  2.0,  "SELL zone — expects new SELL order"),
-        (6.0,  2.0,  "SELL zone again — expects chase or no-op"),
-        (2.0,  2.0,  "back to range"),
-    ],
-    "buy_zone": [
-        (2.0,  -2.0, "within range"),
-        (2.0,  -6.0, "BUY zone — expects new BUY order"),
-        (2.0,  -6.0, "BUY zone again — expects chase or no-op"),
-        (2.0,  -2.0, "back to range"),
-    ],
-    "sweep": [
-        (2.0,  -2.0, "neutral"),
-        (6.0,  -2.0, "sell zone"),
-        (2.0,  -2.0, "neutral"),
-        (2.0,  -6.0, "buy zone"),
-        (2.0,  -2.0, "neutral"),
-        (9.0,   2.0, "deep sell zone"),
-        (2.0,  -9.0, "deep buy zone"),
-        (2.0,  -2.0, "back to neutral"),
-    ],
-    "capacity_exceeded": [
-        (2.0,  -2.0, "neutral — set position to max before running"),
-        (6.0,  -2.0, "sell zone but capacity full — expects cancel"),
-        (2.0,  -6.0, "buy zone but capacity full — expects cancel"),
+    "complete": [
+        # --- Phase 1: SELL zone, no fill — bid drops, must chase SELL down ---
+        (2.0, -2.0, "neutral",           1000.0, 1001.0, 0.0),
+        (6.0, -2.0, "SELL→place",        1000.0, 1001.0, 0.0),
+        (6.0, -2.0, "bid↓999→chase",      999.0, 1000.0, 0.0),
+        (6.0, -2.0, "bid↓998→chase",      998.0,  999.0, 0.0),
+        (2.0, -2.0, "→neutral, cancel",  1000.0, 1001.0, 0.0),
+
+        # --- Phase 2: SELL zone, partial fill — remaining qty chased ---
+        (6.0, -2.0, "SELL→place 50%",    1000.0, 1001.0, 0.5),
+        (6.0, -2.0, "bid↓999→chase rem",  999.0, 1000.0, 0.5),
+        (2.0, -2.0, "→neutral, cancel",  1000.0, 1001.0, 0.5),
+
+        # --- Phase 3: SELL zone, full fill → hedge BUY in neutral ---
+        (6.0, -2.0, "SELL→place+fill",   1000.0, 1001.0, 1.0),
+        (2.0, -2.0, "→neutral, BUY hedge+fill", 1000.0, 1001.0, 1.0),
+        (2.0, -2.0, "neutral, no action",       1000.0, 1001.0, 1.0),
+
+        # --- Phase 4: BUY zone, full fill → hedge SELL in neutral ---
+        (2.0, -6.0, "BUY→place+fill",    1000.0, 1001.0, 1.0),
+        (2.0, -2.0, "→neutral, SELL hedge+fill", 1000.0, 1001.0, 1.0),
+        (2.0, -2.0, "neutral, no action",        1000.0, 1001.0, 1.0),
     ],
 }
 
@@ -196,8 +230,16 @@ def run_scenario(r, price_diff_key, name, interval, repeat):
         return
     for run in range(repeat):
         sim_log.info(f"--- Scenario '{name}'  run {run + 1}/{repeat} ---")
-        for upper, lower, label in steps:
-            sim_log.info(f"  Step: {label}")
+        for step in steps:
+            upper, lower, label = step[0], step[1], step[2]
+            if len(step) >= 5:
+                _market["bid"], _market["ask"] = step[3], step[4]
+            if len(step) >= 6:
+                _market["fill_pct"] = step[5]
+            sim_log.info(
+                f"  [{label}]  upper={upper:+.1f}  lower={lower:+.1f}  "
+                f"bid={_market['bid']}  ask={_market['ask']}  fill={_market['fill_pct']:.0%}"
+            )
             publish_price_tick(r, price_diff_key, upper, lower, label)
             time.sleep(interval)
 
@@ -235,8 +277,8 @@ def main():
                         help="Times to repeat a named scenario (default 1)")
 
     # market state
-    parser.add_argument("--bid", type=float, default=3300.0)
-    parser.add_argument("--ask", type=float, default=3301.0)
+    parser.add_argument("--bid", type=float, default=1000.0)
+    parser.add_argument("--ask", type=float, default=1001.0)
     parser.add_argument("--position", type=float, default=0.0,
                         help="Simulated open position (default 0)")
 
@@ -316,7 +358,6 @@ def main():
 
     time.sleep(0.5)  # let threads initialize and read initial settings
     sim_log.info("Bot threads started. Publishing price data...")
-    sim_log.info("")
 
     if args.scenario:
         run_scenario(redis_conn, price_diff_key, args.scenario, args.interval, args.repeat)
@@ -325,7 +366,6 @@ def main():
                    args.interval, args.count)
 
     time.sleep(1.0)  # flush any in-flight messages
-    sim_log.info("")
     sim_log.info(f"=== Done  (orders intercepted: {_order_counter}) ===")
 
 

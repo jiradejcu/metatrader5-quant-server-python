@@ -1,12 +1,8 @@
 """
 Automated tests for grid_bot trading logic.
 
-Price data is injected via make_price_message() / make_grid_message() helpers
-that produce the same dict shape the Redis pubsub delivers, letting you
-reproduce any scenario without a live Redis instance.
-
-External Binance calls (get_open_orders, get_ticker, get_position, new_order,
-cancel_all_open_orders, chase_order) are patched on the loaded module object.
+External Binance calls (get_open_orders, get_position, cancel_all_open_orders,
+chase_order) are patched on the loaded module object.
 """
 import json
 import sys
@@ -66,7 +62,6 @@ _spec.loader.exec_module(_gb)
 SYMBOL = "XAUUSDT"
 CONTRACT_SIZE = 100
 MIN_TRADE = 1
-BOUNDARY = 500.0   # matches grid_bot.boundary_price default
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -89,10 +84,6 @@ def _order_snapshot(status=None, side=None, order_id=None,
 
 def _open_order(side="BUY", price=2000.0, orig_qty=1.0):
     return SimpleNamespace(side=side, price=price, orig_qty=orig_qty)
-
-
-def _ticker(bid=2000.0, ask=2001.0):
-    return {"best_bid": str(bid), "best_ask": str(ask)}
 
 
 def _position(amt=0.0):
@@ -196,46 +187,46 @@ class TestDetermineZone:
 
 class TestComputeTarget:
 
-    def test_sell_zone_returns_sell_at_ask_plus_boundary(self):
+    def test_sell_zone_returns_sell_target(self):
         snapshot = _order_snapshot()
-        target = _gb._compute_target('SELL', snapshot, 2000.0, 2001.0, 1.0, remaining_capacity=5.0)
-        assert target == ('SELL', round(2001.0 + BOUNDARY, 2), 1.0)
+        target = _gb._compute_target('SELL', snapshot, 1.0, remaining_capacity=5.0)
+        assert target == ('SELL', 1.0)
 
-    def test_buy_zone_returns_buy_at_bid_minus_boundary(self):
+    def test_buy_zone_returns_buy_target(self):
         snapshot = _order_snapshot()
-        target = _gb._compute_target('BUY', snapshot, 2000.0, 2001.0, 1.0, remaining_capacity=5.0)
-        assert target == ('BUY', round(2000.0 - BOUNDARY, 2), 1.0)
+        target = _gb._compute_target('BUY', snapshot, 1.0, remaining_capacity=5.0)
+        assert target == ('BUY', 1.0)
 
     def test_capacity_exhausted_returns_none(self):
         snapshot = _order_snapshot()
-        assert _gb._compute_target('SELL', snapshot, 2000.0, 2001.0, 1.0, remaining_capacity=0.0) is None
-        assert _gb._compute_target('BUY', snapshot, 2000.0, 2001.0, 1.0, remaining_capacity=-1.0) is None
+        assert _gb._compute_target('SELL', snapshot, 1.0, remaining_capacity=0.0) is None
+        assert _gb._compute_target('BUY',  snapshot, 1.0, remaining_capacity=-1.0) is None
 
     def test_neutral_no_fill_returns_none(self):
         snapshot = _order_snapshot(status='NEW', side='SELL', order_id='X1')
-        assert _gb._compute_target('NEUTRAL', snapshot, 2000.0, 2001.0, 1.0, remaining_capacity=5.0) is None
+        assert _gb._compute_target('NEUTRAL', snapshot, 1.0, remaining_capacity=5.0) is None
 
     def test_neutral_filled_sell_returns_buy_hedge(self):
         snapshot = _order_snapshot(status='FILLED', side='SELL', order_id='S1')
         _gb.last_handled_fill_order_id = None
-        target = _gb._compute_target('NEUTRAL', snapshot, 2000.0, 2001.0, 1.0, remaining_capacity=5.0)
-        assert target == ('BUY', round(2000.0 - BOUNDARY, 2), 1.0)
+        target = _gb._compute_target('NEUTRAL', snapshot, 1.0, remaining_capacity=5.0)
+        assert target == ('BUY', 1.0)
 
     def test_neutral_filled_buy_returns_sell_hedge(self):
         snapshot = _order_snapshot(status='FILLED', side='BUY', order_id='B1')
         _gb.last_handled_fill_order_id = None
-        target = _gb._compute_target('NEUTRAL', snapshot, 2000.0, 2001.0, 1.0, remaining_capacity=5.0)
-        assert target == ('SELL', round(2001.0 + BOUNDARY, 2), 1.0)
+        target = _gb._compute_target('NEUTRAL', snapshot, 1.0, remaining_capacity=5.0)
+        assert target == ('SELL', 1.0)
 
     def test_neutral_fill_already_handled_returns_none(self):
         snapshot = _order_snapshot(status='FILLED', side='SELL', order_id='S1')
         _gb.last_handled_fill_order_id = 'S1'
-        assert _gb._compute_target('NEUTRAL', snapshot, 2000.0, 2001.0, 1.0, remaining_capacity=5.0) is None
+        assert _gb._compute_target('NEUTRAL', snapshot, 1.0, remaining_capacity=5.0) is None
 
     def test_neutral_filled_but_capacity_exhausted_returns_none(self):
         snapshot = _order_snapshot(status='FILLED', side='SELL', order_id='S1')
         _gb.last_handled_fill_order_id = None
-        assert _gb._compute_target('NEUTRAL', snapshot, 2000.0, 2001.0, 1.0, remaining_capacity=0.0) is None
+        assert _gb._compute_target('NEUTRAL', snapshot, 1.0, remaining_capacity=0.0) is None
 
 
 # ---------------------------------------------------------------------------
@@ -246,53 +237,35 @@ class TestReconcile:
 
     def test_target_none_no_open_orders_does_nothing(self):
         with patch.object(_gb, "cancel_all_open_orders") as mock_cancel, \
-             patch.object(_gb, "new_order") as mock_new:
-            _gb._reconcile(SYMBOL, None, [], _order_snapshot())
+             patch.object(_gb, "chase_order") as mock_chase:
+            _gb._reconcile(SYMBOL, None, [])
         mock_cancel.assert_not_called()
-        mock_new.assert_not_called()
+        mock_chase.assert_not_called()
 
     def test_target_none_with_open_orders_cancels(self):
         with patch.object(_gb, "cancel_all_open_orders") as mock_cancel:
-            _gb._reconcile(SYMBOL, None, [_open_order()], _order_snapshot())
+            _gb._reconcile(SYMBOL, None, [_open_order()])
         mock_cancel.assert_called_once_with(SYMBOL)
 
-    def test_target_set_no_open_orders_places_new(self):
+    def test_target_set_no_open_orders_chases_new(self):
         mock_resp = SimpleNamespace(order_id="NEW1")
-        with patch.object(_gb, "new_order", return_value=mock_resp) as mock_new:
-            _gb._reconcile(SYMBOL, ('SELL', 2501.0, 1.0), [], _order_snapshot())
-        mock_new.assert_called_once_with(SYMBOL, 1.0, 2501.0, 'SELL')
+        with patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
+            _gb._reconcile(SYMBOL, ('SELL', 1.0), [])
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, 'SELL')
 
     def test_target_set_wrong_side_cancels(self):
         buy_order = _open_order(side='BUY', price=1500.0)
         with patch.object(_gb, "cancel_all_open_orders") as mock_cancel, \
-             patch.object(_gb, "new_order") as mock_new:
-            _gb._reconcile(SYMBOL, ('SELL', 2501.0, 1.0), [buy_order], _order_snapshot())
-        mock_cancel.assert_called_once_with(SYMBOL)
-        mock_new.assert_not_called()
-
-    def test_target_set_wrong_price_chases(self):
-        sell_order = _open_order(side='SELL', price=1800.0, orig_qty=1.0)
-        with patch.object(_gb, "chase_order") as mock_chase:
-            _gb._reconcile(SYMBOL, ('SELL', 2501.0, 1.0), [sell_order], _order_snapshot())
-        mock_chase.assert_called_once_with(SYMBOL, 1.0, 'SELL')
-
-    def test_target_set_correct_no_action(self):
-        sell_order = _open_order(side='SELL', price=2501.0, orig_qty=1.0)
-        with patch.object(_gb, "cancel_all_open_orders") as mock_cancel, \
-             patch.object(_gb, "new_order") as mock_new, \
              patch.object(_gb, "chase_order") as mock_chase:
-            _gb._reconcile(SYMBOL, ('SELL', 2501.0, 1.0), [sell_order], _order_snapshot())
-        mock_cancel.assert_not_called()
-        mock_new.assert_not_called()
+            _gb._reconcile(SYMBOL, ('SELL', 1.0), [buy_order])
+        mock_cancel.assert_called_once_with(SYMBOL)
         mock_chase.assert_not_called()
 
-    def test_placing_hedge_marks_hedge_order_as_handled(self):
-        """After hedging fill S1, last_handled should be the HEDGE order ID to prevent chain-hedging."""
-        snapshot = _order_snapshot(status='FILLED', order_id='S1')
-        mock_resp = SimpleNamespace(order_id="HEDGE1")
-        with patch.object(_gb, "new_order", return_value=mock_resp):
-            _gb._reconcile(SYMBOL, ('BUY', 1500.0, 1.0), [], snapshot)
-        assert _gb.last_handled_fill_order_id == "HEDGE1"
+    def test_target_set_right_side_chases(self):
+        sell_order = _open_order(side='SELL', price=1800.0, orig_qty=1.0)
+        with patch.object(_gb, "chase_order") as mock_chase:
+            _gb._reconcile(SYMBOL, ('SELL', 1.0), [sell_order])
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, 'SELL')
 
 
 # ---------------------------------------------------------------------------
@@ -301,12 +274,11 @@ class TestReconcile:
 
 class TestProcessTick:
 
-    def _run(self, snapshot, open_orders, bid, ask, position_amt,
+    def _run(self, snapshot, open_orders, position_amt,
              upper_limit=10.0, lower_limit=-10.0,
              max_pos=5.0, order_size=1.0,
              current_upper_diff=0.0, current_lower_diff=0.0):
         with patch.object(_gb, "get_open_orders", return_value=open_orders), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(bid, ask)), \
              patch.object(_gb, "get_position", return_value=_position(position_amt)):
             _gb._process_tick(
                 SYMBOL, snapshot,
@@ -321,38 +293,35 @@ class TestProcessTick:
         snapshot = _order_snapshot()
         mock_resp = SimpleNamespace(order_id="S1")
         with patch.object(_gb, "get_open_orders", return_value=[]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
-             patch.object(_gb, "new_order", return_value=mock_resp) as mock_new:
+             patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(
                 SYMBOL, snapshot, CONTRACT_SIZE, MIN_TRADE,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
                 current_upper_diff=6.0, current_lower_diff=0.0,
             )
-        mock_new.assert_called_once_with(SYMBOL, 1.0, 2001.0 + BOUNDARY, "SELL")
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL")
 
     def test_buy_zone_places_new_order(self):
         snapshot = _order_snapshot()
         mock_resp = SimpleNamespace(order_id="B1")
         with patch.object(_gb, "get_open_orders", return_value=[]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
-             patch.object(_gb, "new_order", return_value=mock_resp) as mock_new:
+             patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(
                 SYMBOL, snapshot, CONTRACT_SIZE, MIN_TRADE,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
                 current_upper_diff=0.0, current_lower_diff=-6.0,
             )
-        mock_new.assert_called_once_with(SYMBOL, 1.0, 2000.0 - BOUNDARY, "BUY")
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, "BUY")
 
-    def test_sell_zone_chases_misaligned_order(self):
-        """Open SELL at wrong price → chase to ask + boundary."""
+    def test_sell_zone_chases_existing_order(self):
+        """Open SELL already exists → chase it."""
         snapshot = _order_snapshot(status="NEW", side="SELL")
         sell_order = _open_order(side="SELL", price=1800.0, orig_qty=1.0)
         with patch.object(_gb, "get_open_orders", return_value=[sell_order]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
              patch.object(_gb, "chase_order") as mock_chase:
             _gb._process_tick(
@@ -363,12 +332,11 @@ class TestProcessTick:
             )
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL")
 
-    def test_buy_zone_chases_misaligned_order(self):
-        """Open BUY at wrong price → chase to bid - boundary."""
+    def test_buy_zone_chases_existing_order(self):
+        """Open BUY already exists → chase it."""
         snapshot = _order_snapshot(status="NEW", side="BUY")
         buy_order = _open_order(side="BUY", price=1000.0, orig_qty=1.0)
         with patch.object(_gb, "get_open_orders", return_value=[buy_order]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
              patch.object(_gb, "chase_order") as mock_chase:
             _gb._process_tick(
@@ -384,10 +352,9 @@ class TestProcessTick:
         snapshot = _order_snapshot()
         buy_order = _open_order(side="BUY", price=2000.0, orig_qty=1.0)
         with patch.object(_gb, "get_open_orders", return_value=[buy_order]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
              patch.object(_gb, "cancel_all_open_orders") as mock_cancel, \
-             patch.object(_gb, "new_order") as mock_new:
+             patch.object(_gb, "chase_order") as mock_chase:
             _gb._process_tick(
                 SYMBOL, snapshot, CONTRACT_SIZE, MIN_TRADE,
                 upper_limit=5.0, lower_limit=-5.0,
@@ -395,14 +362,13 @@ class TestProcessTick:
                 current_upper_diff=6.0, current_lower_diff=0.0,
             )
         mock_cancel.assert_called_once_with(SYMBOL)
-        mock_new.assert_not_called()
+        mock_chase.assert_not_called()
 
     def test_sell_zone_capacity_exceeded_cancels(self):
         """Position already at max → capacity ≤ 0 → target=None → cancel."""
         snapshot = _order_snapshot()
         sell_order = _open_order(side="SELL", price=2500.0, orig_qty=5.0)
         with patch.object(_gb, "get_open_orders", return_value=[sell_order]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(-5.0)), \
              patch.object(_gb, "cancel_all_open_orders") as mock_cancel:
             _gb._process_tick(
@@ -418,10 +384,9 @@ class TestProcessTick:
         snapshot = _order_snapshot()
         buy_order = _open_order(side="BUY", price=2000.0, orig_qty=5.0)
         with patch.object(_gb, "get_open_orders", return_value=[buy_order]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
              patch.object(_gb, "cancel_all_open_orders") as mock_cancel, \
-             patch.object(_gb, "new_order") as mock_new:
+             patch.object(_gb, "chase_order") as mock_chase:
             _gb._process_tick(
                 SYMBOL, snapshot, CONTRACT_SIZE, MIN_TRADE,
                 upper_limit=5.0, lower_limit=-5.0,
@@ -429,7 +394,7 @@ class TestProcessTick:
                 current_upper_diff=6.0, current_lower_diff=0.0,
             )
         mock_cancel.assert_called_once_with(SYMBOL)
-        mock_new.assert_not_called()
+        mock_chase.assert_not_called()
 
     # --- neutral zone ---
 
@@ -437,9 +402,8 @@ class TestProcessTick:
         """Neutral zone, no open orders, no pending fill → nothing."""
         snapshot = _order_snapshot(status=None)
         with patch.object(_gb, "get_open_orders", return_value=[]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
-             patch.object(_gb, "new_order") as mock_new, \
+             patch.object(_gb, "chase_order") as mock_chase, \
              patch.object(_gb, "cancel_all_open_orders") as mock_cancel:
             _gb._process_tick(
                 SYMBOL, snapshot, CONTRACT_SIZE, MIN_TRADE,
@@ -447,7 +411,7 @@ class TestProcessTick:
                 max_pos=5.0, order_size=1.0,
                 current_upper_diff=3.0, current_lower_diff=-3.0,
             )
-        mock_new.assert_not_called()
+        mock_chase.assert_not_called()
         mock_cancel.assert_not_called()
 
     def test_neutral_with_unfilled_open_order_cancels(self):
@@ -455,7 +419,6 @@ class TestProcessTick:
         snapshot = _order_snapshot(status='NEW', side='SELL', order_id='S1')
         sell_order = _open_order(side='SELL', price=2501.0, orig_qty=1.0)
         with patch.object(_gb, "get_open_orders", return_value=[sell_order]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
              patch.object(_gb, "cancel_all_open_orders") as mock_cancel:
             _gb._process_tick(
@@ -472,16 +435,15 @@ class TestProcessTick:
         _gb.last_handled_fill_order_id = None
         mock_resp = SimpleNamespace(order_id="HEDGE1")
         with patch.object(_gb, "get_open_orders", return_value=[]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
-             patch.object(_gb, "new_order", return_value=mock_resp) as mock_new:
+             patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(
                 SYMBOL, snapshot, CONTRACT_SIZE, MIN_TRADE,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
                 current_upper_diff=2.0, current_lower_diff=-2.0,
             )
-        mock_new.assert_called_once_with(SYMBOL, 1.0, 2000.0 - BOUNDARY, "BUY")
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, "BUY")
 
     def test_neutral_after_buy_filled_places_sell_hedge(self):
         """Neutral zone, last BUY was filled → place SELL hedge."""
@@ -489,60 +451,86 @@ class TestProcessTick:
         _gb.last_handled_fill_order_id = None
         mock_resp = SimpleNamespace(order_id="HEDGE2")
         with patch.object(_gb, "get_open_orders", return_value=[]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
-             patch.object(_gb, "new_order", return_value=mock_resp) as mock_new:
+             patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(
                 SYMBOL, snapshot, CONTRACT_SIZE, MIN_TRADE,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
                 current_upper_diff=2.0, current_lower_diff=-2.0,
             )
-        mock_new.assert_called_once_with(SYMBOL, 1.0, 2001.0 + BOUNDARY, "SELL")
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL")
 
     def test_neutral_fill_already_handled_no_duplicate_hedge(self):
         """Already hedged this fill → do not place another order."""
         snapshot = _order_snapshot(status='FILLED', side='SELL', order_id='S1')
         _gb.last_handled_fill_order_id = 'S1'
         with patch.object(_gb, "get_open_orders", return_value=[]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
-             patch.object(_gb, "new_order") as mock_new:
+             patch.object(_gb, "chase_order") as mock_chase:
             _gb._process_tick(
                 SYMBOL, snapshot, CONTRACT_SIZE, MIN_TRADE,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
                 current_upper_diff=2.0, current_lower_diff=-2.0,
             )
-        mock_new.assert_not_called()
+        mock_chase.assert_not_called()
+
+    def test_neutral_hedge_sets_last_handled_fill_order_id(self):
+        """After hedging fill S1, last_handled should be the hedge order ID."""
+        snapshot = _order_snapshot(status='FILLED', side='SELL', order_id='S1')
+        _gb.last_handled_fill_order_id = None
+        mock_resp = SimpleNamespace(order_id="HEDGE1")
+        with patch.object(_gb, "get_open_orders", return_value=[]), \
+             patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "chase_order", return_value=mock_resp):
+            _gb._process_tick(
+                SYMBOL, snapshot, CONTRACT_SIZE, MIN_TRADE,
+                upper_limit=5.0, lower_limit=-5.0,
+                max_pos=5.0, order_size=1.0,
+                current_upper_diff=2.0, current_lower_diff=-2.0,
+            )
+        assert _gb.last_handled_fill_order_id == "HEDGE1"
+
+    def test_zone_order_does_not_set_last_handled(self):
+        """Zone orders (SELL/BUY zone) must not touch last_handled_fill_order_id."""
+        _gb.last_handled_fill_order_id = "OLD"
+        snapshot = _order_snapshot(status='FILLED', order_id='S1')
+        mock_resp = SimpleNamespace(order_id="NEW1")
+        with patch.object(_gb, "get_open_orders", return_value=[]), \
+             patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "chase_order", return_value=mock_resp):
+            _gb._process_tick(
+                SYMBOL, snapshot, CONTRACT_SIZE, MIN_TRADE,
+                upper_limit=5.0, lower_limit=-5.0,
+                max_pos=5.0, order_size=1.0,
+                current_upper_diff=6.0, current_lower_diff=0.0,
+            )
+        assert _gb.last_handled_fill_order_id == "OLD"
 
     # --- fractional position ---
 
     def test_fractional_position_places_new_sell_order(self):
-        """position_amt=0.5 → unfilled fractional → place new order (no open orders)."""
+        """position_amt=0.5 → unfilled fractional → chase new order."""
         snapshot = _order_snapshot(status="FILLED", side="SELL")
         mock_resp = SimpleNamespace(order_id="F1")
         with patch.object(_gb, "get_open_orders", return_value=[]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(0.5)), \
-             patch.object(_gb, "new_order", return_value=mock_resp) as mock_new:
+             patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(
                 SYMBOL, snapshot, CONTRACT_SIZE, MIN_TRADE,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
                 current_upper_diff=0.0, current_lower_diff=0.0,
             )
-        assert mock_new.call_count == 1
-        _, args, _ = mock_new.mock_calls[0]
-        assert args[3] == "SELL"
-        assert args[2] == pytest.approx(2001.0 + BOUNDARY)
+        assert mock_chase.call_count == 1
+        assert mock_chase.call_args[0][2] == "SELL"
 
     def test_fractional_position_chases_existing_order(self):
-        """Fractional + status=NEW → chase instead of new order."""
+        """Fractional + open order → chase it."""
         snapshot = _order_snapshot(status="NEW", side="SELL")
         sell_order = _open_order(side="SELL", price=2500.0, orig_qty=0.5)
         with patch.object(_gb, "get_open_orders", return_value=[sell_order]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(0.5)), \
              patch.object(_gb, "chase_order") as mock_chase:
             _gb._process_tick(
@@ -559,7 +547,6 @@ class TestProcessTick:
         snapshot = _order_snapshot(status="FILLED", side="SELL")
         sell_order = _open_order(side="SELL", price=2500.0, orig_qty=10.0)
         with patch.object(_gb, "get_open_orders", return_value=[sell_order]), \
-             patch.object(_gb, "get_ticker", return_value=_ticker(2000.0, 2001.0)), \
              patch.object(_gb, "get_position", return_value=_position(-5.5)), \
              patch.object(_gb, "cancel_all_open_orders") as mock_cancel:
             _gb._process_tick(
