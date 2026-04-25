@@ -34,11 +34,10 @@ def _parse_grid_settings(grid_dict):
 
 
 def _record_new_order(response):
-    global optimistic_dirty_time, last_acted_order_id, last_handled_fill_order_id
+    global optimistic_dirty_time, last_acted_order_id
     optimistic_dirty_time = time.time()
     if response and response.order_id:
         last_acted_order_id = response.order_id
-        last_handled_fill_order_id = None
 
 
 def _determine_zone(current_upper_diff, current_lower_diff, upper_limit, lower_limit):
@@ -89,10 +88,14 @@ def _reconcile(entry_symbol, target, open_orders, order_snapshot):
     target_side, target_price, target_size = target
 
     if not open_orders:
-        if order_snapshot.get('status') == 'FILLED':
+        is_hedge = order_snapshot.get('status') == 'FILLED'
+        if is_hedge:
             last_handled_fill_order_id = order_snapshot.get('order_id')
         logger.info(f"[Reconcile] No open order → placing {target_side}@{target_price}, size={target_size}")
         _record_new_order(new_order(entry_symbol, float(target_size), target_price, target_side))
+        if is_hedge and last_acted_order_id:
+            # Mark the hedge order itself as handled so its fill doesn't trigger a second hedge
+            last_handled_fill_order_id = last_acted_order_id
         return
 
     first = open_orders[0]
