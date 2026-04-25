@@ -284,24 +284,12 @@ def main():
     sim_log.info(f"  Price ch    : {price_diff_key}")
     sim_log.info(f"  Settings ch : {grid_range_key}")
     sim_log.info(f"  Market      : bid={args.bid}  ask={args.ask}  position={args.position}")
-    sim_log.info(f"  Grid limits : upper={args.upper_limit}  lower={args.lower_limit}")
-
-    # ---- print incoming parameters ----
-    sim_log.info("--- Parameters ---")
-    sim_log.info(f"  scenario    : {args.scenario}")
-    sim_log.info(f"  upper_diff  : {args.upper_diff}")
-    sim_log.info(f"  lower_diff  : {args.lower_diff}")
-    sim_log.info(f"  count       : {args.count}")
-    sim_log.info(f"  interval    : {args.interval}")
-    sim_log.info(f"  repeat      : {args.repeat}")
-    sim_log.info(f"  bid         : {args.bid}")
-    sim_log.info(f"  ask         : {args.ask}")
-    sim_log.info(f"  position    : {args.position}")
-    sim_log.info(f"  upper_limit : {args.upper_limit}")
-    sim_log.info(f"  lower_limit : {args.lower_limit}")
-    sim_log.info(f"  max_pos     : {args.max_pos}")
-    sim_log.info(f"  order_size  : {args.order_size}")
-    sim_log.info(f"  live_channels: {args.live_channels}")
+    sim_log.info(f"  Grid limits : upper={args.upper_limit}  lower={args.lower_limit}  max_pos={args.max_pos}  order_size={args.order_size}")
+    sim_log.info(f"  Live ch     : {args.live_channels}")
+    if args.scenario:
+        sim_log.info(f"  Mode        : scenario={args.scenario}  repeat={args.repeat}  interval={args.interval}s")
+    else:
+        sim_log.info(f"  Mode        : manual  upper_diff={args.upper_diff}  lower_diff={args.lower_diff}  count={args.count}  interval={args.interval}s")
 
     # ---- patch + start bot ----
     patch_grid_bot()
