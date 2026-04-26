@@ -16,7 +16,7 @@ Usage (inside the django container, from /app):
   # Live channels — ⚠️  only when live bot is stopped
   PAIR_INDEX=1 python ... --live-channels --scenario sweep
 
-Scenarios: complete
+Scenarios: sell_accumulate, complete
 """
 
 import os
@@ -197,6 +197,32 @@ def publish_price_tick(r, price_diff_key, upper_diff, lower_diff, label=""):
 # ---------------------------------------------------------------------------
 
 SCENARIOS: dict[str, list[tuple]] = {
+    # Run with: --scenario sell_accumulate --max-pos 3 --order-size 1
+    #
+    # Shows the bot accumulating a short position one order at a time in the
+    # SELL zone until max_position_size is reached, then holding.
+    #
+    # Expected position after each fill:  0 → -1 → -2 → -3 (capped)
+    "sell_accumulate": [
+        # start flat in NEUTRAL — target=pos(0), no open order → nothing to do
+        (2.0, -2.0, "neutral  pos=0 → no action",          1000.0, 1001.0, 1.0),
+
+        # SELL zone — target = 0-1 = -1, place+fill SELL 1 → pos=-1
+        (6.0, -2.0, "SELL  pos=0  cap=3 → place+fill #1",  1000.0, 1001.0, 1.0),
+
+        # still SELL — target = -1-1 = -2, place+fill SELL 1 → pos=-2
+        (6.0, -2.0, "SELL  pos=-1 cap=2 → place+fill #2",  1000.0, 1001.0, 1.0),
+
+        # still SELL — target = -2-1 = -3, place+fill SELL 1 → pos=-3
+        (6.0, -2.0, "SELL  pos=-2 cap=1 → place+fill #3",  1000.0, 1001.0, 1.0),
+
+        # still SELL — cap=0, target=pos(-3) → no open order, nothing to cancel
+        (6.0, -2.0, "SELL  pos=-3 cap=0 → capacity hit, no action", 1000.0, 1001.0, 1.0),
+
+        # back to NEUTRAL — target=pos(-3) → cancel open orders (none open)
+        (2.0, -2.0, "neutral pos=-3 → no action",          1000.0, 1001.0, 1.0),
+    ],
+
     "complete": [
         # --- Phase 1: SELL zone, no fill — ask drops, must chase SELL down ---
         (2.0, -2.0, "neutral",           1000.0, 1001.0, 0.0),
@@ -213,18 +239,15 @@ SCENARIOS: dict[str, list[tuple]] = {
         # --- Phase 3: SELL zone, partial fill → then fully filled on next tick ---
         (6.0, -2.0, "SELL→place 50%",    1000.0, 1001.0, 0.5),
         (6.0, -2.0, "remaining→full fill", 999.0, 1000.0, 1.0),
-        (2.0, -2.0, "→neutral, BUY hedge+fill", 1000.0, 1001.0, 1.0),
-        (2.0, -2.0, "neutral, no action",        1000.0, 1001.0, 1.0),
+        (2.0, -2.0, "→neutral, target=pos, cancel (none open)", 1000.0, 1001.0, 1.0),
 
-        # --- Phase 4: SELL zone, full fill → hedge BUY in neutral ---
+        # --- Phase 4: SELL zone, full fill → neutral holds position ---
         (6.0, -2.0, "SELL→place+fill",   1000.0, 1001.0, 1.0),
-        (2.0, -2.0, "→neutral, BUY hedge+fill", 1000.0, 1001.0, 1.0),
-        (2.0, -2.0, "neutral, no action",       1000.0, 1001.0, 1.0),
+        (2.0, -2.0, "→neutral, target=pos, cancel (none open)", 1000.0, 1001.0, 1.0),
 
-        # --- Phase 5: BUY zone, full fill → hedge SELL in neutral ---
+        # --- Phase 5: BUY zone, full fill → neutral holds position ---
         (2.0, -6.0, "BUY→place+fill",    1000.0, 1001.0, 1.0),
-        (2.0, -2.0, "→neutral, SELL hedge+fill", 1000.0, 1001.0, 1.0),
-        (2.0, -2.0, "neutral, no action",        1000.0, 1001.0, 1.0),
+        (2.0, -2.0, "→neutral, target=pos, cancel (none open)", 1000.0, 1001.0, 1.0),
     ],
 }
 

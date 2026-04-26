@@ -43,63 +43,64 @@ def _determine_zone(current_upper_diff, current_lower_diff, upper_limit, lower_l
 
 
 def _compute_target(zone, position_amt, order_size, remaining_capacity):
-    """Return (side, size) for the desired open limit order, or None if no order needed."""
-    if remaining_capacity <= 0:
-        logger.info(f"[Target] Capacity exhausted (remaining={remaining_capacity:.4f}) → None")
-        return None
+    """Return desired position amount, or None to do nothing.
 
-    if zone == 'SELL':
-        return ('SELL', order_size)
+    When target == position_amt, reconcile will cancel open orders.
+    """
+    if zone == 'NEUTRAL' or remaining_capacity <= 0:
+        return position_amt  # hold current position — no open order needed
+
     if zone == 'BUY':
-        return ('BUY', order_size)
-
-    # NEUTRAL: hedge based on current position direction
-    if position_amt > 0:
-        logger.info(f"[Target] Neutral: long position ({position_amt}) → hedge SELL")
-        return ('SELL', order_size)
-    if position_amt < 0:
-        logger.info(f"[Target] Neutral: short position ({position_amt}) → hedge BUY")
-        return ('BUY', order_size)
+        return position_amt + order_size
+    if zone == 'SELL':
+        return position_amt - order_size
 
     return None
 
 
-def _reconcile(entry_symbol, target, open_orders):
-    """Take the minimal action to move current open orders to the target state."""
+def _reconcile(entry_symbol, target, position_amt, open_orders):
+    """Take the minimal action to reach the target position."""
     global optimistic_dirty_time
 
     if target is None:
-        if open_orders:
-            logger.info(f"[Reconcile] Target=None: cancelling {len(open_orders)} open order(s)")
-            cancel_all_open_orders(entry_symbol)
-        else:
-            logger.debug("[Reconcile] Target=None: no open orders — nothing to do")
+        logger.debug("[Reconcile] do nothing")
         return
 
-    target_side, target_size = target
+    diff = round(target - position_amt, 10)
+
+    if diff == 0:
+        if open_orders:
+            logger.info(f"[Reconcile] At target position — cancelling {len(open_orders)} open order(s)")
+            cancel_all_open_orders(entry_symbol)
+        else:
+            logger.debug("[Reconcile] At target position — no open orders")
+        return
+
+    side = 'BUY' if diff > 0 else 'SELL'
+    size = abs(diff)
 
     if not open_orders:
-        logger.info(f"[Reconcile] No open order → chasing {target_side}, size={target_size}")
-        _record_new_order(chase_order(entry_symbol, float(target_size), target_side))
+        logger.info(f"[Reconcile] No open order → chasing {side}, size={size}")
+        _record_new_order(chase_order(entry_symbol, float(size), side))
         return
 
     first = open_orders[0]
     current_side = getattr(first, 'side', None)
     current_size = float(getattr(first, 'orig_qty', 0))
 
-    if current_side != target_side:
+    if current_side != side:
         logger.info(
-            f"[Reconcile] Wrong side ({current_side} vs target {target_side}) — cancelling, will re-place next tick"
+            f"[Reconcile] Wrong side ({current_side} vs target {side}) — cancelling, will re-place next tick"
         )
         cancel_all_open_orders(entry_symbol)
         return
 
-    logger.debug(f"[Reconcile] Chasing {target_side}, size={current_size}")
-    chase_order(entry_symbol, current_size, target_side)
+    logger.debug(f"[Reconcile] Chasing {side}, size={current_size}")
+    chase_order(entry_symbol, current_size, side)
     optimistic_dirty_time = time.time()
 
 
-def _process_tick(entry_symbol, order_snapshot, upper_limit, lower_limit, max_pos, order_size,
+def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
                   current_upper_diff, current_lower_diff):
     """Execute one trading decision from a pubsub tick."""
     open_orders = get_open_orders(entry_symbol)
@@ -132,7 +133,7 @@ def _process_tick(entry_symbol, order_snapshot, upper_limit, lower_limit, max_po
     target = _compute_target(zone, position_amt, order_size, remaining_capacity)
     logger.debug(f"Target={target}")
 
-    _reconcile(entry_symbol, target, open_orders)
+    _reconcile(entry_symbol, target, position_amt, open_orders)
 
 
 def poll_order_state(entry_symbol):
@@ -253,7 +254,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         order_size = latest_grid_settings['order_size']
 
                         _process_tick(
-                            entry_symbol, order_snapshot,
+                            entry_symbol,
                             upper, lower, max_pos, order_size,
                             latest_upper, latest_lower,
                         )
