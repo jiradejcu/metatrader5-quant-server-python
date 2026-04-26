@@ -225,29 +225,29 @@ SCENARIOS: dict[str, list[tuple]] = {
 
     "complete": [
         # --- Phase 1: SELL zone, no fill — ask drops, must chase SELL down ---
-        (2.0, -2.0, "neutral",           1000.0, 1001.0, 0.0),
-        (6.0, -2.0, "SELL→place",        1000.0, 1001.0, 0.0),
-        (6.0, -2.0, "ask↓1000→chase",     999.0, 1000.0, 0.0),
-        (6.0, -2.0, "ask↓999→chase",      998.0,  999.0, 0.0),
-        (2.0, -2.0, "→neutral, cancel",  1000.0, 1001.0, 0.0),
+        (2.0, -2.0, "neutral  pos=0 → no action",               1000.0, 1001.0, 0.0),
+        (6.0, -2.0, "SELL  pos=0 → place(no fill)",             1000.0, 1001.0, 0.0),
+        (6.0, -2.0, "SELL  pos=0 → chase(ask↓1000)",             999.0, 1000.0, 0.0),
+        (6.0, -2.0, "SELL  pos=0 → chase(ask↓999)",              998.0,  999.0, 0.0),
+        (2.0, -2.0, "→neutral  pos=0 → cancel open",            1000.0, 1001.0, 0.0),
 
         # --- Phase 2: SELL zone, partial fill — remaining qty chased ---
-        (6.0, -2.0, "SELL→place 50%",    1000.0, 1001.0, 0.5),
-        (6.0, -2.0, "ask↓1000→chase remaining", 999.0, 1000.0, 0.5),
-        (2.0, -2.0, "→neutral, cancel",  1000.0, 1001.0, 0.5),
+        (6.0, -2.0, "SELL  pos=0 → place(50% fill)",            1000.0, 1001.0, 0.5),
+        (6.0, -2.0, "SELL  pos=-0.5 → chase remaining(ask↓)",    999.0, 1000.0, 0.5),
+        (2.0, -2.0, "→neutral  pos=-0.5 → cancel open",         1000.0, 1001.0, 0.5),
 
         # --- Phase 3: SELL zone, partial fill → then fully filled on next tick ---
-        (6.0, -2.0, "SELL→place 50%",    1000.0, 1001.0, 0.5),
-        (6.0, -2.0, "remaining→full fill", 999.0, 1000.0, 1.0),
-        (2.0, -2.0, "→neutral, target=pos, cancel (none open)", 1000.0, 1001.0, 1.0),
+        (6.0, -2.0, "SELL  pos=-0.5 → place(50% fill)",         1000.0, 1001.0, 0.5),
+        (6.0, -2.0, "SELL  pos=-1.0 → chase→full fill",          999.0, 1000.0, 1.0),
+        (2.0, -2.0, "→neutral  pos=-1.5 → no open order",       1000.0, 1001.0, 1.0),
 
         # --- Phase 4: SELL zone, full fill → neutral holds position ---
-        (6.0, -2.0, "SELL→place+fill",   1000.0, 1001.0, 1.0),
-        (2.0, -2.0, "→neutral, target=pos, cancel (none open)", 1000.0, 1001.0, 1.0),
+        (6.0, -2.0, "SELL  pos=-1.5 → place+fill",              1000.0, 1001.0, 1.0),
+        (2.0, -2.0, "→neutral  pos=-2.5 → no open order",       1000.0, 1001.0, 1.0),
 
         # --- Phase 5: BUY zone, full fill → neutral holds position ---
-        (2.0, -6.0, "BUY→place+fill",    1000.0, 1001.0, 1.0),
-        (2.0, -2.0, "→neutral, target=pos, cancel (none open)", 1000.0, 1001.0, 1.0),
+        (2.0, -6.0, "BUY   pos=-2.5 → place+fill",              1000.0, 1001.0, 1.0),
+        (2.0, -2.0, "→neutral  pos=-1.5 → no open order",       1000.0, 1001.0, 1.0),
     ],
 }
 

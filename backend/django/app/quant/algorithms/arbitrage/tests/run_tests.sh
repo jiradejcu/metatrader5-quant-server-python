@@ -32,11 +32,11 @@ docker exec -w $WORKDIR $CONTAINER \
 
 # sell_accumulate: SELL zone fills one order at a time until max_position_size
 docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
-  python $BASE/simulate_bot.py --scenario sell_accumulate --max-pos 3 --order-size 1 --interval 0.8
+  python $BASE/simulate_bot.py --scenario sell_accumulate --max-pos 3 --interval 0.8
 
-# complete: no-fill chase → partial fill → full fill → SELL/BUY zones
-# docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
-#   python $BASE/simulate_bot.py --scenario complete --interval 0.8
+complete: no-fill chase → partial fill → full fill → SELL/BUY zones
+docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
+  python $BASE/simulate_bot.py --scenario complete --interval 0.8
 
 # ---------------------------------------------------------------------------
 # Simulation — manual tick injection
@@ -55,4 +55,4 @@ docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
 # ---------------------------------------------------------------------------
 
 # docker exec -w $WORKDIR -e PAIR_INDEX=1 $CONTAINER \
-#   python $BASE/simulate_bot.py --live-channels --scenario sell_accumulate --max-pos 3 --order-size 1 --interval 1.0
+#   python $BASE/simulate_bot.py --live-channels --scenario sell_accumulate --max-pos 3 --interval 1.0
