@@ -116,7 +116,7 @@ def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amo
     abs_position_amt = abs(position_amt)
 
     logger.debug(
-        f"[Tick] pos={position_amt} "
+        f"pos={position_amt} "
         f"open_orders={len(open_orders or [])} "
         f"upper_diff={current_upper_diff:.2f} lower_diff={current_lower_diff:.2f}"
     )
@@ -127,7 +127,7 @@ def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amo
     remaining_capacity = max_pos - abs(position_amt + net_pending)
 
     logger.debug(
-        f"[Tick] net_pending={net_pending} remaining_capacity={remaining_capacity:.4f} "
+        f"net_pending={net_pending} remaining_capacity={remaining_capacity:.4f} "
         f"snapshot_status={order_snapshot['status']} snapshot_side={order_snapshot['side']}"
     )
 
@@ -142,35 +142,35 @@ def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amo
         fraction_size = (fraction_adjustment / contract_size) * minimum_trade_amount if order_size > 0 else 0
         side = order_snapshot['side']
         if side is None:
-            logger.warning("[Tick] Fractional: skipping — order_snapshot side is None")
+            logger.warning("Fractional: skipping — order_snapshot side is None")
             return
         logger.info(
-            f"[Tick] Fractional position: unfilled={unfilled_position} fraction_size={fraction_size:.4f} "
+            f"Fractional position: unfilled={unfilled_position} fraction_size={fraction_size:.4f} "
             f"side={side} aligns_with_pos={order_aligns_with_position}"
         )
         if remaining_capacity < 0:
-            logger.info(f"[Tick] Fractional: capacity exceeded — cancelling all orders")
+            logger.info(f"Fractional: capacity exceeded — cancelling all orders")
             cancel_all_open_orders(entry_symbol)
             return
-        logger.info(f"[Tick] Fractional: chasing {side} order, size={fraction_size:.4f}")
+        logger.info(f"Fractional: chasing {side} order, size={fraction_size:.4f}")
         chase_order(entry_symbol, fraction_size, side)
         optimistic_dirty_time = time.time()
         return
 
     # --- Normal grid logic: zone → target → reconcile ---
     if len(open_orders) > 1:
-        logger.info(f"[Tick] Multiple open orders ({len(open_orders)}) — cancelling all before reconcile")
+        logger.info(f"Multiple open orders ({len(open_orders)}) — cancelling all before reconcile")
         cancel_all_open_orders(entry_symbol)
         return
 
     zone = _determine_zone(current_upper_diff, current_lower_diff, upper_limit, lower_limit)
     logger.debug(
-        f"[Tick] Zone={zone}: upper_diff={current_upper_diff:.2f} (limit={upper_limit:.2f}), "
+        f"Zone={zone}: upper_diff={current_upper_diff:.2f} (limit={upper_limit:.2f}), "
         f"lower_diff={current_lower_diff:.2f} (limit={lower_limit:.2f})"
     )
 
     target = _compute_target(zone, order_snapshot, order_size, remaining_capacity)
-    logger.debug(f"[Tick] Target={target}")
+    logger.debug(f"Target={target}")
 
     if zone == 'NEUTRAL' and target is not None:
         last_handled_fill_order_id = order_snapshot.get('order_id')
@@ -182,13 +182,13 @@ def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amo
 
 
 def poll_order_state(entry_symbol):
-    logger.info(f"[Poller Order Status Thread] Starting Background Poller for {entry_symbol}")
+    logger.info(f"Starting Background Polling for {entry_symbol}")
     while True:
         start_time = time.time()
         try:
             snapshot = get_latest_order_snapshot(entry_symbol)
-            all_orders = get_open_orders(entry_symbol)
-            logger.debug(f"all_orders: {len(all_orders)}")
+            open_orders = get_open_orders(entry_symbol)
+            logger.debug(f"Open order count: {len(open_orders)}")
 
             data = snapshot or {}
             with state.state_lock:
@@ -200,15 +200,15 @@ def poll_order_state(entry_symbol):
                     "is_clean": data.get('is_clean', True),
                     "price": data.get('price'),
                     "orig_qty": data.get('orig_qty', 0),
-                    "total_orders": len(all_orders) if all_orders else 0,
+                    "total_orders": len(open_orders) if open_orders else 0,
                 })
         except Exception as e:
-            logger.error(f"Poller Thread Error: {e}")
+            logger.error(f"Thread Error: {e}")
             time.sleep(1)
 
         # 500ms ≈ 120 calls/min, well under the 2,400/min limit
         elapsed = time.time() - start_time
-        time.sleep(max(0.01, 0.5 - elapsed))
+        time.sleep(max(0.1, 0.5 - elapsed))
 
 
 def get_pause_status():

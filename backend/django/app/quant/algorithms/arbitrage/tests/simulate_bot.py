@@ -198,24 +198,30 @@ def publish_price_tick(r, price_diff_key, upper_diff, lower_diff, label=""):
 
 SCENARIOS: dict[str, list[tuple]] = {
     "complete": [
-        # --- Phase 1: SELL zone, no fill — bid drops, must chase SELL down ---
+        # --- Phase 1: SELL zone, no fill — ask drops, must chase SELL down ---
         (2.0, -2.0, "neutral",           1000.0, 1001.0, 0.0),
         (6.0, -2.0, "SELL→place",        1000.0, 1001.0, 0.0),
-        (6.0, -2.0, "bid↓999→chase",      999.0, 1000.0, 0.0),
-        (6.0, -2.0, "bid↓998→chase",      998.0,  999.0, 0.0),
+        (6.0, -2.0, "ask↓1000→chase",     999.0, 1000.0, 0.0),
+        (6.0, -2.0, "ask↓999→chase",      998.0,  999.0, 0.0),
         (2.0, -2.0, "→neutral, cancel",  1000.0, 1001.0, 0.0),
 
         # --- Phase 2: SELL zone, partial fill — remaining qty chased ---
         (6.0, -2.0, "SELL→place 50%",    1000.0, 1001.0, 0.5),
-        (6.0, -2.0, "bid↓999→chase rem",  999.0, 1000.0, 0.5),
+        (6.0, -2.0, "ask↓1000→chase remaining", 999.0, 1000.0, 0.5),
         (2.0, -2.0, "→neutral, cancel",  1000.0, 1001.0, 0.5),
 
-        # --- Phase 3: SELL zone, full fill → hedge BUY in neutral ---
+        # --- Phase 3: SELL zone, partial fill → then fully filled on next tick ---
+        (6.0, -2.0, "SELL→place 50%",    1000.0, 1001.0, 0.5),
+        (6.0, -2.0, "remaining→full fill", 999.0, 1000.0, 1.0),
+        (2.0, -2.0, "→neutral, BUY hedge+fill", 1000.0, 1001.0, 1.0),
+        (2.0, -2.0, "neutral, no action",        1000.0, 1001.0, 1.0),
+
+        # --- Phase 4: SELL zone, full fill → hedge BUY in neutral ---
         (6.0, -2.0, "SELL→place+fill",   1000.0, 1001.0, 1.0),
         (2.0, -2.0, "→neutral, BUY hedge+fill", 1000.0, 1001.0, 1.0),
         (2.0, -2.0, "neutral, no action",       1000.0, 1001.0, 1.0),
 
-        # --- Phase 4: BUY zone, full fill → hedge SELL in neutral ---
+        # --- Phase 5: BUY zone, full fill → hedge SELL in neutral ---
         (2.0, -6.0, "BUY→place+fill",    1000.0, 1001.0, 1.0),
         (2.0, -2.0, "→neutral, SELL hedge+fill", 1000.0, 1001.0, 1.0),
         (2.0, -2.0, "neutral, no action",        1000.0, 1001.0, 1.0),

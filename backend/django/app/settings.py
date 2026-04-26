@@ -47,11 +47,11 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {name}:{lineno:d} PID:{process:d} {thread:d} {message}',
+            'format': '{levelname} {asctime} {name}:{funcName}:{lineno:d} PID:{process:d} {thread:d} {message}',
             'style': '{',
         },
         'simple': {
-            'format': '{levelname} {asctime} {name}:{lineno:d} {message}',
+            'format': '{levelname} {asctime} {name}:{funcName}:{lineno:d} {message}',
             'style': '{',
         },
     },
