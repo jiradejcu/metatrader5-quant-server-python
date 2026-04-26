@@ -3,7 +3,6 @@ import time
 import threading
 import os
 from . import config
-from decimal import Decimal
 import json
 from app.utils.redis_client import get_redis_connection
 from app.connectors.binance.api.order import get_open_orders, cancel_all_open_orders, chase_order, get_latest_order_snapshot
@@ -16,7 +15,6 @@ latest_grid_settings = None
 latest_upper = None
 latest_lower = None
 last_acted_order_id = None
-last_handled_fill_order_id = None
 optimistic_dirty_time = 0
 
 
@@ -44,7 +42,7 @@ def _determine_zone(current_upper_diff, current_lower_diff, upper_limit, lower_l
     return 'NEUTRAL'
 
 
-def _compute_target(zone, order_snapshot, order_size, remaining_capacity):
+def _compute_target(zone, position_amt, order_size, remaining_capacity):
     """Return (side, size) for the desired open limit order, or None if no order needed."""
     if remaining_capacity <= 0:
         logger.info(f"[Target] Capacity exhausted (remaining={remaining_capacity:.4f}) → None")
@@ -55,15 +53,13 @@ def _compute_target(zone, order_snapshot, order_size, remaining_capacity):
     if zone == 'BUY':
         return ('BUY', order_size)
 
-    # NEUTRAL: place hedge if the last order filled and we have not acted on it yet
-    filled_id = order_snapshot.get('order_id')
-    filled_side = order_snapshot.get('side')
-    if (order_snapshot.get('status') == 'FILLED'
-            and filled_side is not None
-            and filled_id != last_handled_fill_order_id):
-        opposite = 'BUY' if filled_side == 'SELL' else 'SELL'
-        logger.info(f"[Target] Neutral: {filled_side} filled → hedge {opposite}")
-        return (opposite, order_size)
+    # NEUTRAL: hedge based on current position direction
+    if position_amt > 0:
+        logger.info(f"[Target] Neutral: long position ({position_amt}) → hedge SELL")
+        return ('SELL', order_size)
+    if position_amt < 0:
+        logger.info(f"[Target] Neutral: short position ({position_amt}) → hedge BUY")
+        return ('BUY', order_size)
 
     return None
 
@@ -103,23 +99,13 @@ def _reconcile(entry_symbol, target, open_orders):
     optimistic_dirty_time = time.time()
 
 
-def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amount,
-                  upper_limit, lower_limit, max_pos, order_size,
+def _process_tick(entry_symbol, order_snapshot, upper_limit, lower_limit, max_pos, order_size,
                   current_upper_diff, current_lower_diff):
     """Execute one trading decision from a pubsub tick."""
-    global optimistic_dirty_time, last_handled_fill_order_id
-
     open_orders = get_open_orders(entry_symbol)
     positions = get_position(entry_symbol)
 
     position_amt = float(positions.get('positionAmt', '0'))
-    abs_position_amt = abs(position_amt)
-
-    logger.debug(
-        f"pos={position_amt} "
-        f"open_orders={len(open_orders or [])} "
-        f"upper_diff={current_upper_diff:.2f} lower_diff={current_lower_diff:.2f}"
-    )
 
     buy_pending = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders if getattr(o, 'side', '') == 'BUY')
     sell_pending = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders if getattr(o, 'side', '') == 'SELL')
@@ -127,37 +113,11 @@ def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amo
     remaining_capacity = max_pos - abs(position_amt + net_pending)
 
     logger.debug(
+        f"pos={position_amt} open_orders={len(open_orders or [])} "
         f"net_pending={net_pending} remaining_capacity={remaining_capacity:.4f} "
-        f"snapshot_status={order_snapshot['status']} snapshot_side={order_snapshot['side']}"
+        f"upper_diff={current_upper_diff:.2f} lower_diff={current_lower_diff:.2f}"
     )
 
-    # --- Fractional position: lot-size alignment edge case ---
-    unfilled_position = ((Decimal(str(abs_position_amt)) * minimum_trade_amount) * contract_size) % contract_size
-    if unfilled_position != 0:
-        order_aligns_with_position = (
-            (order_snapshot['side'] == 'BUY' and position_amt > 0) or
-            (order_snapshot['side'] == 'SELL' and position_amt < 0)
-        )
-        fraction_adjustment = (contract_size - unfilled_position) if order_aligns_with_position else unfilled_position
-        fraction_size = (fraction_adjustment / contract_size) * minimum_trade_amount if order_size > 0 else 0
-        side = order_snapshot['side']
-        if side is None:
-            logger.warning("Fractional: skipping — order_snapshot side is None")
-            return
-        logger.info(
-            f"Fractional position: unfilled={unfilled_position} fraction_size={fraction_size:.4f} "
-            f"side={side} aligns_with_pos={order_aligns_with_position}"
-        )
-        if remaining_capacity < 0:
-            logger.info(f"Fractional: capacity exceeded — cancelling all orders")
-            cancel_all_open_orders(entry_symbol)
-            return
-        logger.info(f"Fractional: chasing {side} order, size={fraction_size:.4f}")
-        chase_order(entry_symbol, fraction_size, side)
-        optimistic_dirty_time = time.time()
-        return
-
-    # --- Normal grid logic: zone → target → reconcile ---
     if len(open_orders) > 1:
         logger.info(f"Multiple open orders ({len(open_orders)}) — cancelling all before reconcile")
         cancel_all_open_orders(entry_symbol)
@@ -169,16 +129,10 @@ def _process_tick(entry_symbol, order_snapshot, contract_size, minimum_trade_amo
         f"lower_diff={current_lower_diff:.2f} (limit={lower_limit:.2f})"
     )
 
-    target = _compute_target(zone, order_snapshot, order_size, remaining_capacity)
+    target = _compute_target(zone, position_amt, order_size, remaining_capacity)
     logger.debug(f"Target={target}")
 
-    if zone == 'NEUTRAL' and target is not None:
-        last_handled_fill_order_id = order_snapshot.get('order_id')
-
     _reconcile(entry_symbol, target, open_orders)
-
-    if zone == 'NEUTRAL' and target is not None and last_acted_order_id:
-        last_handled_fill_order_id = last_acted_order_id
 
 
 def poll_order_state(entry_symbol):
@@ -217,10 +171,8 @@ def get_pause_status():
 
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
     global latest_grid_settings, latest_upper, latest_lower
-    global last_acted_order_id, last_handled_fill_order_id, optimistic_dirty_time
+    global last_acted_order_id, optimistic_dirty_time
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-    CONTRACT_SIZE = config.PAIRS[PAIR_INDEX]['contract_size']
-    MINIMUM_TRADE_AMOUNT = config.PAIRS[PAIR_INDEX]['minimum_trade_amount']
     entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
 
     # --- Initial Fetch for Grid Settings ---
@@ -302,7 +254,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
 
                         _process_tick(
                             entry_symbol, order_snapshot,
-                            CONTRACT_SIZE, MINIMUM_TRADE_AMOUNT,
                             upper, lower, max_pos, order_size,
                             latest_upper, latest_lower,
                         )
