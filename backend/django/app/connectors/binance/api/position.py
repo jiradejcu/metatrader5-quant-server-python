@@ -15,21 +15,6 @@ from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futur
     ConfigurationWebSocketAPI,
 )
 
-import json
-
-def prepare_json(json_str, default_value):
-    if json_str == None:
-            return default_value
-    return json.loads(json_str)
-
-def clean_val(val):
-    if isinstance(val, bytes):
-        val = val.decode('utf-8')
-    try:
-        return float(val) if val is not None else 0.0
-    except (ValueError, TypeError):
-        return 0.0
-
 load_dotenv()
 logger = logging.getLogger(__name__)
 
@@ -44,6 +29,7 @@ configuration_ws_api = ConfigurationWebSocketAPI(
 client = DerivativesTradingUsdsFutures(config_ws_api=configuration_ws_api)
 redis_conn = get_redis_connection()
 
+
 class json_encoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, Decimal):
@@ -52,7 +38,9 @@ class json_encoder(json.JSONEncoder):
             return obj.isoformat()
         return json.JSONEncoder.default(self, obj)
 
+
 async def subscribe_position_information(symbol: str):
+    logger.info(f"Starting binance position subscription for {symbol}.")
     while True:
         connection = None
         try:
@@ -61,9 +49,6 @@ async def subscribe_position_information(symbol: str):
 
             while True:
                 response = await connection.position_information()
-
-                # rate_limits = response.rate_limits
-                # logger.debug(f"Position information rate limits: {rate_limits}")
 
                 positions_list = response.data().result
                 positions_as_dicts = [p.to_dict() for p in positions_list]
@@ -76,29 +61,25 @@ async def subscribe_position_information(symbol: str):
 
                 if not symbol_open_position_df.empty:
                     position_data = symbol_open_position_df.iloc[0].to_dict()
-                    
+
                     thailand_tz = timezone(timedelta(hours=7))
                     latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
                     position_data['updateTime'] = latest_update
-                    
-                    # Save data into redis
+
                     redis_conn.set(redis_key, json.dumps(position_data))
                     redis_conn.publish(redis_key, json.dumps(position_data))
                     redis_conn.expire(redis_key, 10)
-
-                    # logger.debug(f"Updated Redis {redis_key} -> {position_data['positionAmt']}")
                 else:
                     if redis_conn.exists(redis_key):
                         redis_conn.delete(redis_key)
-                        # logger.debug(f"Deleted Redis key {redis_key} as no position data found for {symbol}.")
 
                 await asyncio.sleep(0.2)
 
         except asyncio.CancelledError:
-            logger.error(f"WebSocket task for {symbol} position cancelled. Closing connection.")
+            logger.error(f"Position task for {symbol} cancelled.")
             break
         except Exception as e:
-            logger.error(f"Position information subscription error for {symbol}: {e}. Retrying in 1 seconds...")
+            logger.error(f"Position information subscription error for {symbol}: {e}. Retrying in 1 second...")
             await asyncio.sleep(1)
         finally:
             if connection:
@@ -107,7 +88,6 @@ async def subscribe_position_information(symbol: str):
                     await connection.close_connection(close_session=True)
                 except Exception as close_err:
                     logger.warning(f"Error while closing connection for {symbol}: {close_err}")
-
 
 
 def get_position(symbol: str):

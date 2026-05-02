@@ -28,21 +28,6 @@ class json_encoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def prepare_json(json_str, default_value):
-    if json_str is None:
-        return default_value
-    return json.loads(json_str)
-
-
-def clean_val(val):
-    if isinstance(val, bytes):
-        val = val.decode('utf-8')
-    try:
-        return float(val) if val is not None else 0.0
-    except (ValueError, TypeError):
-        return 0.0
-
-
 async def subscribe_position_information(symbol: str):
     logger.info(f"Starting bybit position subscription for {symbol}.")
     while True:
@@ -91,8 +76,6 @@ async def subscribe_position_information(symbol: str):
         except Exception as e:
             logger.error(f"Position information subscription error for {symbol}: {e}. Retrying in 1 second...")
             await asyncio.sleep(1)
-
-
 
 
 def get_position(symbol: str):
