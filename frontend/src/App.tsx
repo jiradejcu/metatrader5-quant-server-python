@@ -8,7 +8,7 @@ import { CurrentPositionSection } from "./components/current-position-section";
 import { ExposureSection } from "./components/exposure-section";
 import { useAllBots } from "./hooks/all-bot";
 
-const BOT_LABELS = ["Bot 1", "Bot 2", "Bot 3"];
+const BOT_LABELS = ["Bot 1", "Bot 2", "Bot 3", "Dev"];
 
 function BotView({ apiUrl }: { apiUrl: string }) {
   return (
@@ -52,8 +52,8 @@ function BotView({ apiUrl }: { apiUrl: string }) {
 
 function App() {
   const [activeTab, setActiveTab] = useState(0);
-  const { botUrl, botUrl2, botUrl3 } = useAllBots();
-  const botUrls = [botUrl, botUrl2, botUrl3];
+  const { botUrl1, botUrl2, botUrl3, botUrlDev } = useAllBots();
+  const botUrls = [botUrl1, botUrl2, botUrl3, botUrlDev];
 
   return (
     <div className="px-3 py-3 sm:px-5 sm:py-5 bg-[#f3f4f6] dark:bg-gray-900 min-h-screen">

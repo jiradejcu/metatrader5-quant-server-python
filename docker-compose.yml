@@ -133,12 +133,14 @@ services:
       <<: *default-labels
     logging: *default-logging
   
-  frontend:
+  arbitrage-monitor:
     build:
       context: frontend
       dockerfile: Dockerfile
-    container_name: frontend_app
+    container_name: arbitrage-monitor
     restart: unless-stopped
+    profiles:
+      - admin
     env_file:
       - .env
     networks:
