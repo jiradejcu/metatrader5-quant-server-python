@@ -12,8 +12,8 @@ from . import state
 logger = logging.getLogger(__name__)
 
 latest_grid_settings = None
-latest_upper = None
-latest_lower = None
+latest_ask_diff = None
+latest_bid_diff = None
 last_acted_order_id = None
 optimistic_dirty_time = 0
 
@@ -34,10 +34,10 @@ def _record_new_order(response):
         last_acted_order_id = response.order_id
 
 
-def _determine_zone(current_upper_diff, current_lower_diff, upper_limit, lower_limit):
-    if current_upper_diff >= upper_limit:
+def _determine_zone(ask_diff, bid_diff, upper_limit, lower_limit):
+    if ask_diff >= upper_limit:
         return 'SELL'
-    if current_lower_diff <= lower_limit:
+    if bid_diff <= lower_limit:
         return 'BUY'
     return 'NEUTRAL'
 
@@ -101,7 +101,7 @@ def _reconcile(entry_symbol, target, position_amt, open_orders):
 
 
 def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
-                  current_upper_diff, current_lower_diff):
+                  ask_diff, bid_diff):
     """Execute one trading decision from a pubsub tick."""
     open_orders = get_open_orders(entry_symbol)
     positions = get_position(entry_symbol)
@@ -116,7 +116,7 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
     logger.debug(
         f"pos={position_amt} open_orders={len(open_orders or [])} "
         f"net_pending={net_pending} remaining_capacity={remaining_capacity:.4f} "
-        f"upper_diff={current_upper_diff:.2f} lower_diff={current_lower_diff:.2f}"
+        f"ask_diff={ask_diff:.2f} bid_diff={bid_diff:.2f}"
     )
 
     if len(open_orders) > 1:
@@ -124,10 +124,10 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
         cancel_all_open_orders(entry_symbol)
         return
 
-    zone = _determine_zone(current_upper_diff, current_lower_diff, upper_limit, lower_limit)
+    zone = _determine_zone(ask_diff, bid_diff, upper_limit, lower_limit)
     logger.debug(
-        f"Zone={zone}: upper_diff={current_upper_diff:.2f} (limit={upper_limit:.2f}), "
-        f"lower_diff={current_lower_diff:.2f} (limit={lower_limit:.2f})"
+        f"Zone={zone}: ask_diff={ask_diff:.2f} (limit={upper_limit:.2f}), "
+        f"bid_diff={bid_diff:.2f} (limit={lower_limit:.2f})"
     )
 
     target = _compute_target(zone, position_amt, order_size, remaining_capacity)
@@ -171,7 +171,7 @@ def get_pause_status():
 
 
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
-    global latest_grid_settings, latest_upper, latest_lower
+    global latest_grid_settings, latest_ask_diff, latest_bid_diff
     global last_acted_order_id, optimistic_dirty_time
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
     entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
@@ -218,9 +218,9 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
 
                 if channel == price_diff_key:
                     price_dict = json.loads(data_payload) if data_payload else {}
-                    latest_upper = round(float(price_dict.get('current_upper_diff', "0")), 2)
-                    latest_lower = round(float(price_dict.get('current_lower_diff', "0")), 2)
-                    logger.debug(f"[PubSub] Price diff updated: upper={latest_upper:.2f}, lower={latest_lower:.2f}")
+                    latest_ask_diff = round(float(price_dict.get('ask_diff', "0")), 2)
+                    latest_bid_diff = round(float(price_dict.get('bid_diff', "0")), 2)
+                    logger.debug(f"[PubSub] Price diff updated: upper={latest_ask_diff:.2f}, lower={latest_bid_diff:.2f}")
                 elif channel == grid_range_key:
                     latest_grid_settings = _parse_grid_settings(json.loads(data_payload) if data_payload else {})
                     logger.info(f"[PubSub] Grid settings updated: {latest_grid_settings}")
@@ -228,8 +228,8 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                 paused = get_pause_status()
                 allow_place_orders = (
                     latest_grid_settings is not None
-                    and latest_upper is not None
-                    and latest_lower is not None
+                    and latest_ask_diff is not None
+                    and latest_bid_diff is not None
                     and not paused
                 )
 
@@ -237,7 +237,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                     logger.debug(
                         f"[Grid] Orders blocked: "
                         f"has_settings={latest_grid_settings is not None} "
-                        f"has_price_diff={latest_upper is not None and latest_lower is not None} "
+                        f"has_price_diff={latest_ask_diff is not None and latest_bid_diff is not None} "
                         f"paused={bool(paused)}"
                     )
 
@@ -256,7 +256,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         _process_tick(
                             entry_symbol,
                             upper, lower, max_pos, order_size,
-                            latest_upper, latest_lower,
+                            latest_ask_diff, latest_bid_diff,
                         )
 
                     except Exception as e:

@@ -17,8 +17,8 @@ const PairDetails = (arg: IPairDetails) => {
     entryPrice,
     hedgePrice,
     unrealizedTotal,
-    current_upper_diff,
-    current_lower_diff
+    ask_diff,
+    bid_diff
   } = arg
   
   const dataRows = [
@@ -38,14 +38,14 @@ const PairDetails = (arg: IPairDetails) => {
       subValue: `(${time_update_hedge})` 
     },
     {
-      label: 'Current Upper Diff',
-      value: `${current_upper_diff !== undefined ? current_upper_diff.toFixed(2) : 0.00}`,
-      valueClass: current_upper_diff !== undefined ? (current_upper_diff > 0 ? 'text-green-500' : 'text-red-500') : 'text-gray-400'
+      label: 'Ask Diff',
+      value: `${ask_diff !== undefined ? ask_diff.toFixed(2) : 0.00}`,
+      valueClass: ask_diff !== undefined ? (ask_diff > 0 ? 'text-green-500' : 'text-red-500') : 'text-gray-400'
     },
     {
-      label: 'Current Lower Diff',
-      value: `${current_lower_diff !== undefined ? current_lower_diff.toFixed(2) : 0.00}`,
-      valueClass: current_lower_diff !== undefined ? (current_lower_diff > 0 ? 'text-green-500' : 'text-red-500') : 'text-gray-400'
+      label: 'Bid Diff',
+      value: `${bid_diff !== undefined ? bid_diff.toFixed(2) : 0.00}`,
+      valueClass: bid_diff !== undefined ? (bid_diff > 0 ? 'text-green-500' : 'text-red-500') : 'text-gray-400'
     },
     { 
       label: 'Entry Price', 
@@ -106,8 +106,8 @@ export const CurrentPositionSection = (arg: ICardSection) => {
           entryPrice,
           hedgePrice,
           unrealizedTotal,
-          current_upper_diff,
-          current_lower_diff
+          ask_diff,
+          bid_diff
         } = useGetSummaryStreamData(apiUrl)
         const { activeUser } = useGetActiveUser(apiUrl)
         const input_pair_data: IPairDetails = {
@@ -123,8 +123,8 @@ export const CurrentPositionSection = (arg: ICardSection) => {
           entryPrice,
           hedgePrice,
           unrealizedTotal,
-          current_upper_diff,
-          current_lower_diff
+          ask_diff,
+          bid_diff
         }
 
     if (isLoading) {

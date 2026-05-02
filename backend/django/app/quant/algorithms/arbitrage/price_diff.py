@@ -50,10 +50,10 @@ def compare():
         return
 
     try:
-        current_upper_diff = round(float(entry_ask - hedge_ask), 2)
-        current_lower_diff = round(float(entry_bid - hedge_bid), 2)
-        percent_change_premium = (entry_ask - hedge_ask) / hedge_ask * Decimal('100')
-        percent_change_discount = (entry_bid - hedge_bid) / hedge_bid * Decimal('100')
+        ask_diff = round(float(entry_ask - hedge_ask), 2)
+        bid_diff = round(float(entry_bid - hedge_bid), 2)
+        ask_diff_percent = (entry_ask - hedge_ask) / hedge_ask * Decimal('100')
+        bid_diff_percent = (entry_bid - hedge_bid) / hedge_bid * Decimal('100')
     except Exception as e:
         logger.exception(f"Error calculating price diff for {entry_symbol} and {hedge_symbol}: {e}")
         return
@@ -61,10 +61,10 @@ def compare():
     result = {
         "entry_symbol": entry_symbol,
         "hedge_symbol": hedge_symbol,
-        "current_upper_diff": current_upper_diff,
-        "current_lower_diff": current_lower_diff,
-        "percent_change_premium": str(percent_change_premium),
-        "percent_change_discount": str(percent_change_discount),
+        "ask_diff": ask_diff,
+        "bid_diff": bid_diff,
+        "ask_diff_percent": str(ask_diff_percent),
+        "bid_diff_percent": str(bid_diff_percent),
     }
 
     logger.info(f"Price diff for {entry_symbol}/{hedge_symbol}: {result}")

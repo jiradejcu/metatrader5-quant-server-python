@@ -12,6 +12,6 @@ export interface IPairDetails {
     entryPrice?: number;
     hedgePrice?: number;
     unrealizedTotal?: number;
-    current_upper_diff?: number;
-    current_lower_diff?: number;
+    ask_diff?: number;
+    bid_diff?: number;
 }

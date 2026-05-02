@@ -24,8 +24,8 @@ export const GridSettingModal = (
     });
     const { 
         isLoading, 
-        current_upper_diff, 
-        current_lower_diff, 
+        ask_diff, 
+        bid_diff, 
         gridBotStatus, 
         time_update_entry: time_update, 
         entrySymbol  
@@ -132,9 +132,9 @@ export const GridSettingModal = (
                                         </p>
 
                                         <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">
-                                            Upper Diff: <span className="text-blue-600">{current_upper_diff || '0.00'}</span>
+                                            Ask Diff: <span className="text-blue-600">{ask_diff || '0.00'}</span>
                                             <span className="mx-2 text-slate-300">|</span>
-                                            Lower Diff: <span className="text-blue-600">{current_lower_diff || '0.00'}</span>
+                                            Bid Diff: <span className="text-blue-600">{bid_diff || '0.00'}</span>
                                         </p>
                                         
                                         <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">

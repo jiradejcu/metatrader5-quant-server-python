@@ -76,9 +76,9 @@ def get_arbitrage_summary():
             'hedgeSymbol': hedge_symbol,
             'entry_unrealized_profit': float(entry_result.get('unRealizedProfit', 0)),
             'hedge_unrealized_profit': float(hedge_result.get('unRealizedProfit', 0)),
-            'price_diff_percent': round(float(price_diff_data.get('percent_change_premium', "0")), 3),
-            'current_upper_diff': price_diff_data.get('current_upper_diff', None),
-            'current_lower_diff': price_diff_data.get('current_lower_diff', None),
+            'price_diff_percent': round(float(price_diff_data.get('ask_diff_percent', "0")), 3),
+            'ask_diff': price_diff_data.get('ask_diff', None),
+            'bid_diff': price_diff_data.get('bid_diff', None),
         }
 
         response_data['netExpose'] = response_data['entrySize'] + (response_data['hedgeSize'] * ratio)

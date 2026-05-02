@@ -22,8 +22,8 @@ interface IArbitrageSummary {
   hedgeSymbol?: string;
   price_diff_percent?: number;
   gridBotStatus?: string;
-  current_upper_diff?: number;
-  current_lower_diff?: number;
+  ask_diff?: number;
+  bid_diff?: number;
 }
 
 export const useGetSummaryStreamData = (url: string) => {
@@ -55,8 +55,8 @@ export const useGetSummaryStreamData = (url: string) => {
         entrySymbol = 'default',
         hedgeSymbol = 'default',
         price_diff_percent = 0.0,
-        current_upper_diff = undefined,
-        current_lower_diff = undefined,
+        ask_diff = undefined,
+        bid_diff = undefined,
     } = (arbitrageSummary || {}) as IArbitrageSummary;
 
     return { 
@@ -81,7 +81,7 @@ export const useGetSummaryStreamData = (url: string) => {
         entrySymbol,
         hedgeSymbol,
         price_diff_percent,
-        current_upper_diff,
-        current_lower_diff
+        ask_diff,
+        bid_diff
      }
 }
