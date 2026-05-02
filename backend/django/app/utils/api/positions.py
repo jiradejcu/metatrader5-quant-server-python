@@ -43,6 +43,7 @@ def get_positions() -> pd.DataFrame:
         df = pd.DataFrame(data if isinstance(data, list) else [])
 
         if df.empty:
+            logger.warning("MT5 API returned no positions.")
             return empty_df
 
         df['time'] = pd.to_datetime(df['time'], unit='s', utc=True)
@@ -121,7 +122,6 @@ async def subscribe_hedge_position(symbol: str):
             ticker_hedge = json.loads(ticker_hedge_raw) if ticker_hedge_raw else {}
             bid = float(ticker_hedge.get('best_bid') or 0.0)
             ask = float(ticker_hedge.get('best_ask') or 0.0)
-            result["markPrice"] = ask
 
             if not positions.empty:
                 positions = _add_signed_volume(positions)
@@ -135,6 +135,8 @@ async def subscribe_hedge_position(symbol: str):
                 result["markPrice"] = f"{mark_price:.3f}"
                 result["unRealizedProfit"] = f"{total_profit:.2f}"
                 result["positionAmt"] = f"{total_volume:.3f}"
+            else:
+                logger.warning(f"No open hedge position found for {symbol}. ticker bid={bid} ask={ask}")
 
             data = json.dumps(result)
             redis_conn.set(redis_key, data)
