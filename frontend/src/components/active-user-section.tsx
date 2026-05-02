@@ -6,10 +6,14 @@ export const ActiveUserSection = (arg: ICardSection) => {
         apiUrl,
     } = arg
 
-    const { activeUser } = useGetActiveUser(apiUrl)
-    
+    const { activeUser, error } = useGetActiveUser(apiUrl)
+
+    if (error) {
+        return <div className="flex justify-center mt-4 font-medium text-red-500">Error: {(error as Error).message}</div>;
+    }
+
     if (!activeUser) {
-        return <div className="flex justify-center mt-20 font-medium text-gray-600">Active User: Connecting to API...</div>;
+        return <div className="flex justify-center mt-4 font-medium text-gray-600">Active User: Connecting to API...</div>;
     }
     return (
         <>

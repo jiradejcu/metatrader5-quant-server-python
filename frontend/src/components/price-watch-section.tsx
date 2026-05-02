@@ -7,7 +7,7 @@ const GlassLine: React.FC = () => (
 );
 
 const SpreadHighlight: React.FC<SpreadHighlightProps> = ({ spread }) => {
-  const isPositive = spread > 0;
+  const isPositive = (spread ?? 0) > 0;
   
   return (
     <div className={`mt-4 p-4 rounded-xl border-l-4 shadow-sm transition-colors duration-300 ${
@@ -24,7 +24,7 @@ const SpreadHighlight: React.FC<SpreadHighlightProps> = ({ spread }) => {
           <span className={`text-base font-black font-mono leading-none ${
             isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
           }`}>
-            {isPositive ? `+${spread.toFixed(2)}` : spread.toFixed(2)}
+            {isPositive ? `+${spread?.toFixed(2) ?? '0.00'}` : spread?.toFixed(2) ?? '0.00'}
           </span>
         </div>
       </div>
@@ -57,7 +57,7 @@ export const PriceWatchSection = (arg: ICardSection) => {
                     <p className="text-sm font-medium text-slate-600 dark:text-gray-300">{entrySymbol}</p>
                     </div>
                     <span className="font-mono text-slate-900 dark:text-gray-100 font-bold text-base tracking-tight">
-                    {entryMarkPrice.toFixed(2)}
+                    {entryMarkPrice?.toFixed(2) ?? '0.00'}
                     </span>
                 </div>
 
@@ -67,7 +67,7 @@ export const PriceWatchSection = (arg: ICardSection) => {
                     <p className="text-sm font-medium text-slate-600 dark:text-gray-300">{hedgeSymbol}</p>
                     </div>
                     <span className="font-mono text-slate-900 dark:text-gray-100 font-bold text-base tracking-tight">
-                    {hedgeMarkPrice.toFixed(2)}
+                    {hedgeMarkPrice?.toFixed(2) ?? '0.00'}
                     </span>
                 </div>
             </div>

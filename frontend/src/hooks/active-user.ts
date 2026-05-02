@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { getActiveUserInfo } from "../query/apis"
 
 export const useGetActiveUser = (url: string) => {
-    const { data: activeUser } = useQuery({
+    const { data: activeUser, error } = useQuery({
         queryKey: ['activeUser', url],
         queryFn: async () => {
         const response = await getActiveUserInfo(url)
@@ -18,5 +18,5 @@ export const useGetActiveUser = (url: string) => {
         },
     })
 
-    return { activeUser }
+    return { activeUser, error }
 }

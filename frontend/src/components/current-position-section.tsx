@@ -39,13 +39,13 @@ const PairDetails = (arg: IPairDetails) => {
     },
     {
       label: 'Ask Diff',
-      value: `${ask_diff !== undefined ? ask_diff.toFixed(2) : 0.00}`,
-      valueClass: ask_diff !== undefined ? (ask_diff > 0 ? 'text-green-500' : 'text-red-500') : 'text-gray-400'
+      value: `${ask_diff != null ? ask_diff.toFixed(2) : '0.00'}`,
+      valueClass: ask_diff != null ? (ask_diff > 0 ? 'text-green-500' : 'text-red-500') : 'text-gray-400'
     },
     {
       label: 'Bid Diff',
-      value: `${bid_diff !== undefined ? bid_diff.toFixed(2) : 0.00}`,
-      valueClass: bid_diff !== undefined ? (bid_diff > 0 ? 'text-green-500' : 'text-red-500') : 'text-gray-400'
+      value: `${bid_diff != null ? bid_diff.toFixed(2) : '0.00'}`,
+      valueClass: bid_diff != null ? (bid_diff > 0 ? 'text-green-500' : 'text-red-500') : 'text-gray-400'
     },
     { 
       label: 'Entry Price', 
