@@ -22,7 +22,7 @@ function PausePositionBtn({ url }: IDokcerAPIBtnProps) {
     },
   });
 
-  const label = isPaused ? 'Resume Position Sync' : 'Pause Position Sync';
+  const label = isPaused ? 'Resume Position Sync Bot' : 'Pause Position Sync Bot';
   let btnClass = 'w-full mt-3 py-2 px-4 rounded-lg font-semibold text-sm transition-all duration-200 ';
   let statusText = '';
   let statusClass = 'mt-1 h-4 text-xs font-medium ';

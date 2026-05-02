@@ -107,9 +107,6 @@ async def subscribe_hedge_position(symbol: str):
             positions = positions[positions['symbol'] == symbol]
             redis_key = f"position:mt5:{symbol}"
 
-            if redis_conn.exists(redis_key):
-                redis_conn.delete(redis_key)
-
             now = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
             result = {
                 "time_update": now,

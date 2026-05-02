@@ -27,21 +27,18 @@ function BotView({ apiUrl }: { apiUrl: string }) {
         <ActiveUserSection apiUrl={apiUrl} />
       </div>
 
-      {/* Price Watch */}
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow border-l-4 border-[#A5FF47]">
-        <h2 className="text-base font-semibold text-[#A5FF47] mb-3">Price Watch</h2>
-        <PriceWatchSection apiUrl={apiUrl} />
-      </div>
-
       {/* Current Positions */}
       <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow border-l-4 border-[#9068be]">
         <h2 className="text-base font-semibold text-[#9068be] mb-3">Current Positions</h2>
         <div className="overflow-y-auto custom-scrollbar scrollbar-purple flex flex-col items-center">
           <CurrentPositionSection apiUrl={apiUrl} />
         </div>
-        <div className="mt-3 p-1.5 bg-gray-50 dark:bg-gray-700/50 text-[10px] text-center text-gray-400 uppercase tracking-widest rounded">
-          Live Monitor Mode
-        </div>
+      </div>
+
+      {/* Price Watch */}
+      <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow border-l-4 border-[#A5FF47]">
+        <h2 className="text-base font-semibold text-[#A5FF47] mb-3">Price Watch</h2>
+        <PriceWatchSection apiUrl={apiUrl} />
       </div>
 
       {/* Summary */}

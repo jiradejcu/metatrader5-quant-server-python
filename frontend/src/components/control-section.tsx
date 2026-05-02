@@ -39,7 +39,7 @@ export const ControlSection = (arg: ICardSection) => {
             />
 
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Bot sync status: <span className={`font-bold ${pausePositionSync === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
+                  Position sync bot status: <span className={`font-bold ${pausePositionSync === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
                     {pausePositionSync}
                   </span>
                 </p>
