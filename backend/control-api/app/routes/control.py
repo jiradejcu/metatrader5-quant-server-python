@@ -47,6 +47,7 @@ def stop_quant_container():
     except docker.errors.NotFound:
         return jsonify({'status': 'ignored', 'message': 'Container does not exist'}), 404
     except Exception as e:
+        logger.error(f"Stop quant container error: {e}")
         return jsonify({
             'status': 'error',
             'reason': str(e)
@@ -71,6 +72,7 @@ def get_django_status():
             'message': f'Container "{TARGET_CONTAINER} not found'
         }), 404
     except Exception as e:
+        logger.error(f"Get django status error: {e}")
         return jsonify({
             'status': 'error',
             'reason': str(e)
@@ -222,6 +224,7 @@ def get_active_user_info():
             'binance_account_name': HOLDER_NAME
         }), 200
     except Exception as e:
+        logger.error(f"Get user info error: {e}")
         return jsonify({
             'status': 'error',
             'reason': str(e)
@@ -252,6 +255,7 @@ def restart_container():
     except docker.errors.NotFound:
         return jsonify({'status': 'ignored', 'message': 'Container does not exist'}), 404
     except Exception as e:
+        logger.error(f"Restart container error: {e}")
         return jsonify({
             'status': 'error',
             'reason': str(e)
@@ -340,6 +344,7 @@ def set_grid_setting_values():
         }), 200
 
     except Exception as e:
+        logger.error(f"Set grid channel error: {e}")
         return jsonify({
             'status': 'error',
             'reason': str(e)
