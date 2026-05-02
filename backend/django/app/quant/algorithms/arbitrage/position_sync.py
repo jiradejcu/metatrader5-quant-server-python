@@ -11,7 +11,7 @@ from app.utils.api.order import send_market_order
 
 logger = logging.getLogger(__name__)
 
-latest_update = None
+pre_order_volume = None
 
 def get_pause_status():
     redis_conn = get_redis_connection()
@@ -20,7 +20,7 @@ def get_pause_status():
     return is_paused
 
 def handle_position_update(pubsub):
-    global latest_update
+    global pre_order_volume
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
     entry_exchange = config.PAIRS[PAIR_INDEX]['entry']['exchange']
     hedge_exchange = config.PAIRS[PAIR_INDEX]['hedge']['exchange']
@@ -53,13 +53,12 @@ def handle_position_update(pubsub):
                 hedge_volume = Decimal(str(hedge_position.get('volume', '0')))
                 hedge_time_update = hedge_position.get('time_update', None)
 
-                if latest_update is not None:
-                    if hedge_time_update is None or latest_update >= hedge_time_update:
-                        logger.debug("No position information update from hedge. Skipping...")
+                if pre_order_volume is not None:
+                    if hedge_volume == pre_order_volume:
+                        logger.debug(f"Hedge volume unchanged at {hedge_volume}. Waiting for MT5 position update...")
                         continue
-                    else:
-                        logger.debug("New position information from hedge. Reset latest update.")
-                        latest_update = None
+                    logger.debug(f"MT5 position confirmed: {pre_order_volume} → {hedge_volume}.")
+                    pre_order_volume = None
 
                 logger.debug(
                     f"Hedge Position {hedge_exchange}:{hedge_symbol} - "
@@ -88,7 +87,7 @@ def handle_position_update(pubsub):
                     )
 
                     if order:
-                        latest_update = hedge_time_update
+                        pre_order_volume = hedge_volume
                         redis_conn = get_redis_connection()
                         redis_conn.delete(f"position:mt5:{hedge_symbol}")
                 else:
