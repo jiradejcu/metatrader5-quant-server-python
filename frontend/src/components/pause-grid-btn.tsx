@@ -30,7 +30,7 @@ function PauseGridBotBtn ({ url, gridBotStatus }: IDokcerAPIBtnProps) {
       };
     
       // Derive all UI states directly from the mutation object
-      const isPaused = gridBotStatus === 'PAUSE';
+      const isPaused = gridBotStatus?.toLowerCase() === 'pause';
       const idleLabel = isPaused ? 'Resume Grid Bot' : 'Pause Grid Bot';
       let btnText = idleLabel;
       let btnClasses = "mb-4 font-semibold py-2 px-4 rounded transition duration-200 border ";

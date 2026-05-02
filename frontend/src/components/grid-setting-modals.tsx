@@ -134,7 +134,7 @@ export const GridSettingModal = (
                                         </p>
                                         
                                         <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">
-                                            Status: <span className={gridBotStatus === 'PAUSE' ? 'text-red-500' : 'text-green-600'}>
+                                            Status: <span className={gridBotStatus?.toLowerCase() === 'pause' ? 'text-red-500' : 'text-green-600'}>
                                                 {gridBotStatus || 'UNKNOWN'}
                                             </span>
                                             <span className="mx-2 text-slate-300">|</span>
