@@ -33,9 +33,9 @@ def get_arbitrage_summary():
         redis_conn = get_redis_connection()
 
         entry_result = prepare_json(redis_conn.get(entry_key), position_data_default)
-        logger.info(f"Get redis key: {entry_key} success")
+        logger.info(f"{entry_key}: {entry_result}")
         hedge_result = prepare_json(redis_conn.get(hedge_key), position_data_default)
-        logger.info(f"Get redis key: {hedge_key} success")
+        logger.info(f"{hedge_key}: {hedge_result}")
         price_diff = prepare_json(redis_conn.get(f"price_comparison:{entry_symbol}:{hedge_symbol}"), {})
 
         place_order_key = f"spread:{entry_exchange}:{entry_symbol}"
