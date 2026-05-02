@@ -179,8 +179,8 @@ def publish_grid_settings(r, grid_range_key, upper_limit, lower_limit, max_pos, 
 
 def publish_price_tick(r, price_diff_key, upper_limit, lower_limit, label=""):
     payload = json.dumps({
-        "current_upper_limit": upper_limit,
-        "current_lower_limit": lower_limit,
+        "ask_diff": upper_limit,
+        "bid_diff": lower_limit,
     })
     r.publish(price_diff_key, payload)
     tag = f"  [{label}]" if label else ""
@@ -360,7 +360,7 @@ def main():
     if args.scenario:
         sim_log.info(f"  Mode        : scenario={args.scenario}  repeat={args.repeat}  interval={args.interval}s")
     else:
-        sim_log.info(f"  Mode        : manual  upper_limit={args.upper_limit}  lower_limit={args.lower_limit}  count={args.count}  interval={args.interval}s")
+        sim_log.info(f"  Mode        : manual  upper_diff={args.upper_diff}  lower_diff={args.lower_diff}  count={args.count}  interval={args.interval}s")
 
     # ---- patch + start bot ----
     patch_grid_bot()
@@ -391,7 +391,7 @@ def main():
     if args.scenario:
         run_scenario(redis_conn, price_diff_key, args.scenario, args.interval, args.repeat)
     else:
-        run_manual(redis_conn, price_diff_key, args.upper_limit, args.lower_limit,
+        run_manual(redis_conn, price_diff_key, args.upper_diff, args.lower_diff,
                    args.interval, args.count)
 
     time.sleep(1.0)  # flush any in-flight messages

@@ -74,8 +74,8 @@ def make_price_message(channel: str, upper_limit: float, lower_limit: float) -> 
         "type": "message",
         "channel": channel.encode(),
         "data": json.dumps({
-            "current_upper_limit": upper_limit,
-            "current_lower_limit": lower_limit,
+            "ask_diff": upper_limit,
+            "bid_diff": lower_limit,
         }).encode(),
     }
 
@@ -107,8 +107,8 @@ def reset_globals():
     """Reset module-level state between tests."""
     _gb.optimistic_dirty_time = 0
     _gb.last_acted_order_id = None
-    _gb.latest_upper = None
-    _gb.latest_lower = None
+    _gb.latest_ask_diff = None
+    _gb.latest_bid_diff = None
     _gb.latest_grid_settings = None
     yield
 
@@ -254,13 +254,13 @@ class TestProcessTick:
     def _run(self, open_orders, position_amt,
              upper_limit=10.0, lower_limit=-10.0,
              max_pos=5.0, order_size=1.0,
-             current_upper_limit=0.0, current_lower_limit=0.0):
+             ask_diff=0.0, bid_diff=0.0):
         with patch.object(_gb, "get_open_orders", return_value=open_orders), \
              patch.object(_gb, "get_position", return_value=_position(position_amt)):
             _gb._process_tick(
                 SYMBOL,
                 upper_limit, lower_limit, max_pos, order_size,
-                current_upper_limit, current_lower_limit,
+                ask_diff, bid_diff,
             )
 
     # --- sell / buy zone ---
@@ -274,7 +274,7 @@ class TestProcessTick:
                 SYMBOL,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
-                current_upper_limit=6.0, current_lower_limit=0.0,
+                ask_diff=6.0, bid_diff=0.0,
             )
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL")
 
@@ -287,7 +287,7 @@ class TestProcessTick:
                 SYMBOL,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
-                current_upper_limit=0.0, current_lower_limit=-6.0,
+                ask_diff=0.0, bid_diff=-6.0,
             )
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "BUY")
 
@@ -300,7 +300,7 @@ class TestProcessTick:
                 SYMBOL,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
-                current_upper_limit=6.0, current_lower_limit=0.0,
+                ask_diff=6.0, bid_diff=0.0,
             )
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL")
 
@@ -313,7 +313,7 @@ class TestProcessTick:
                 SYMBOL,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
-                current_upper_limit=0.0, current_lower_limit=-6.0,
+                ask_diff=0.0, bid_diff=-6.0,
             )
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "BUY")
 
@@ -327,7 +327,7 @@ class TestProcessTick:
                 SYMBOL,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
-                current_upper_limit=6.0, current_lower_limit=0.0,
+                ask_diff=6.0, bid_diff=0.0,
             )
         mock_cancel.assert_called_once_with(SYMBOL)
         mock_chase.assert_not_called()
@@ -342,7 +342,7 @@ class TestProcessTick:
                 SYMBOL,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
-                current_upper_limit=6.0, current_lower_limit=0.0,
+                ask_diff=6.0, bid_diff=0.0,
             )
         mock_cancel.assert_called_once_with(SYMBOL)
 
@@ -357,7 +357,7 @@ class TestProcessTick:
                 SYMBOL,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
-                current_upper_limit=6.0, current_lower_limit=0.0,
+                ask_diff=6.0, bid_diff=0.0,
             )
         mock_cancel.assert_called_once_with(SYMBOL)
         mock_chase.assert_not_called()
@@ -374,7 +374,7 @@ class TestProcessTick:
                 SYMBOL,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
-                current_upper_limit=3.0, current_lower_limit=-3.0,
+                ask_diff=3.0, bid_diff=-3.0,
             )
         mock_chase.assert_not_called()
         mock_cancel.assert_not_called()
@@ -389,7 +389,7 @@ class TestProcessTick:
                 SYMBOL,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
-                current_upper_limit=2.0, current_lower_limit=-2.0,
+                ask_diff=2.0, bid_diff=-2.0,
             )
         mock_cancel.assert_called_once_with(SYMBOL)
 
@@ -403,7 +403,7 @@ class TestProcessTick:
                 SYMBOL,
                 upper_limit=5.0, lower_limit=-5.0,
                 max_pos=5.0, order_size=1.0,
-                current_upper_limit=2.0, current_lower_limit=-2.0,
+                ask_diff=2.0, bid_diff=-2.0,
             )
         mock_chase.assert_not_called()
         mock_cancel.assert_not_called()
@@ -466,8 +466,8 @@ class TestMessageHelpers:
         msg = make_price_message("spread:binance:XAUUSDT", 7.5, -3.2)
         assert msg["type"] == "message"
         payload = json.loads(msg["data"])
-        assert payload["current_upper_limit"] == 7.5
-        assert payload["current_lower_limit"] == -3.2
+        assert payload["ask_diff"] == 7.5
+        assert payload["bid_diff"] == -3.2
 
     def test_grid_message_roundtrips(self):
         msg = make_grid_message("setting_grid_channel:XAUUSDT:XAUUSD",
@@ -480,8 +480,8 @@ class TestMessageHelpers:
         """Verify make_price_message produces a payload _process_tick can consume."""
         msg = make_price_message("ch", 8.0, -4.0)
         payload = json.loads(msg["data"])
-        upper = round(float(payload.get("current_upper_limit", 0)), 2)
-        lower = round(float(payload.get("current_lower_limit", 0)), 2)
+        upper = round(float(payload.get("ask_diff", 0)), 2)
+        lower = round(float(payload.get("bid_diff", 0)), 2)
         assert upper == 8.0
         assert lower == -4.0
 
