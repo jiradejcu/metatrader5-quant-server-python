@@ -270,8 +270,7 @@ def set_grid_setting_values():
         
         # 1. Validate required fields and types
         required_fields = [
-            'upper_diff', 'lower_diff', 'max_position_size', 
-            'order_size', 'close_long', 'close_short'
+            'upper_diff', 'lower_diff', 'max_position_size', 'order_size'
         ]
         
         for field in required_fields:
@@ -290,21 +289,10 @@ def set_grid_setting_values():
         lower = float(data['lower_diff'])
         max_pos = float(data['max_position_size'])
         ord_size = float(data['order_size'])
-        c_long = float(data['close_long'])
-        c_short = float(data['close_short'])
-
         # Validation Logic
         errors = []
         if not (ord_size <= max_pos):
             errors.append("order_size must be less than max_position_size")
-        if not (upper >= c_long):
-            errors.append("upper_diff must be greater than or equal to close_long")
-        if not (upper >= c_short):
-            errors.append("upper_diff must be greater than or equal to close_short")
-        if not (c_short >= lower):
-            errors.append("close_short must be greater than or equal to lower_diff")
-        if not (c_long >= lower):
-            errors.append("close_long must be greater than or equal to lower_diff")
         if not (upper > lower):
             errors.append("upper_diff must be greater than lower_diff")
 
@@ -328,8 +316,6 @@ def set_grid_setting_values():
             "lower_diff": lower,
             "max_position_size": max_pos,
             "order_size": ord_size,
-            "close_long": c_long,
-            "close_short": c_short
         }
         
         payload = json.dumps(grid_channel)

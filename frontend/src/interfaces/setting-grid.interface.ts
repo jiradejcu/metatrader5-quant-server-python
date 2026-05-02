@@ -3,8 +3,7 @@ export interface SettingGridProps {
     lower_diff: number
     max_position_size: number
     order_size: number
-    close_long: number
-    close_short: number
+
 }
 
 export interface IFloatingLabelInputProps {

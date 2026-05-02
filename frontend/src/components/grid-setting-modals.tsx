@@ -19,8 +19,6 @@ export const GridSettingModal = (
         lower_diff: -30,
         max_position_size: 2,
         order_size: 1,
-        close_long: 10,
-        close_short: -10
     });
     const { 
         isLoading, 
@@ -74,8 +72,6 @@ export const GridSettingModal = (
                 lower_diff: data.lower_diff,
                 max_position_size: data.max_position_size,
                 order_size: data.order_size,
-                close_long: data.close_long,
-                close_short: data.close_short
             });
             hasInitialized.current = true;
         }
@@ -160,11 +156,6 @@ export const GridSettingModal = (
                                 <FloatingLabelInput label="Order Size" name="order_size" value={formData.order_size} onChange={handleChange} />
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
-                                <FloatingLabelInput label="TP Long (%)" name="close_long" value={formData.close_long} onChange={handleChange} />
-                                <FloatingLabelInput label="TP Short (%)" name="close_short" value={formData.close_short} onChange={handleChange} />
-                            </div>
-
                             <button
                                 type="submit"
                                 disabled={setupGridMutation.isPending}
@@ -177,16 +168,6 @@ export const GridSettingModal = (
                                 {setupGridMutation.isPending ? "Saving..." : "Update Parameters"}
                             </button>
                         </form>
-
-                        <div className="mt-6 flex justify-center border-t border-slate-100 pt-4">
-                            <button 
-                                type="button"
-                                onClick={() => setIsOpen(false)}
-                                className="text-xs text-slate-400 hover:text-red-500 transition-colors font-bold uppercase tracking-wider"
-                            >
-                                Cancel & Return
-                            </button>
-                        </div>
                     </div>
                 </div>
             </div>
