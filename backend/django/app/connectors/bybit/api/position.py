@@ -5,7 +5,6 @@ import json
 from pybit.unified_trading import HTTP
 from app.utils.redis_client import get_redis_connection
 from dotenv import load_dotenv
-from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 
 load_dotenv()
@@ -17,16 +16,6 @@ session = HTTP(
     api_key=os.environ.get('API_KEY_BYBIT'),
     api_secret=os.environ.get('API_SECRET_BYBIT'),
 )
-
-
-class json_encoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, Decimal):
-            return str(obj)
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        return json.JSONEncoder.default(self, obj)
-
 
 async def subscribe_position_information(symbol: str):
     logger.info(f"Starting bybit position subscription for {symbol}.")

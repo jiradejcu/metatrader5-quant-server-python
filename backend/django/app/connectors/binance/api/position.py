@@ -6,7 +6,6 @@ import json
 from app.utils.redis_client import get_redis_connection
 from app.utils.api.data import symbol_info_tick
 from dotenv import load_dotenv
-from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
@@ -28,16 +27,6 @@ configuration_ws_api = ConfigurationWebSocketAPI(
 
 client = DerivativesTradingUsdsFutures(config_ws_api=configuration_ws_api)
 redis_conn = get_redis_connection()
-
-
-class json_encoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, Decimal):
-            return str(obj)
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        return json.JSONEncoder.default(self, obj)
-
 
 async def subscribe_position_information(symbol: str):
     logger.info(f"Starting binance position subscription for {symbol}.")
