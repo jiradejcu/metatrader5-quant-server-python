@@ -56,9 +56,17 @@ def get_arbitrage_summary():
             grid_bot_status = 'Pause'
 
         now = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S") # use UTC(+7) Thailand time zone
+        entry_mark_price = float(entry_result.get('markPrice', 0))
+        hedge_mark_price = float(hedge_result.get('markPrice', 0))
+
+        if entry_mark_price == 0.0:
+            logger.warning(f"entryMarkPrice is 0. entry_key={entry_key} entry_result={entry_result}")
+        if hedge_mark_price == 0.0:
+            logger.warning(f"hedgeMarkPrice is 0. hedge_key={hedge_key} hedge_result={hedge_result}")
+
         response_data = {
-            'entryMarkPrice': float(entry_result.get('markPrice', 0)),
-            'hedgeMarkPrice': float(hedge_result.get('markPrice', 0)),
+            'entryMarkPrice': entry_mark_price,
+            'hedgeMarkPrice': hedge_mark_price,
             'entryPrice': float(entry_result.get('entryPrice', 0)),
             'hedgePrice': float(hedge_result.get('entryPrice', 0)),
             'entrySize': entry_size,
