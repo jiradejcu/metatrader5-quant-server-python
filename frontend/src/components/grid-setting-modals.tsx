@@ -105,7 +105,7 @@ export const GridSettingModal = (
                 >
                     {/* Action Header */}
                     <div className="w-full flex justify-between items-center mb-4">
-                        <PauseGridBotBtn url={url} />
+                        <PauseGridBotBtn url={url} gridBotStatus={gridBotStatus} />
                         <button 
                         onClick={() => setIsOpen(false)}
                         className="bg-white/20 hover:bg-white/40 text-blue px-3 py-1 rounded-md text-sm transition-colors border border-white/30"
