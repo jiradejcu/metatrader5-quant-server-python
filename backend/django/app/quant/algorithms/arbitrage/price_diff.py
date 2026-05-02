@@ -1,13 +1,18 @@
 import logging
 import threading
+import importlib
 import os
 import time
 import requests
 from . import config
 from decimal import Decimal
-from app.connectors.binance.api.ticker import get_ticker
 from app.utils.redis_client import get_redis_connection
 import json
+
+
+def _get_ticker_fn(exchange: str):
+    module = importlib.import_module(f"app.connectors.{exchange}.api.ticker")
+    return module.get_ticker
 
 WEBHOOK_URL = os.getenv('N8N_WEBHOOK_URL')
 logger = logging.getLogger(__name__)
@@ -16,9 +21,11 @@ redis_conn = get_redis_connection()
 
 def compare():
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
+    entry_exchange = config.PAIRS[PAIR_INDEX]['entry']['exchange']
     entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
     hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
 
+    get_ticker = _get_ticker_fn(entry_exchange)
     entry_ticker = get_ticker(entry_symbol)
 
     ticker_mt5_raw = redis_conn.get(f"ticker:mt5:{hedge_symbol}")
