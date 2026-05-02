@@ -34,7 +34,7 @@ docker exec -w $WORKDIR $CONTAINER \
 docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
   python $BASE/simulate_bot.py --scenario sell_accumulate --max-pos 3 --interval 0.8
 
-complete: no-fill chase → partial fill → full fill → SELL/BUY zones
+# complete: no-fill chase → partial fill → full fill → SELL/BUY zones
 docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
   python $BASE/simulate_bot.py --scenario complete --interval 0.8
 
