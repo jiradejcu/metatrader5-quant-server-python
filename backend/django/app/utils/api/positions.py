@@ -124,7 +124,7 @@ async def subscribe_hedge_position(symbol: str):
             ask = float(ticker_hedge.get('best_ask') or 0.0)
 
             if bid == 0.0 or ask == 0.0:
-                logger.warning(f"Ticker has zero price for {symbol}. bid={bid} ask={ask} ticker_key_exists={ticker_hedge_raw is not None}")
+                logger.warning(f"Ticker has zero price for {symbol}. bid={bid} ask={ask} ticker_hedge: {ticker_hedge}")
 
             if not positions.empty:
                 positions = _add_signed_volume(positions)
@@ -140,9 +140,6 @@ async def subscribe_hedge_position(symbol: str):
                 result["positionAmt"] = f"{total_volume:.3f}"
             else:
                 logger.warning(f"No open positions for {symbol}. ticker bid={bid} ask={ask}")
-
-            if float(result.get("markPrice", 0)) == 0.0:
-                logger.warning(f"Writing zero markPrice to Redis for {symbol}. result={result}")
 
             data = json.dumps(result)
             redis_conn.set(redis_key, data)
