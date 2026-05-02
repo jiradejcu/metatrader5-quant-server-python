@@ -20,7 +20,6 @@ def start_subscriptions():
     try:
         threading.Thread(target=asyncio.run, args=(position_stream.subscribe_position_information(entry_symbol),), daemon=True).start()
         threading.Thread(target=asyncio.run, args=(subscribe_hedge_position(hedge_symbol),), daemon=True).start()
-        threading.Thread(target=asyncio.run, args=(position_stream.subscribe_spread_diff(entry_symbol, hedge_symbol),), daemon=True).start()
         logger.info(f"Successfully started subscription threads for {entry_symbol}.")
     except Exception as e:
         logger.error(f"Error in arbitrage subscribe tasks for {entry_symbol}: {e}", exc_info=True)

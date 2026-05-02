@@ -18,7 +18,7 @@ def _check_loop(entry_exchange: str, entry_symbol: str, hedge_symbol: str):
         f"ticker:mt5:{hedge_symbol}":              f"mt5 ticker ({hedge_symbol})",
         f"position:{entry_exchange}:{entry_symbol}": f"{entry_exchange} position ({entry_symbol})",
         f"position:mt5:{hedge_symbol}":             f"mt5 position ({hedge_symbol})",
-        f"spread:{entry_exchange}:{entry_symbol}":  f"spread feed ({entry_exchange}:{entry_symbol})",
+        f"price_diff:{entry_symbol}:{hedge_symbol}": f"price diff feed ({entry_symbol}/{hedge_symbol})",
     }
 
     redis_conn = get_redis_connection()

@@ -109,43 +109,6 @@ async def subscribe_position_information(symbol: str):
                     logger.warning(f"Error while closing connection for {symbol}: {close_err}")
 
 
-async def subscribe_spread_diff(binance_symbol: str, mt5_symbol: str):
-    while True:
-        try:
-            ticker_binance_key = f"ticker:binance:{binance_symbol}"
-            ticker_mt5_key = f"ticker:mt5:{mt5_symbol}"
-
-            raw_ticker_binance = redis_conn.hgetall(ticker_binance_key)
-            ticker_binance = raw_ticker_binance if raw_ticker_binance else {}
-            ticker_mt5 = prepare_json(redis_conn.get(ticker_mt5_key), {})
-
-            binance_best_bid = clean_val(ticker_binance.get(b'best_bid' if b'best_bid' in ticker_binance else 'best_bid'))
-            binance_best_ask = clean_val(ticker_binance.get(b'best_ask' if b'best_ask' in ticker_binance else 'best_ask'))
-            mt5_best_bid = clean_val(ticker_mt5.get('best_bid'))
-            mt5_best_ask = clean_val(ticker_mt5.get('best_ask'))
-
-            current_upper_diff = round(binance_best_ask - mt5_best_ask, 2)
-            current_lower_diff = round(binance_best_bid - mt5_best_bid, 2)
-
-            grid_bot_boundary_key = f"spread:binance:{binance_symbol}"
-            redis_conn.set(grid_bot_boundary_key, json.dumps({
-                            "current_upper_diff": current_upper_diff,
-                            "current_lower_diff": current_lower_diff,
-                        }))
-            redis_conn.publish(grid_bot_boundary_key, json.dumps({
-                "current_upper_diff": current_upper_diff,
-                "current_lower_diff": current_lower_diff,
-            }))
-            redis_conn.expire(grid_bot_boundary_key, 10)
-
-            await asyncio.sleep(0.2)
-        except asyncio.CancelledError:
-            logger.error(f"Spread diff task for {binance_symbol}/{mt5_symbol} cancelled.")
-            break
-        except Exception as e:
-            logger.error(f"Spread diff error for {binance_symbol}/{mt5_symbol}: {e}. Retrying in 1 seconds...")
-            await asyncio.sleep(1)
-
 
 def get_position(symbol: str):
     redis_key = f"position:binance:{symbol}"

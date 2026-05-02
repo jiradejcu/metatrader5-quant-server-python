@@ -36,10 +36,7 @@ def get_arbitrage_summary():
         logger.info(f"Get redis key: {entry_key} success")
         hedge_result = prepare_json(redis_conn.get(hedge_key), position_data_default)
         logger.info(f"Get redis key: {hedge_key} success")
-        price_diff = prepare_json(redis_conn.get(f"price_comparison:{entry_symbol}:{hedge_symbol}"), {})
-
-        place_order_key = f"spread:{entry_exchange}:{entry_symbol}"
-        place_order_data = prepare_json(redis_conn.get(place_order_key), {})
+        price_diff_data = prepare_json(redis_conn.get(f"price_diff:{entry_symbol}:{hedge_symbol}"), {})
 
         pause_position = 'Active'
         grid_bot_status = 'Active'
@@ -79,9 +76,9 @@ def get_arbitrage_summary():
             'hedgeSymbol': hedge_symbol,
             'entry_unrealized_profit': float(entry_result.get('unRealizedProfit', 0)),
             'hedge_unrealized_profit': float(hedge_result.get('unRealizedProfit', 0)),
-            'price_diff_percent': round(float(price_diff.get('percent_change_premium', "0")), 3),
-            'current_upper_diff': place_order_data.get('current_upper_diff', None),
-            'current_lower_diff': place_order_data.get('current_lower_diff', None),
+            'price_diff_percent': round(float(price_diff_data.get('percent_change_premium', "0")), 3),
+            'current_upper_diff': price_diff_data.get('current_upper_diff', None),
+            'current_lower_diff': price_diff_data.get('current_lower_diff', None),
         }
 
         response_data['netExpose'] = response_data['entrySize'] + (response_data['hedgeSize'] * ratio)

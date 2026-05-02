@@ -94,44 +94,6 @@ async def subscribe_position_information(symbol: str):
 
 
 
-async def subscribe_spread_diff(bybit_symbol: str, mt5_symbol: str):
-    logger.info(f"Starting bybit spread diff subscription for {bybit_symbol}/{mt5_symbol}.")
-    while True:
-        try:
-            ticker_bybit_key = f"ticker:bybit:{bybit_symbol}"
-            ticker_mt5_key = f"ticker:mt5:{mt5_symbol}"
-
-            raw_ticker_bybit = redis_conn.hgetall(ticker_bybit_key)
-            ticker_bybit = raw_ticker_bybit if raw_ticker_bybit else {}
-            ticker_mt5 = prepare_json(redis_conn.get(ticker_mt5_key), {})
-
-            bybit_best_bid = clean_val(ticker_bybit.get(b'best_bid' if b'best_bid' in ticker_bybit else 'best_bid'))
-            bybit_best_ask = clean_val(ticker_bybit.get(b'best_ask' if b'best_ask' in ticker_bybit else 'best_ask'))
-            mt5_best_bid = clean_val(ticker_mt5.get('best_bid'))
-            mt5_best_ask = clean_val(ticker_mt5.get('best_ask'))
-
-            current_upper_diff = round(bybit_best_ask - mt5_best_ask, 2)
-            current_lower_diff = round(bybit_best_bid - mt5_best_bid, 2)
-
-            grid_bot_boundary_key = f"spread:bybit:{bybit_symbol}"
-            redis_conn.set(grid_bot_boundary_key, json.dumps({
-                "current_upper_diff": current_upper_diff,
-                "current_lower_diff": current_lower_diff,
-            }))
-            redis_conn.publish(grid_bot_boundary_key, json.dumps({
-                "current_upper_diff": current_upper_diff,
-                "current_lower_diff": current_lower_diff,
-            }))
-            redis_conn.expire(grid_bot_boundary_key, 10)
-
-            await asyncio.sleep(0.2)
-        except asyncio.CancelledError:
-            logger.error(f"Spread diff task for {bybit_symbol}/{mt5_symbol} cancelled.")
-            break
-        except Exception as e:
-            logger.error(f"Spread diff error for {bybit_symbol}/{mt5_symbol}: {e}. Retrying in 1 second...")
-            await asyncio.sleep(1)
-
 
 def get_position(symbol: str):
     redis_key = f"position:bybit:{symbol}"
