@@ -15,8 +15,8 @@ export const GridSettingModal = (
     const { data } = useGetGridSettingsStreamData(url)
     const hasInitialized = useRef(false);
     const [formData, setFormData] = useState({
-        upper_diff: 30,
-        lower_diff: -30,
+        upper_limit: 30,
+        lower_limit: -30,
         max_position_size: 2,
         order_size: 1,
     });
@@ -68,8 +68,8 @@ export const GridSettingModal = (
     useEffect(() => {
         if (data && !hasInitialized.current) {
             setFormData({
-                upper_diff: data.upper_diff,
-                lower_diff: data.lower_diff,
+                upper_limit: data.upper_limit,
+                lower_limit: data.lower_limit,
                 max_position_size: data.max_position_size,
                 order_size: data.order_size,
             });
@@ -147,8 +147,8 @@ export const GridSettingModal = (
 
                         <form onSubmit={handleSubmit} className="space-y-1">
                             <div className="grid grid-cols-2 gap-4">
-                                <FloatingLabelInput label="Upper Diff (%)" name="upper_diff" value={formData.upper_diff} onChange={handleChange} />
-                                <FloatingLabelInput label="Lower Diff (%)" name="lower_diff" value={formData.lower_diff} onChange={handleChange} />
+                                <FloatingLabelInput label="Upper Limit ($)" name="upper_limit" value={formData.upper_limit} onChange={handleChange} />
+                                <FloatingLabelInput label="Lower Limit ($)" name="lower_limit" value={formData.lower_limit} onChange={handleChange} />
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">

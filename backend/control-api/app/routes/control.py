@@ -270,7 +270,7 @@ def set_grid_setting_values():
         
         # 1. Validate required fields and types
         required_fields = [
-            'upper_diff', 'lower_diff', 'max_position_size', 'order_size'
+            'upper_limit', 'lower_limit', 'max_position_size', 'order_size'
         ]
         
         for field in required_fields:
@@ -285,8 +285,8 @@ def set_grid_setting_values():
                     'message': f'Attribute "{field}" must be numeric!'
                 }), 400
 
-        upper = float(data['upper_diff'])
-        lower = float(data['lower_diff'])
+        upper = float(data['upper_limit'])
+        lower = float(data['lower_limit'])
         max_pos = float(data['max_position_size'])
         ord_size = float(data['order_size'])
         # Validation Logic
@@ -294,7 +294,7 @@ def set_grid_setting_values():
         if not (ord_size <= max_pos):
             errors.append("order_size must be less than max_position_size")
         if not (upper > lower):
-            errors.append("upper_diff must be greater than lower_diff")
+            errors.append("upper_limit must be greater than lower_limit")
 
         if errors:
             return jsonify({
@@ -312,8 +312,8 @@ def set_grid_setting_values():
         redis_key = f"setting_grid_channel:{entry_symbol}:{hedge_symbol}"
 
         grid_channel = {
-            "upper_diff": upper,
-            "lower_diff": lower,
+            "upper_limit": upper,
+            "lower_limit": lower,
             "max_position_size": max_pos,
             "order_size": ord_size,
         }

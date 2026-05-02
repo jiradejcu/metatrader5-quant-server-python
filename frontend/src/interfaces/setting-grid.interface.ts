@@ -1,6 +1,6 @@
 export interface SettingGridProps {
-    upper_diff: number
-    lower_diff: number
+    upper_limit: number
+    lower_limit: number
     max_position_size: number
     order_size: number
 

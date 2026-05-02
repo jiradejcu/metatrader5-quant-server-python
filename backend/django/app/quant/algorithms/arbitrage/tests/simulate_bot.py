@@ -164,8 +164,8 @@ def patch_grid_bot():
 
 def publish_grid_settings(r, grid_range_key, upper_limit, lower_limit, max_pos, order_size):
     payload = json.dumps({
-        "upper_diff": upper_limit,
-        "lower_diff": lower_limit,
+        "upper_limit": upper_limit,
+        "lower_limit": lower_limit,
         "max_position_size": max_pos,
         "order_size": order_size,
     })
@@ -177,20 +177,20 @@ def publish_grid_settings(r, grid_range_key, upper_limit, lower_limit, max_pos, 
     )
 
 
-def publish_price_tick(r, price_diff_key, upper_diff, lower_diff, label=""):
+def publish_price_tick(r, price_diff_key, upper_limit, lower_limit, label=""):
     payload = json.dumps({
-        "current_upper_diff": upper_diff,
-        "current_lower_diff": lower_diff,
+        "current_upper_limit": upper_limit,
+        "current_lower_limit": lower_limit,
     })
     r.publish(price_diff_key, payload)
     tag = f"  [{label}]" if label else ""
-    sim_log.debug(f"Tick published  upper={upper_diff:+.2f}  lower={lower_diff:+.2f}{tag}")
+    sim_log.debug(f"Tick published  upper={upper_limit:+.2f}  lower={lower_limit:+.2f}{tag}")
 
 
 # ---------------------------------------------------------------------------
 # Named scenarios
 #
-# Each step is a tuple: (upper_diff, lower_diff, label, bid, ask, fill_pct)
+# Each step is a tuple: (upper_limit, lower_limit, label, bid, ask, fill_pct)
 #   bid, ask, fill_pct are optional; omit trailing fields to keep current values.
 #
 # fill_pct: 0.0=no fill, 0.5=partial, 1.0=full fill
@@ -273,10 +273,10 @@ def run_scenario(r, price_diff_key, name, interval, repeat):
             time.sleep(interval)
 
 
-def run_manual(r, price_diff_key, upper_diff, lower_diff, interval, count):
-    sim_log.info(f"Manual ticks x{count}  upper={upper_diff:+.2f}  lower={lower_diff:+.2f}")
+def run_manual(r, price_diff_key, upper_limit, lower_limit, interval, count):
+    sim_log.info(f"Manual ticks x{count}  upper={upper_limit:+.2f}  lower={lower_limit:+.2f}")
     for i in range(count):
-        publish_price_tick(r, price_diff_key, upper_diff, lower_diff, f"{i+1}/{count}")
+        publish_price_tick(r, price_diff_key, upper_limit, lower_limit, f"{i+1}/{count}")
         time.sleep(interval)
 
 
@@ -295,9 +295,9 @@ def main():
     group.add_argument("--scenario", choices=list(SCENARIOS),
                        help="Run a named price scenario")
     group.add_argument("--upper-diff", type=float, default=6.0,
-                       help="Manual mode: current_upper_diff to publish (default 6.0)")
+                       help="Manual mode: current_upper_limit to publish (default 6.0)")
     parser.add_argument("--lower-diff", type=float, default=-6.0,
-                        help="Manual mode: current_lower_diff to publish (default -6.0)")
+                        help="Manual mode: current_lower_limit to publish (default -6.0)")
     parser.add_argument("--count", type=int, default=5,
                         help="Number of ticks in manual mode (default 5)")
     parser.add_argument("--interval", type=float, default=1.0,
@@ -360,7 +360,7 @@ def main():
     if args.scenario:
         sim_log.info(f"  Mode        : scenario={args.scenario}  repeat={args.repeat}  interval={args.interval}s")
     else:
-        sim_log.info(f"  Mode        : manual  upper_diff={args.upper_diff}  lower_diff={args.lower_diff}  count={args.count}  interval={args.interval}s")
+        sim_log.info(f"  Mode        : manual  upper_limit={args.upper_limit}  lower_limit={args.lower_limit}  count={args.count}  interval={args.interval}s")
 
     # ---- patch + start bot ----
     patch_grid_bot()
@@ -391,7 +391,7 @@ def main():
     if args.scenario:
         run_scenario(redis_conn, price_diff_key, args.scenario, args.interval, args.repeat)
     else:
-        run_manual(redis_conn, price_diff_key, args.upper_diff, args.lower_diff,
+        run_manual(redis_conn, price_diff_key, args.upper_limit, args.lower_limit,
                    args.interval, args.count)
 
     time.sleep(1.0)  # flush any in-flight messages

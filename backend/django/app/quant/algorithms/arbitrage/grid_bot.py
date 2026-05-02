@@ -20,8 +20,8 @@ optimistic_dirty_time = 0
 
 def _parse_grid_settings(grid_dict):
     return {
-        "upper": float(grid_dict.get('upper_diff', 0.0)),
-        "lower": float(grid_dict.get('lower_diff', 0.0)),
+        "upper": float(grid_dict.get('upper_limit', 0.0)),
+        "lower": float(grid_dict.get('lower_limit', 0.0)),
         "max_position_size": float(grid_dict.get('max_position_size', 0.0)),
         "order_size": float(grid_dict.get('order_size', 0.0)),
     }
