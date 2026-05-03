@@ -52,9 +52,10 @@ export const GridSettingModal = (
 
     const handleChange = (e:any) => {
         const { name, value } = e.target;
+        const parsed = parseFloat(value);
         setFormData((prevData) => ({
             ...prevData,
-            [name]: value === "" ? 0 : parseFloat(value) // Convert to number or set to empty string
+            [name]: value === "" || isNaN(parsed) ? value : parsed
         }));
     };
 
