@@ -94,6 +94,9 @@ logs
 # Database
 *.sqlite3
 
+# AI Agents
+.claude/
+
 config/
 
 docker-compose.override.yml
