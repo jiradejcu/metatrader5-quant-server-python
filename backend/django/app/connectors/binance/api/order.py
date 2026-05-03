@@ -96,7 +96,7 @@ def chase_order(symbol, quantity, side):
                 quantity=quantity,
                 price=None,
                 order_id=order_id,
-                price_match=ModifyOrderPriceMatchEnum["OPPONENT"].value,
+                price_match=ModifyOrderPriceMatchEnum["QUEUE"].value,
             )
         else:
             response = client.rest_api.new_order(
@@ -105,7 +105,7 @@ def chase_order(symbol, quantity, side):
                 side=NewOrderSideEnum[side].value,
                 type="LIMIT",
                 time_in_force=NewOrderTimeInForceEnum["GTX"].value,
-                price_match="OPPONENT",
+                price_match="QUEUE",
             )
         return response.data()
     except Exception as e:
