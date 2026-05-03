@@ -25,7 +25,11 @@ def get_grid_parameters_data():
                 entry_key = f"position:{entry_exchange}:{entry_symbol}"
                 grid_parameters_key = f"setting_grid_channel:{entry_symbol}:{hedge_symbol}"
                 result = prepare_json(redis_conn.get(entry_key), entry_data_default)
-                grid_data = prepare_json(redis_conn.get(grid_parameters_key), grid_data_default)
+                raw_grid_data = redis_conn.get(grid_parameters_key)
+                if raw_grid_data is None:
+                        return None
+
+                grid_data = prepare_json(raw_grid_data, grid_data_default)
 
                 ict_now = datetime.utcnow() + timedelta(hours=7)
                 now = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S") # use UTC(+7) Thailand time zone

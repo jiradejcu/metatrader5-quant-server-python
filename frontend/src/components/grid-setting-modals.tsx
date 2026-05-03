@@ -15,10 +15,10 @@ export const GridSettingModal = (
     const { data } = useGetGridSettingsStreamData(url)
     const hasInitialized = useRef(false);
     const [formData, setFormData] = useState({
-        upper_limit: 30,
-        lower_limit: -30,
-        max_position_size: 2,
-        order_size: 1,
+        upper_limit: 0,
+        lower_limit: 0,
+        max_position_size: 0,
+        order_size: 0,
     });
     const { 
         isLoading, 
@@ -65,6 +65,10 @@ export const GridSettingModal = (
         
         setupGridMutation.mutate(url);
     };
+
+    useEffect(() => {
+        hasInitialized.current = false;
+    }, [url]);
 
     useEffect(() => {
         if (data && !hasInitialized.current) {
@@ -146,6 +150,12 @@ export const GridSettingModal = (
                             )}
                         </div>
 
+                        {data === null && (
+                            <p className="text-xs text-amber-600 font-semibold text-center mb-3 bg-amber-50 border border-amber-200 rounded-lg py-2">
+                                No grid setting found
+                            </p>
+                        )}
+
                         <form onSubmit={handleSubmit} className="space-y-1">
                             <div className="grid grid-cols-2 gap-4">
                                 <FloatingLabelInput label="Upper Limit ($)" name="upper_limit" value={formData.upper_limit} onChange={handleChange} />
@@ -161,8 +171,8 @@ export const GridSettingModal = (
                                 type="submit"
                                 disabled={setupGridMutation.isPending}
                                 className={`w-full mt-6 py-3.5 px-4 rounded-xl font-black text-sm uppercase tracking-widest text-blue shadow-lg transition-all active:scale-[0.97]
-                                ${setupGridMutation.isPending 
-                                    ? "bg-slate-300 cursor-not-allowed" 
+                                ${setupGridMutation.isPending
+                                    ? "bg-slate-300 cursor-not-allowed"
                                     : "bg-blue-600 hover:bg-blue-700 shadow-blue-200"
                                 }`}
                             >
