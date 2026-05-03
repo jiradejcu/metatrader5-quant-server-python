@@ -166,8 +166,8 @@ def poll_order_state(entry_symbol):
         time.sleep(max(0.1, 0.5 - elapsed))
 
 
-def get_pause_status():
-    return get_redis_connection().get("grid_bot_paused_flag")
+def get_active_status():
+    return get_redis_connection().get("grid_bot_active_flag")
 
 
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
@@ -225,12 +225,12 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                     latest_grid_settings = _parse_grid_settings(json.loads(data_payload) if data_payload else {})
                     logger.info(f"[PubSub] Grid settings updated: {latest_grid_settings}")
 
-                paused = get_pause_status()
+                active = get_active_status()
                 allow_place_orders = (
                     latest_grid_settings is not None
                     and latest_ask_diff is not None
                     and latest_bid_diff is not None
-                    and not paused
+                    and active
                 )
 
                 if not allow_place_orders:
@@ -238,7 +238,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         f"[Grid] Orders blocked: "
                         f"has_settings={latest_grid_settings is not None} "
                         f"has_price_diff={latest_ask_diff is not None and latest_bid_diff is not None} "
-                        f"paused={bool(paused)}"
+                        f"active={bool(active)}"
                     )
 
                 # TRADING LOGIC

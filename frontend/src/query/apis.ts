@@ -16,8 +16,8 @@ export async function pauseDisplay(API_BASE_URL: string): Promise<Response> {
   return response;
 }
 
-export async function pauseGridBot(API_BASE_URL: string): Promise<Response> {
-  const url = `${API_BASE_URL}/pause-grid-bot`;
+export async function toggleGridBot(API_BASE_URL: string): Promise<Response> {
+  const url = `${API_BASE_URL}/toggle-grid-bot`;
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -26,7 +26,7 @@ export async function pauseGridBot(API_BASE_URL: string): Promise<Response> {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to pause grid bot: ${response.statusText}`);
+    throw new Error(`Failed to toggle grid bot: ${response.statusText}`);
   }
 
   return response;

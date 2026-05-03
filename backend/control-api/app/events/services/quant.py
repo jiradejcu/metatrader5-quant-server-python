@@ -28,7 +28,7 @@ def get_arbitrage_summary():
         entry_key = f"position:{entry_exchange}:{entry_symbol}"
         hedge_key = f"position:{hedge_exchange}:{hedge_symbol}"
         pause_position_key = "position_sync_paused_flag"
-        grid_bot_pause_key = "grid_bot_paused_flag"
+        grid_bot_active_key = "grid_bot_active_flag"
 
         redis_conn = get_redis_connection()
 
@@ -39,7 +39,7 @@ def get_arbitrage_summary():
         price_diff_data = prepare_json(redis_conn.get(f"price_diff:{entry_symbol}:{hedge_symbol}"), {})
 
         pause_position = 'Active'
-        grid_bot_status = 'Active'
+        grid_bot_status = 'Inactive'
         pairStatus = 'Warning'
 
         entry_size = float(entry_result.get('positionAmt', 0))
@@ -49,8 +49,8 @@ def get_arbitrage_summary():
         if redis_conn.get(pause_position_key):
             pause_position = 'Pause'
 
-        if redis_conn.get(grid_bot_pause_key):
-            grid_bot_status = 'Pause'
+        if redis_conn.get(grid_bot_active_key):
+            grid_bot_status = 'Active'
 
         now = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S") # use UTC(+7) Thailand time zone
         entry_mark_price = float(entry_result.get('markPrice', 0))

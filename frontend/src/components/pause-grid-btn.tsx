@@ -1,13 +1,13 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { IDokcerAPIBtnProps } from '../interfaces/ button-docker.interface';
-import { pauseGridBot } from '../query/apis';
+import { toggleGridBot } from '../query/apis';
 import { SECOND } from '../constant/time';
 
 function PauseGridBotBtn ({ url, gridBotStatus }: IDokcerAPIBtnProps) {
     const queryClient = useQueryClient();
     const pauseMutation = useMutation({
-        mutationFn: (url: string) => pauseGridBot(url),
+        mutationFn: (url: string) => toggleGridBot(url),
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: ['arbitrage', 'summary', url] });
           
@@ -30,7 +30,7 @@ function PauseGridBotBtn ({ url, gridBotStatus }: IDokcerAPIBtnProps) {
       };
     
       // Derive all UI states directly from the mutation object
-      const isPaused = gridBotStatus?.toLowerCase() === 'pause';
+      const isPaused = gridBotStatus?.toLowerCase() !== 'active';
       const idleLabel = isPaused ? 'Resume Grid Bot' : 'Pause Grid Bot';
       let btnText = idleLabel;
       let btnClasses = "mb-4 font-semibold py-2 px-4 rounded transition duration-200 border ";
