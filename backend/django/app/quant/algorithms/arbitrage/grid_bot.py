@@ -173,6 +173,9 @@ def get_active_status():
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
     global latest_grid_settings, latest_ask_diff, latest_bid_diff
     global last_acted_order_id, optimistic_dirty_time
+    latest_grid_settings = None
+    latest_ask_diff = None
+    latest_bid_diff = None
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
     entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
 
