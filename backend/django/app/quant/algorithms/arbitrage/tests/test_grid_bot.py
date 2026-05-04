@@ -43,8 +43,9 @@ _state_mod = types.ModuleType(f"{_PKG}.state")
 _state_mod.state_lock = threading.Lock()
 _state_mod.placing_order_state = {
     "order_id": None, "status": None, "is_clean": True,
-    "fill_pct": 0, "side": None, "price": None, "orig_qty": 0, "total_orders": 0,
+    "fill_pct": 0, "side": None, "price": None, "orig_qty": 0,
 }
+_state_mod.force_position_fetch = False
 sys.modules[f"{_PKG}.state"] = _state_mod
 
 # --- load grid_bot.py as _PKG.grid_bot ---
@@ -105,11 +106,10 @@ SYMBOL = "XAUUSDT"
 @pytest.fixture(autouse=True)
 def reset_globals():
     """Reset module-level state between tests."""
-    _gb.optimistic_dirty_time = 0
-    _gb.last_acted_order_id = None
     _gb.latest_ask_diff = None
     _gb.latest_bid_diff = None
     _gb.latest_grid_settings = None
+    _state_mod.force_position_fetch = False
     yield
 
 
@@ -443,17 +443,6 @@ class TestProcessTick:
         mock_chase.assert_not_called()
         mock_cancel.assert_not_called()
 
-    # --- _record_new_order side effects ---
-
-    def test_record_new_order_sets_last_acted_order_id(self):
-        mock_resp = SimpleNamespace(order_id="REC1")
-        _gb._record_new_order(mock_resp)
-        assert _gb.last_acted_order_id == "REC1"
-        assert _gb.optimistic_dirty_time > 0
-
-    def test_record_new_order_none_response_does_not_crash(self):
-        _gb._record_new_order(None)
-        assert _gb.last_acted_order_id is None
 
 
 # ---------------------------------------------------------------------------

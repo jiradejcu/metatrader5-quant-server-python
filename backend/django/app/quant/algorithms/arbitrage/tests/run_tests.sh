@@ -38,6 +38,10 @@ docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
 docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
   python $BASE/simulate_bot.py --scenario complete --interval 0.8
 
+# neutral_cancel: open order cancelled immediately when zone returns to NEUTRAL
+docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
+  python $BASE/simulate_bot.py --scenario neutral_cancel --interval 0.8
+
 # ---------------------------------------------------------------------------
 # Simulation — manual tick injection
 # ---------------------------------------------------------------------------

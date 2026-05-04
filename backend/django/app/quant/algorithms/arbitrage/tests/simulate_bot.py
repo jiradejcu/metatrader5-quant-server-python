@@ -16,7 +16,7 @@ Usage (inside the django container, from /app):
   # Live channels — ⚠️  only when live bot is stopped
   PAIR_INDEX=1 python ... --live-channels --scenario sweep
 
-Scenarios: sell_accumulate, complete
+Scenarios: sell_accumulate, complete, neutral_cancel
 """
 
 import os
@@ -65,7 +65,6 @@ _market = {
     "ask": 1001.0,
     "position": 0.0,
     "open_orders": [],   # list of SimpleNamespace(order_id, side, orig_qty)
-    "last_snapshot": {}, # latest order snapshot returned to the poller
     "fill_pct": 1.0,     # 0.0 = no fill, 0.5 = partial, 1.0 = full (default)
 }
 
@@ -78,8 +77,6 @@ _order_counter = 0
 
 def mock_cancel_all_open_orders(symbol):
     sim_log.info(f"  🔴 cancel_all_open_orders  {symbol}")
-    if _market["open_orders"]:
-        _market["last_snapshot"] = {**_market["last_snapshot"], "status": "CANCELED"}
     _market["open_orders"].clear()
     return None
 
@@ -92,7 +89,7 @@ def mock_chase_order(symbol, quantity, side):
         order = _market["open_orders"][0]
         sim_log.info(
             f"  🟡 chase_order  {side:4s}  qty={quantity}  id={order.order_id}  "
-            f"(OPPONENT: bid={_market['bid']}  ask={_market['ask']})"
+            f"bid={_market['bid']}  ask={_market['ask']}"
         )
         return SimpleNamespace(order_id=order.order_id)
 
@@ -110,20 +107,12 @@ def mock_chase_order(symbol, quantity, side):
         status = "PARTIALLY_FILLED" if fill_pct > 0 else "NEW"
         order = SimpleNamespace(order_id=oid, side=side, orig_qty=remaining_qty)
         _market["open_orders"].append(order)
-        _market["last_snapshot"] = {
-            "order_id": oid, "status": status, "side": side,
-            "orig_qty": quantity, "fill_pct": fill_pct * 100, "is_clean": True,
-        }
         sim_log.info(
             f"  🟢 chase_order (new)  {side:4s}  qty={quantity}  id={oid}  "
             f"fill={fill_pct*100:.0f}%  remaining={remaining_qty}  position={_market['position']:+.4f}"
         )
     else:
         status = "FILLED"
-        _market["last_snapshot"] = {
-            "order_id": oid, "status": "FILLED", "side": side,
-            "orig_qty": quantity, "fill_pct": 100, "is_clean": True,
-        }
         sim_log.info(f"  🟢 chase_order (new)  {side:4s}  qty={quantity}  id={oid}")
         sim_log.info(f"  💰 filled             {side:4s}  qty={quantity}  position={_market['position']:+.4f}")
 
@@ -134,15 +123,8 @@ def mock_get_open_orders(symbol):
     return list(_market["open_orders"])
 
 
-def mock_get_position(symbol):
+def mock_get_position(symbol, force=False):
     return {"positionAmt": str(_market["position"])}
-
-
-def mock_get_latest_order_snapshot(symbol):
-    # Clear last_acted_order_id once the poller reads the snapshot so the stale
-    # guard releases and subsequent ticks (e.g. chase) are not blocked.
-    grid_bot.last_acted_order_id = None
-    return _market["last_snapshot"]
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +136,6 @@ def patch_grid_bot():
     grid_bot.chase_order = mock_chase_order
     grid_bot.get_open_orders = mock_get_open_orders
     grid_bot.get_position = mock_get_position
-    grid_bot.get_latest_order_snapshot = mock_get_latest_order_snapshot
     sim_log.info("Binance API patched — no real orders will be placed")
 
 
@@ -248,6 +229,27 @@ SCENARIOS: dict[str, list[tuple]] = {
         # --- Phase 5: BUY zone, full fill → neutral holds position ---
         (2.0, -6.0, "BUY   pos=-2.5 → place+fill",              1000.0, 1001.0, 1.0),
         (2.0, -2.0, "→neutral  pos=-1.5 → no open order",       1000.0, 1001.0, 1.0),
+    ],
+
+    # Run with: --scenario neutral_cancel --order-size 1
+    #
+    # Verifies that an open order is cancelled immediately when zone returns to
+    # NEUTRAL, via _process_tick → _reconcile (target==position, diff==0, cancel).
+    #
+    # Expected:
+    #   tick 1 (SELL, no fill)  → place SELL order, order stays open
+    #   tick 2 (NEUTRAL)        → reconcile sees diff=0 + open order → cancel
+    #   tick 3 (NEUTRAL)        → no open order → no action
+    #   tick 4 (BUY, no fill)   → place BUY order, order stays open
+    #   tick 5 (NEUTRAL)        → reconcile sees diff=0 + open order → cancel
+    #   tick 6 (NEUTRAL)        → no open order → no action
+    "neutral_cancel": [
+        (6.0, -2.0, "SELL  pos=0 → place (no fill)",   1000.0, 1001.0, 0.0),
+        (2.0, -2.0, "→NEUTRAL   → cancel open order",  1000.0, 1001.0, 0.0),
+        (2.0, -2.0, "NEUTRAL    → no open order",      1000.0, 1001.0, 0.0),
+        (2.0, -6.0, "BUY   pos=0 → place (no fill)",   1000.0, 1001.0, 0.0),
+        (2.0, -2.0, "→NEUTRAL   → cancel open order",  1000.0, 1001.0, 0.0),
+        (2.0, -2.0, "NEUTRAL    → no open order",      1000.0, 1001.0, 0.0),
     ],
 }
 
@@ -379,14 +381,9 @@ def main():
         args=(pubsub, price_diff_key, grid_range_key),
         daemon=True,
     ).start()
-    threading.Thread(
-        target=grid_bot.poll_order_state,
-        args=(entry_symbol,),
-        daemon=True,
-    ).start()
 
     time.sleep(0.5)  # let threads initialize and read initial settings
-    sim_log.info("Bot threads started. Publishing price data...")
+    sim_log.info("Bot thread started. Publishing price data...")
 
     if args.scenario:
         run_scenario(redis_conn, price_diff_key, args.scenario, args.interval, args.repeat)

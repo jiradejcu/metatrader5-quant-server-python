@@ -4,8 +4,9 @@ import threading
 import os
 from . import config
 import json
+import websocket
 from app.utils.redis_client import get_redis_connection
-from app.connectors.binance.api.order import get_open_orders, cancel_all_open_orders, chase_order, get_latest_order_snapshot
+from app.connectors.binance.api.order import get_open_orders, cancel_all_open_orders, chase_order, client as binance_client
 from app.connectors.binance.api.position import get_position
 from . import state
 
@@ -14,10 +15,6 @@ logger = logging.getLogger(__name__)
 latest_grid_settings = None
 latest_ask_diff = None
 latest_bid_diff = None
-last_acted_order_id = None
-optimistic_dirty_time = 0
-
-
 def _parse_grid_settings(grid_dict):
     return {
         "upper": float(grid_dict.get('upper_limit', 0.0)),
@@ -25,13 +22,6 @@ def _parse_grid_settings(grid_dict):
         "max_position_size": float(grid_dict.get('max_position_size', 0.0)),
         "order_size": float(grid_dict.get('order_size', 0.0)),
     }
-
-
-def _record_new_order(response):
-    global optimistic_dirty_time, last_acted_order_id
-    optimistic_dirty_time = time.time()
-    if response and response.order_id:
-        last_acted_order_id = response.order_id
 
 
 def _determine_zone(ask_diff, bid_diff, upper_limit, lower_limit):
@@ -60,8 +50,6 @@ def _compute_target(zone, position_amt, order_size, remaining_capacity):
 
 def _reconcile(entry_symbol, target, position_amt, open_orders):
     """Take the minimal action to reach the target position."""
-    global optimistic_dirty_time
-
     if target is None:
         logger.debug("[Reconcile] do nothing")
         return
@@ -81,7 +69,7 @@ def _reconcile(entry_symbol, target, position_amt, open_orders):
 
     if not open_orders:
         logger.info(f"[Reconcile] No open order → chasing {side}, size={size}")
-        _record_new_order(chase_order(entry_symbol, float(size), side))
+        chase_order(entry_symbol, float(size), side)
         return
 
     first = open_orders[0]
@@ -97,7 +85,6 @@ def _reconcile(entry_symbol, target, position_amt, open_orders):
 
     logger.debug(f"[Reconcile] Chasing {side}, size={current_size}")
     chase_order(entry_symbol, current_size, side)
-    optimistic_dirty_time = time.time()
 
 
 def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
@@ -141,40 +128,84 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
     _reconcile(entry_symbol, target, position_amt, open_orders)
 
 
-def poll_order_state(entry_symbol):
-    logger.info(f"Starting Background Polling for {entry_symbol}")
-    prev_status = None
+def watch_user_data_stream(entry_symbol):
+    """Subscribe to Binance user data stream for real-time order status updates."""
+    WS_BASE = os.getenv("WS_STREAM_URL", "wss://fstream.binance.com")
+    TERMINAL_STATUSES = {'FILLED', 'CANCELED', 'EXPIRED', 'REJECTED', 'EXPIRED_IN_MATCH'}
+
+    def _keepalive_loop(stop_event):
+        while not stop_event.wait(timeout=1800):
+            try:
+                binance_client.rest_api.keepalive_user_data_stream()
+                logger.debug("[UserDataStream] listenKey keepalive sent")
+            except Exception as e:
+                logger.error(f"[UserDataStream] keepalive failed: {e}")
+
     while True:
-        start_time = time.time()
+        stop_keepalive = threading.Event()
         try:
-            snapshot = get_latest_order_snapshot(entry_symbol)
-            open_orders = get_open_orders(entry_symbol)
-            logger.debug(f"Open order count: {len(open_orders)}")
+            listen_key = binance_client.rest_api.start_user_data_stream().data().listen_key
+            logger.info(f"[UserDataStream] Got listenKey, connecting to {WS_BASE}")
 
-            data = snapshot or {}
-            new_status = data.get('status')
-            with state.state_lock:
-                state.placing_order_state.update({
-                    "order_id": data.get('order_id'),
-                    "status": new_status,
-                    "fill_pct": data.get('fill_pct', 0),
-                    "side": data.get('side'),
-                    "is_clean": data.get('is_clean', True),
-                    "price": data.get('price'),
-                    "orig_qty": data.get('orig_qty', 0),
-                    "total_orders": len(open_orders) if open_orders else 0,
-                })
-                if new_status != prev_status and new_status is not None:
-                    logger.debug(f"[Poller] Order status changed {prev_status} → {new_status} — flagging force position fetch")
-                    state.force_position_fetch = True
-            prev_status = new_status
+            threading.Thread(target=_keepalive_loop, args=(stop_keepalive,), daemon=True).start()
+
+            prev_status = None
+
+            def on_message(ws, message):
+                nonlocal prev_status
+                try:
+                    data = json.loads(message)
+                    if data.get('e') != 'ORDER_TRADE_UPDATE':
+                        return
+                    o = data.get('o', {})
+                    if o.get('s') != entry_symbol:
+                        return
+                    new_status = o.get('X')
+                    orig_qty = float(o.get('q', 0))
+                    executed_qty = float(o.get('z', 0))
+                    fill_pct = (executed_qty / orig_qty * 100) if orig_qty > 0 else 0
+                    with state.state_lock:
+                        state.placing_order_state.update({
+                            "order_id": o.get('i'),
+                            "status": new_status,
+                            "fill_pct": fill_pct,
+                            "side": o.get('S'),
+                            "is_clean": new_status in TERMINAL_STATUSES,
+                            "price": o.get('p'),
+                            "orig_qty": orig_qty,
+                        })
+                        if new_status != prev_status and new_status is not None:
+                            logger.debug(f"[UserDataStream] Order status {prev_status} → {new_status} — flagging force position fetch")
+                            state.force_position_fetch = True
+                    prev_status = new_status
+                except Exception as e:
+                    logger.error(f"[UserDataStream] Error processing message: {e}", exc_info=True)
+
+            def on_error(ws, error):
+                logger.error(f"[UserDataStream] WebSocket error: {error}")
+
+            def on_close(ws, close_status_code, close_msg):
+                logger.warning(f"[UserDataStream] Connection closed: {close_status_code} {close_msg}")
+                stop_keepalive.set()
+
+            def on_open(ws):
+                logger.info("[UserDataStream] WebSocket connected")
+
+            ws = websocket.WebSocketApp(
+                f"{WS_BASE}/ws/{listen_key}",
+                on_open=on_open,
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close,
+            )
+            ws.run_forever(ping_interval=60, ping_timeout=10)
+
         except Exception as e:
-            logger.error(f"Thread Error: {e}")
-            time.sleep(1)
+            logger.error(f"[UserDataStream] Fatal error: {e}. Reconnecting in 5s...", exc_info=True)
+        finally:
+            stop_keepalive.set()
 
-        # 500ms ≈ 120 calls/min, well under the 2,400/min limit
-        elapsed = time.time() - start_time
-        time.sleep(max(0.1, 0.5 - elapsed))
+        time.sleep(5)
 
 
 def get_active_status():
@@ -183,7 +214,7 @@ def get_active_status():
 
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
     global latest_grid_settings, latest_ask_diff, latest_bid_diff
-    global last_acted_order_id, optimistic_dirty_time
+
     latest_grid_settings = None
     latest_ask_diff = None
     latest_bid_diff = None
@@ -219,48 +250,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                     latest_grid_settings = _parse_grid_settings(json.loads(data_payload) if data_payload else {})
                     logger.info(f"[PubSub] Grid settings updated: {latest_grid_settings}")
 
-                # NEUTRAL CANCEL: always cancel open orders when zone is neutral,
-                # even while guards are active — guards only block new order placement.
-                if (latest_grid_settings is not None
-                        and latest_ask_diff is not None
-                        and latest_bid_diff is not None):
-                    zone = _determine_zone(
-                        latest_ask_diff, latest_bid_diff,
-                        latest_grid_settings['upper'], latest_grid_settings['lower'],
-                    )
-                    if zone == 'NEUTRAL':
-                        try:
-                            open_orders = get_open_orders(entry_symbol)
-                            if open_orders:
-                                logger.info(
-                                    f"[Grid] Zone=NEUTRAL — cancelling {len(open_orders)} open order(s) immediately"
-                                )
-                                cancel_all_open_orders(entry_symbol)
-                        except Exception as e:
-                            logger.error(f"[Grid] Error cancelling orders on NEUTRAL zone: {e}", exc_info=True)
-                        time.sleep(0.1)
-                        continue
-
-                now = time.time()
-                with state.state_lock:
-                    # LATENCY GUARD: wait 500ms after sending an order
-                    if now - optimistic_dirty_time < 0.5:
-                        logger.debug(
-                            f"[Guard] Latency guard active: "
-                            f"{now - optimistic_dirty_time:.3f}s since last order — skipping tick"
-                        )
-                        continue
-                    order_snapshot = state.placing_order_state.copy()
-
-                # STALE DATA GUARD: skip if poller still shows the old order_id
-                if last_acted_order_id and order_snapshot.get('order_id') == last_acted_order_id:
-                    if order_snapshot.get('status') not in ['FILLED', 'CANCELED', 'EXPIRED']:
-                        logger.debug(
-                            f"[Guard] Stale data: order {last_acted_order_id} "
-                            f"still {order_snapshot.get('status')} — skipping tick"
-                        )
-                        continue
-
                 active = get_active_status()
                 allow_place_orders = (
                     latest_grid_settings is not None
@@ -277,13 +266,8 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         f"active={bool(active)}"
                     )
 
-                # TRADING LOGIC
                 if allow_place_orders:
                     try:
-                        with state.state_lock:
-                            # Mark dirty immediately so the poller sees it before we call Binance
-                            state.placing_order_state["is_clean"] = False
-
                         upper = latest_grid_settings['upper']
                         lower = latest_grid_settings['lower']
                         max_pos = latest_grid_settings['max_position_size']
@@ -297,8 +281,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
 
                     except Exception as e:
                         logger.error(f"[Placing Bot Thread] Error in processing grid flow logic: {e}", exc_info=True)
-                        with state.state_lock:
-                            state.placing_order_state["is_clean"] = True
                         time.sleep(1)
 
                 time.sleep(0.1)
@@ -330,7 +312,7 @@ def start_grid_bot_sync():
             args=(pubsub, price_diff, grid_range), daemon=True
         ).start()
         threading.Thread(
-            target=poll_order_state,
+            target=watch_user_data_stream,
             args=(entry_symbol,), daemon=True
         ).start()
         logger.info("Grid Bot thread started and running in background.")
