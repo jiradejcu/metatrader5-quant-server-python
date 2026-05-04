@@ -11,7 +11,9 @@ from datetime import datetime, timezone, timedelta
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,
     DERIVATIVES_TRADING_USDS_FUTURES_WS_API_PROD_URL,
+    DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL,
     ConfigurationWebSocketAPI,
+    ConfigurationRestAPI,
 )
 
 load_dotenv()
@@ -24,8 +26,15 @@ configuration_ws_api = ConfigurationWebSocketAPI(
         "STREAM_URL", DERIVATIVES_TRADING_USDS_FUTURES_WS_API_PROD_URL
     ),
 )
+configuration_rest_api = ConfigurationRestAPI(
+    api_key=os.environ.get('API_KEY_BINANCE'),
+    api_secret=os.environ.get('API_SECRET_BINANCE'),
+    base_path=os.getenv(
+        "BASE_PATH", DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL
+    ),
+)
 
-client = DerivativesTradingUsdsFutures(config_ws_api=configuration_ws_api)
+client = DerivativesTradingUsdsFutures(config_ws_api=configuration_ws_api, config_rest_api=configuration_rest_api)
 redis_conn = get_redis_connection()
 
 async def subscribe_position_information(symbol: str):
@@ -79,7 +88,27 @@ async def subscribe_position_information(symbol: str):
                     logger.warning(f"Error while closing connection for {symbol}: {close_err}")
 
 
-def get_position(symbol: str):
+def fetch_position_from_api(symbol: str):
+    """Force-fetch position directly from Binance REST API and refresh Redis cache."""
+    try:
+        response = client.rest_api.position_information_v2(symbol=symbol)
+        positions = response.data()
+        if not positions:
+            return None
+        position_data = positions[0].to_dict()
+        redis_key = f"position:binance:{symbol}"
+        redis_conn.set(redis_key, json.dumps(position_data))
+        redis_conn.expire(redis_key, 10)
+        logger.debug(f"[Position] Force-fetched from API: {symbol} positionAmt={position_data.get('positionAmt')}")
+        return position_data
+    except Exception as e:
+        logger.error(f"Force-fetch position error for {symbol}: {e}")
+        return None
+
+
+def get_position(symbol: str, force: bool = False):
+    if force:
+        return fetch_position_from_api(symbol)
     redis_key = f"position:binance:{symbol}"
     position_data = redis_conn.get(redis_key)
     if position_data:

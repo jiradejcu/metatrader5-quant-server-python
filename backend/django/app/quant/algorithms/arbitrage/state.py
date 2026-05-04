@@ -12,5 +12,7 @@ placing_order_state = {
     'total_orders': 0
 }
 
+force_position_fetch = False
+
 # Lock to ensure thread-safety when reading/writing to variable
 state_lock = threading.Lock()

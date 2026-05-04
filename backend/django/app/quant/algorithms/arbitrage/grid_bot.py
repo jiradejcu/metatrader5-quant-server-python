@@ -103,10 +103,15 @@ def _reconcile(entry_symbol, target, position_amt, open_orders):
 def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
                   ask_diff, bid_diff):
     """Execute one trading decision from a pubsub tick."""
-    open_orders = get_open_orders(entry_symbol)
-    positions = get_position(entry_symbol)
+    with state.state_lock:
+        force = state.force_position_fetch
+        if force:
+            state.force_position_fetch = False
 
-    position_amt = float(positions.get('positionAmt', '0'))
+    open_orders = get_open_orders(entry_symbol)
+    positions = get_position(entry_symbol, force=force)
+
+    position_amt = float((positions or {}).get('positionAmt', '0'))
 
     buy_pending = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders if getattr(o, 'side', '') == 'BUY')
     sell_pending = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders if getattr(o, 'side', '') == 'SELL')
@@ -114,7 +119,7 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
     remaining_capacity = max_pos - abs(position_amt + net_pending)
 
     logger.debug(
-        f"pos={position_amt} open_orders={len(open_orders or [])} "
+        f"position={position_amt} open_orders={len(open_orders or [])} "
         f"net_pending={net_pending} remaining_capacity={remaining_capacity:.4f} "
         f"ask_diff={ask_diff:.2f} bid_diff={bid_diff:.2f}"
     )
@@ -138,6 +143,7 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
 
 def poll_order_state(entry_symbol):
     logger.info(f"Starting Background Polling for {entry_symbol}")
+    prev_status = None
     while True:
         start_time = time.time()
         try:
@@ -146,10 +152,11 @@ def poll_order_state(entry_symbol):
             logger.debug(f"Open order count: {len(open_orders)}")
 
             data = snapshot or {}
+            new_status = data.get('status')
             with state.state_lock:
                 state.placing_order_state.update({
                     "order_id": data.get('order_id'),
-                    "status": data.get('status'),
+                    "status": new_status,
                     "fill_pct": data.get('fill_pct', 0),
                     "side": data.get('side'),
                     "is_clean": data.get('is_clean', True),
@@ -157,6 +164,10 @@ def poll_order_state(entry_symbol):
                     "orig_qty": data.get('orig_qty', 0),
                     "total_orders": len(open_orders) if open_orders else 0,
                 })
+                if new_status != prev_status and new_status is not None:
+                    logger.debug(f"[Poller] Order status changed {prev_status} → {new_status} — flagging force position fetch")
+                    state.force_position_fetch = True
+            prev_status = new_status
         except Exception as e:
             logger.error(f"Thread Error: {e}")
             time.sleep(1)
@@ -196,6 +207,40 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                 if message['type'] != 'message':
                     continue
 
+                channel = message['channel'].decode('utf-8')
+                data_payload = message['data']
+
+                if channel == price_diff_key:
+                    price_dict = json.loads(data_payload) if data_payload else {}
+                    latest_ask_diff = round(float(price_dict.get('ask_diff', "0")), 2)
+                    latest_bid_diff = round(float(price_dict.get('bid_diff', "0")), 2)
+                    logger.debug(f"[PubSub] Price diff updated: upper={latest_ask_diff:.2f}, lower={latest_bid_diff:.2f}")
+                elif channel == grid_range_key:
+                    latest_grid_settings = _parse_grid_settings(json.loads(data_payload) if data_payload else {})
+                    logger.info(f"[PubSub] Grid settings updated: {latest_grid_settings}")
+
+                # NEUTRAL CANCEL: always cancel open orders when zone is neutral,
+                # even while guards are active — guards only block new order placement.
+                if (latest_grid_settings is not None
+                        and latest_ask_diff is not None
+                        and latest_bid_diff is not None):
+                    zone = _determine_zone(
+                        latest_ask_diff, latest_bid_diff,
+                        latest_grid_settings['upper'], latest_grid_settings['lower'],
+                    )
+                    if zone == 'NEUTRAL':
+                        try:
+                            open_orders = get_open_orders(entry_symbol)
+                            if open_orders:
+                                logger.info(
+                                    f"[Grid] Zone=NEUTRAL — cancelling {len(open_orders)} open order(s) immediately"
+                                )
+                                cancel_all_open_orders(entry_symbol)
+                        except Exception as e:
+                            logger.error(f"[Grid] Error cancelling orders on NEUTRAL zone: {e}", exc_info=True)
+                        time.sleep(0.1)
+                        continue
+
                 now = time.time()
                 with state.state_lock:
                     # LATENCY GUARD: wait 500ms after sending an order
@@ -215,18 +260,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                             f"still {order_snapshot.get('status')} — skipping tick"
                         )
                         continue
-
-                channel = message['channel'].decode('utf-8')
-                data_payload = message['data']
-
-                if channel == price_diff_key:
-                    price_dict = json.loads(data_payload) if data_payload else {}
-                    latest_ask_diff = round(float(price_dict.get('ask_diff', "0")), 2)
-                    latest_bid_diff = round(float(price_dict.get('bid_diff', "0")), 2)
-                    logger.debug(f"[PubSub] Price diff updated: upper={latest_ask_diff:.2f}, lower={latest_bid_diff:.2f}")
-                elif channel == grid_range_key:
-                    latest_grid_settings = _parse_grid_settings(json.loads(data_payload) if data_payload else {})
-                    logger.info(f"[PubSub] Grid settings updated: {latest_grid_settings}")
 
                 active = get_active_status()
                 allow_place_orders = (
