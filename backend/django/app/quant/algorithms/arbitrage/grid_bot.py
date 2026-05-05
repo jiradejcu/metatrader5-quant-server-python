@@ -212,6 +212,9 @@ def get_active_status():
     return get_redis_connection().get("grid_bot_active_flag")
 
 
+PRICE_DIFF_MAX_AGE_MS = int(os.getenv('PRICE_DIFF_MAX_AGE_MS', '200'))
+
+
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
     global latest_grid_settings, latest_ask_diff, latest_bid_diff
 
@@ -243,6 +246,16 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
 
                 if channel == price_diff_key:
                     price_dict = json.loads(data_payload) if data_payload else {}
+                    msg_ts = price_dict.get('ts')
+                    if msg_ts is not None:
+                        age_ms = (time.time() - msg_ts) * 1000
+                        if age_ms > PRICE_DIFF_MAX_AGE_MS:
+                            logger.warning(
+                                f"[PubSub] Stale price_diff dropped: age={age_ms:.0f}ms "
+                                f"(max={PRICE_DIFF_MAX_AGE_MS}ms) "
+                                f"ask_diff={price_dict.get('ask_diff')} bid_diff={price_dict.get('bid_diff')}"
+                            )
+                            continue
                     latest_ask_diff = round(float(price_dict.get('ask_diff', "0")), 2)
                     latest_bid_diff = round(float(price_dict.get('bid_diff', "0")), 2)
                     logger.debug(f"[PubSub] Price diff updated: upper={latest_ask_diff:.2f}, lower={latest_bid_diff:.2f}")

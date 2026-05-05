@@ -65,6 +65,7 @@ def compare():
         "bid_diff": bid_diff,
         "ask_diff_percent": str(ask_diff_percent),
         "bid_diff_percent": str(bid_diff_percent),
+        "ts": time.time(),
     }
 
     logger.info(f"Price diff for {entry_symbol}/{hedge_symbol}: {result}")
