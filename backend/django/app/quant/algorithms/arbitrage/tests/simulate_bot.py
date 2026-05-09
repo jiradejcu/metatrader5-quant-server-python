@@ -16,7 +16,18 @@ Usage (inside the django container, from /app):
   # Live channels — ⚠️  only when live bot is stopped
   PAIR_INDEX=1 python ... --live-channels --scenario sweep
 
-Scenarios: sell_accumulate, complete, neutral_cancel
+Scenarios: sell_accumulate, complete, neutral_cancel, delayed_price_diff
+
+To reproduce the stale-price-diff fix (commit dbc28e2):
+
+  # Built-in scenario with per-step delays already set:
+  PAIR_INDEX=1 python ... --scenario delayed_price_diff
+
+  # Manual: all ticks sent with a 500ms delay (all dropped with default 200ms threshold):
+  PAIR_INDEX=1 python ... --delay-ms 500 --count 5
+
+  # Override the bot's threshold via env (so you can see the cutoff clearly):
+  PAIR_INDEX=1 PRICE_DIFF_MAX_AGE_MS=300 python ... --scenario delayed_price_diff
 """
 
 import os
@@ -158,14 +169,36 @@ def publish_grid_settings(r, grid_range_key, upper_limit, lower_limit, max_pos, 
     )
 
 
-def publish_price_tick(r, price_diff_key, upper_limit, lower_limit, label=""):
+def publish_price_tick(r, price_diff_key, upper_limit, lower_limit, label="", delay_ms=0):
+    """Publish a price-diff tick with a timestamp, optionally simulating a slow API.
+
+    delay_ms > 0 mimics a slow Binance API call: the timestamp is captured
+    *before* the simulated delay so the published message arrives already stale.
+    The grid bot will drop it if delay_ms > PRICE_DIFF_MAX_AGE_MS (default 200).
+    """
+    ts = time.time()
+    if delay_ms > 0:
+        tag_delay = f"  [SLOW API +{delay_ms}ms]"
+        sim_log.info(
+            f"Simulating slow Binance API ({delay_ms}ms)  "
+            f"upper={upper_limit:+.2f}  lower={lower_limit:+.2f}"
+        )
+        time.sleep(delay_ms / 1000.0)
+    else:
+        tag_delay = ""
+
     payload = json.dumps({
         "ask_diff": upper_limit,
         "bid_diff": lower_limit,
+        "ts": ts,
     })
     r.publish(price_diff_key, payload)
     tag = f"  [{label}]" if label else ""
-    sim_log.debug(f"Tick published  upper={upper_limit:+.2f}  lower={lower_limit:+.2f}{tag}")
+    age_ms = (time.time() - ts) * 1000
+    sim_log.debug(
+        f"Tick published  upper={upper_limit:+.2f}  lower={lower_limit:+.2f}"
+        f"  age={age_ms:.0f}ms{tag}{tag_delay}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -251,10 +284,27 @@ SCENARIOS: dict[str, list[tuple]] = {
         (2.0, -2.0, "→NEUTRAL   → cancel open order",  1000.0, 1001.0, 0.0),
         (2.0, -2.0, "NEUTRAL    → no open order",      1000.0, 1001.0, 0.0),
     ],
+
+    # Run with: --scenario delayed_price_diff --delay-ms 500
+    #
+    # Reproduces the stale price diff bug.  Each step has an extra delay_ms field
+    # (index 6); run_scenario passes it to publish_price_tick so the timestamp is
+    # captured before the sleep, arriving at the bot already stale.
+    #
+    # Expected (with PRICE_DIFF_MAX_AGE_MS=200, delay=500):
+    #   tick 1 (fresh, 0ms)   → accepted  → bot processes, places SELL order
+    #   tick 2 (stale, 500ms) → DROPPED   → bot logs warning, globals unchanged
+    #   tick 3 (fresh, 0ms)   → accepted  → bot processes normally again
+    "delayed_price_diff": [
+        #  upper  lower  label                                          bid     ask    fill  delay_ms
+        (6.0, -2.0, "SELL  fresh tick  → accepted, places order",  1000.0, 1001.0, 1.0,    0),
+        (6.0, -2.0, "SELL  STALE tick → DROPPED (slow API)",       1000.0, 1001.0, 1.0,  500),
+        (6.0, -2.0, "SELL  fresh tick → accepted again",           1000.0, 1001.0, 1.0,    0),
+    ],
 }
 
 
-def run_scenario(r, price_diff_key, name, interval, repeat):
+def run_scenario(r, price_diff_key, name, interval, repeat, default_delay_ms=0):
     steps = SCENARIOS.get(name)
     if not steps:
         sim_log.error(f"Unknown scenario '{name}'. Choose from: {list(SCENARIOS)}")
@@ -267,18 +317,23 @@ def run_scenario(r, price_diff_key, name, interval, repeat):
                 _market["bid"], _market["ask"] = step[3], step[4]
             if len(step) >= 6:
                 _market["fill_pct"] = step[5]
+            # per-step delay_ms (index 6) overrides the CLI --delay-ms default
+            delay_ms = step[6] if len(step) >= 7 else default_delay_ms
             sim_log.info(
                 f"  [{label}]  upper={upper:+.1f}  lower={lower:+.1f}  "
                 f"bid={_market['bid']}  ask={_market['ask']}  fill={_market['fill_pct']:.0%}"
+                + (f"  delay={delay_ms}ms" if delay_ms else "")
             )
-            publish_price_tick(r, price_diff_key, upper, lower, label)
+            publish_price_tick(r, price_diff_key, upper, lower, label, delay_ms=delay_ms)
             time.sleep(interval)
 
 
-def run_manual(r, price_diff_key, upper_limit, lower_limit, interval, count):
-    sim_log.info(f"Manual ticks x{count}  upper={upper_limit:+.2f}  lower={lower_limit:+.2f}")
+def run_manual(r, price_diff_key, upper_limit, lower_limit, interval, count, delay_ms=0):
+    sim_log.info(f"Manual ticks x{count}  upper={upper_limit:+.2f}  lower={lower_limit:+.2f}"
+                 + (f"  delay={delay_ms}ms" if delay_ms else ""))
     for i in range(count):
-        publish_price_tick(r, price_diff_key, upper_limit, lower_limit, f"{i+1}/{count}")
+        publish_price_tick(r, price_diff_key, upper_limit, lower_limit,
+                           f"{i+1}/{count}", delay_ms=delay_ms)
         time.sleep(interval)
 
 
@@ -304,6 +359,14 @@ def main():
                         help="Number of ticks in manual mode (default 5)")
     parser.add_argument("--interval", type=float, default=1.0,
                         help="Seconds between ticks (default 1.0)")
+    parser.add_argument(
+        "--delay-ms", type=int, default=0,
+        help=(
+            "Simulate a slow Binance API call: capture ts, sleep N ms, then publish. "
+            "Messages arrive stale and are dropped if delay > PRICE_DIFF_MAX_AGE_MS (default 200). "
+            "Per-step delays in the scenario definition take precedence over this flag."
+        ),
+    )
     parser.add_argument("--repeat", type=int, default=1,
                         help="Times to repeat a named scenario (default 1)")
 
@@ -386,10 +449,11 @@ def main():
     sim_log.info("Bot thread started. Publishing price data...")
 
     if args.scenario:
-        run_scenario(redis_conn, price_diff_key, args.scenario, args.interval, args.repeat)
+        run_scenario(redis_conn, price_diff_key, args.scenario, args.interval, args.repeat,
+                     default_delay_ms=args.delay_ms)
     else:
         run_manual(redis_conn, price_diff_key, args.upper_diff, args.lower_diff,
-                   args.interval, args.count)
+                   args.interval, args.count, delay_ms=args.delay_ms)
 
     time.sleep(1.0)  # flush any in-flight messages
     sim_log.info(f"=== Done  (orders intercepted: {_order_counter}) ===")

@@ -42,6 +42,10 @@ docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
 docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
   python $BASE/simulate_bot.py --scenario neutral_cancel --interval 0.8
 
+# delayed_price_diff: stale ticks (slow Binance API) are dropped; fresh ticks pass through
+docker exec -w $WORKDIR $SIM_ENV $CONTAINER \
+  python $BASE/simulate_bot.py --scenario delayed_price_diff --interval 1.5
+
 # ---------------------------------------------------------------------------
 # Simulation — manual tick injection
 # ---------------------------------------------------------------------------
