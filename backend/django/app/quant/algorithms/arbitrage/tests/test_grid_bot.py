@@ -6,6 +6,7 @@ chase_order) are patched on the loaded module object.
 """
 import json
 import sys
+import time
 import types
 import threading
 import importlib.util
@@ -69,15 +70,16 @@ def _position(amt=0.0):
     return {"positionAmt": str(amt)}
 
 
-def make_price_message(channel: str, upper_limit: float, lower_limit: float) -> dict:
+def make_price_message(channel: str, upper_limit: float, lower_limit: float,
+                       ts: float = None) -> dict:
     """Return a dict shaped like a Redis pubsub price-diff message."""
+    payload = {"ask_diff": upper_limit, "bid_diff": lower_limit}
+    if ts is not None:
+        payload["ts"] = ts
     return {
         "type": "message",
         "channel": channel.encode(),
-        "data": json.dumps({
-            "ask_diff": upper_limit,
-            "bid_diff": lower_limit,
-        }).encode(),
+        "data": json.dumps(payload).encode(),
     }
 
 
@@ -480,3 +482,119 @@ class TestMessageHelpers:
         settings = _gb._parse_grid_settings(payload)
         assert settings["upper"] == 5.0
         assert settings["order_size"] == 2.0
+
+    def test_price_message_includes_ts_when_provided(self):
+        now = time.time()
+        msg = make_price_message("ch", 5.0, -3.0, ts=now)
+        payload = json.loads(msg["data"])
+        assert payload["ts"] == now
+
+    def test_price_message_omits_ts_by_default(self):
+        msg = make_price_message("ch", 5.0, -3.0)
+        payload = json.loads(msg["data"])
+        assert "ts" not in payload
+
+
+# ---------------------------------------------------------------------------
+# handle_grid_flow — stale price diff protection
+# ---------------------------------------------------------------------------
+
+class _StopLoop(BaseException):
+    """Sentinel raised to break the infinite while-loop in handle_grid_flow.
+
+    Must subclass BaseException, not Exception, because handle_grid_flow has a
+    bare `except Exception` that would otherwise swallow this and loop forever.
+    """
+
+
+def _run_handle_grid_flow_with_messages(messages, env_overrides=None):
+    """
+    Drive handle_grid_flow with a fixed list of pubsub messages, then stop.
+
+    Returns (latest_ask_diff, latest_bid_diff) after all messages are consumed.
+    """
+    price_key = "spread:binance:XAUUSDT"
+    grid_key = "setting_grid_channel:XAUUSDT:XAUUSD"
+
+    call_count = [0]
+
+    def listen_side_effect():
+        call_count[0] += 1
+        if call_count[0] > 1:
+            raise _StopLoop("done")
+        return iter(messages)
+
+    pubsub = MagicMock()
+    pubsub.listen.side_effect = listen_side_effect
+
+    redis_mock = MagicMock()
+    redis_mock.get.return_value = None
+
+    env = {"PAIR_INDEX": "0", **(env_overrides or {})}
+
+    with patch.dict("os.environ", env), \
+         patch.object(_gb, "get_redis_connection", return_value=redis_mock), \
+         patch.object(_gb, "get_active_status", return_value=None), \
+         patch.object(_gb, "_process_tick"):
+        try:
+            _gb.handle_grid_flow(pubsub, price_key, grid_key)
+        except _StopLoop:
+            pass
+
+    return _gb.latest_ask_diff, _gb.latest_bid_diff
+
+
+PRICE_CH = "spread:binance:XAUUSDT"
+
+
+class TestHandleGridFlowStalePriceDiff:
+
+    def test_fresh_message_updates_globals(self):
+        """A price_diff message with a recent ts should update latest_ask/bid_diff."""
+        msg = make_price_message(PRICE_CH, 7.5, -3.2, ts=time.time())
+        ask, bid = _run_handle_grid_flow_with_messages([msg])
+        assert ask == 7.5
+        assert bid == -3.2
+
+    def test_stale_message_is_dropped(self):
+        """A price_diff message older than PRICE_DIFF_MAX_AGE_MS must be ignored."""
+        stale_ts = time.time() - 1.0  # 1 second ago — way past any threshold
+        msg = make_price_message(PRICE_CH, 99.0, -99.0, ts=stale_ts)
+        ask, bid = _run_handle_grid_flow_with_messages([msg])
+        assert ask is None
+        assert bid is None
+
+    def test_message_without_ts_is_accepted(self):
+        """Backward-compat: messages without a ts field must still update globals."""
+        msg = make_price_message(PRICE_CH, 5.0, -5.0)  # no ts
+        ask, bid = _run_handle_grid_flow_with_messages([msg])
+        assert ask == 5.0
+        assert bid == -5.0
+
+    def test_stale_then_fresh_keeps_fresh_value(self):
+        """After a stale drop, a subsequent fresh message should still be applied."""
+        stale_ts = time.time() - 1.0
+        stale = make_price_message(PRICE_CH, 99.0, -99.0, ts=stale_ts)
+        fresh = make_price_message(PRICE_CH, 4.0, -2.0, ts=time.time())
+
+        ask, bid = _run_handle_grid_flow_with_messages([stale, fresh])
+        assert ask == 4.0
+        assert bid == -2.0
+
+    def test_custom_max_age_env_respected(self):
+        """PRICE_DIFF_MAX_AGE_MS env var should control the staleness threshold."""
+        # 50 ms threshold; message is ~100 ms old → should be dropped
+        ts_100ms_ago = time.time() - 0.1
+        msg = make_price_message(PRICE_CH, 8.0, -8.0, ts=ts_100ms_ago)
+
+        # Reload the module-level constant via env override — we patch the
+        # attribute directly since the module constant is already bound.
+        original = _gb.PRICE_DIFF_MAX_AGE_MS
+        _gb.PRICE_DIFF_MAX_AGE_MS = 50  # 50 ms < 100 ms → drop
+        try:
+            ask, bid = _run_handle_grid_flow_with_messages([msg])
+        finally:
+            _gb.PRICE_DIFF_MAX_AGE_MS = original
+
+        assert ask is None
+        assert bid is None
