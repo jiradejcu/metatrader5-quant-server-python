@@ -25,6 +25,8 @@ def compare():
     entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
     hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
 
+    ts = time.time()  # captured before API call so latency is included in age
+
     get_ticker = _get_ticker_fn(entry_exchange)
     entry_ticker = get_ticker(entry_symbol)
 
@@ -65,7 +67,7 @@ def compare():
         "bid_diff": bid_diff,
         "ask_diff_percent": str(ask_diff_percent),
         "bid_diff_percent": str(bid_diff_percent),
-        "ts": time.time(),
+        "ts": ts,
     }
 
     logger.info(f"Price diff for {entry_symbol}/{hedge_symbol}: {result}")
