@@ -212,7 +212,7 @@ def get_active_status():
     return get_redis_connection().get("grid_bot_active_flag")
 
 
-PRICE_DIFF_MAX_AGE_MS = int(os.getenv('PRICE_DIFF_MAX_AGE_MS', '200'))
+PRICE_DIFF_MAX_AGE_MS = int(os.getenv('PRICE_DIFF_MAX_AGE_MS', '300'))
 
 
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
@@ -234,7 +234,45 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
     except Exception as e:
         logger.error(f"Failed to fetch initial grid settings: {e}")
 
-    # --- Start Pub/Sub Loop ---
+    # --- Tick worker: runs _process_tick on its own timer, never blocks the pubsub loop ---
+    def _tick_worker():
+        while True:
+            try:
+                active = get_active_status()
+                allow_place_orders = (
+                    latest_grid_settings is not None
+                    and latest_ask_diff is not None
+                    and latest_bid_diff is not None
+                    and active
+                )
+
+                if not allow_place_orders:
+                    logger.debug(
+                        f"[Grid] Orders blocked: "
+                        f"has_settings={latest_grid_settings is not None} "
+                        f"has_price_diff={latest_ask_diff is not None and latest_bid_diff is not None} "
+                        f"active={bool(active)}"
+                    )
+                else:
+                    upper = latest_grid_settings['upper']
+                    lower = latest_grid_settings['lower']
+                    max_pos = latest_grid_settings['max_position_size']
+                    order_size = latest_grid_settings['order_size']
+
+                    _process_tick(
+                        entry_symbol,
+                        upper, lower, max_pos, order_size,
+                        latest_ask_diff, latest_bid_diff,
+                    )
+
+            except Exception as e:
+                logger.error(f"[Placing Bot Thread] Error in processing grid flow logic: {e}", exc_info=True)
+
+            time.sleep(0.1)
+
+    threading.Thread(target=_tick_worker, daemon=True).start()
+
+    # --- PubSub loop: fast consumer — only updates globals, no Binance API calls ---
     while True:
         try:
             for message in pubsub.listen():
@@ -263,40 +301,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                     latest_grid_settings = _parse_grid_settings(json.loads(data_payload) if data_payload else {})
                     logger.info(f"[PubSub] Grid settings updated: {latest_grid_settings}")
 
-                active = get_active_status()
-                allow_place_orders = (
-                    latest_grid_settings is not None
-                    and latest_ask_diff is not None
-                    and latest_bid_diff is not None
-                    and active
-                )
-
-                if not allow_place_orders:
-                    logger.debug(
-                        f"[Grid] Orders blocked: "
-                        f"has_settings={latest_grid_settings is not None} "
-                        f"has_price_diff={latest_ask_diff is not None and latest_bid_diff is not None} "
-                        f"active={bool(active)}"
-                    )
-
-                if allow_place_orders:
-                    try:
-                        upper = latest_grid_settings['upper']
-                        lower = latest_grid_settings['lower']
-                        max_pos = latest_grid_settings['max_position_size']
-                        order_size = latest_grid_settings['order_size']
-
-                        _process_tick(
-                            entry_symbol,
-                            upper, lower, max_pos, order_size,
-                            latest_ask_diff, latest_bid_diff,
-                        )
-
-                    except Exception as e:
-                        logger.error(f"[Placing Bot Thread] Error in processing grid flow logic: {e}", exc_info=True)
-                        time.sleep(1)
-
-                time.sleep(0.1)
         except Exception as e:
             logger.error(f"[Placing Bot Thread] Critical PubSub failure: {e}. Reconnecting in 1s...", exc_info=True)
             time.sleep(1)
