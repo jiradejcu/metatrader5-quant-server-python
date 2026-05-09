@@ -145,12 +145,85 @@ def plot_sim_price_diff(
     print(f"Saved to {out_file}")
 
 
+def plot_sim_comparison(
+    before_log: str,
+    after_log: str,
+    out_file: str = "/app/logs/sim_comparison.png",
+):
+    """Side-by-side comparison: before fix (all stale accepted) vs after fix (stale dropped)."""
+
+    def _parse(log_file):
+        ts_pat = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})"
+        pub_re = re.compile(ts_pat + r".*Tick published\s+upper=([+-]?[\d.]+)")
+        con_re = re.compile(ts_pat + r".*\[PubSub\] Price diff updated: upper=([\d.]+)")
+        drop_re = re.compile(ts_pat + r".*Stale price_diff dropped: age=([\d.]+)ms.*ask_diff=([\d.]+)")
+        pub_t, pub_v, con_t, con_v, drop_t, drop_v = [], [], [], [], [], []
+        with open(log_file) as f:
+            for line in f:
+                m = pub_re.search(line)
+                if m:
+                    pub_t.append(datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S,%f"))
+                    pub_v.append(float(m.group(2)))
+                    continue
+                m = con_re.search(line)
+                if m:
+                    con_t.append(datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S,%f"))
+                    con_v.append(float(m.group(2)))
+                    continue
+                m = drop_re.search(line)
+                if m:
+                    drop_t.append(datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S,%f"))
+                    drop_v.append(float(m.group(3)))
+        return pub_t, pub_v, con_t, con_v, drop_t, drop_v
+
+    before = _parse(before_log)
+    after  = _parse(after_log)
+
+    print(f"BEFORE  published={len(before[0])}  consumed={len(before[2])}  dropped={len(before[4])}")
+    print(f"AFTER   published={len(after[0])}   consumed={len(after[2])}   dropped={len(after[4])}")
+
+    fig, axes = plt.subplots(1, 2, figsize=(20, 5), sharey=True)
+
+    for ax, (pub_t, pub_v, con_t, con_v, drop_t, drop_v), title in zip(
+        axes,
+        [before, after],
+        ["BEFORE fix — stale ticks consumed by grid_bot",
+         "AFTER fix  — stale ticks dropped"],
+    ):
+        ax.plot(pub_t, pub_v, color='steelblue', linewidth=1.2, marker='o',
+                markersize=5, label=f'published ({len(pub_t)})')
+        ax.plot(con_t, con_v, color='seagreen', linewidth=1.2, marker='o',
+                markersize=5, linestyle='--', label=f'consumed ({len(con_t)})')
+        if drop_t:
+            ax.scatter(drop_t, drop_v, color='tomato', marker='x', s=140,
+                       linewidths=2.5, zorder=5, label=f'dropped ({len(drop_t)})')
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        fig.autofmt_xdate()
+        ax.set_title(title, fontsize=12)
+        ax.set_xlabel('Time')
+        ax.set_ylabel('ask_diff')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+    plt.suptitle('Stale price_diff protection — before vs after commit dbc28e2', fontsize=13, y=1.02)
+    plt.tight_layout()
+    plt.savefig(out_file, dpi=150, bbox_inches='tight')
+    print(f"Saved to {out_file}")
+
+
 if __name__ == "__main__":
     if "--sim-log" in sys.argv:
         idx = sys.argv.index("--sim-log")
         log = sys.argv[idx + 1]
         out = sys.argv[idx + 2] if idx + 2 < len(sys.argv) else "/app/logs/sim_price_diff.png"
         plot_sim_price_diff(log_file=log, out_file=out)
+    elif "--compare" in sys.argv:
+        idx = sys.argv.index("--compare")
+        before = sys.argv[idx + 1]
+        after  = sys.argv[idx + 2]
+        out    = sys.argv[idx + 3] if idx + 3 < len(sys.argv) else "/app/logs/sim_comparison.png"
+        plot_sim_comparison(before_log=before, after_log=after, out_file=out)
     else:
         plot_price_diff(
             time_from=datetime(2026, 5, 4, 11, 35),
