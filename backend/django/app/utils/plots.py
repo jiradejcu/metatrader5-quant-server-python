@@ -6,15 +6,15 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from datetime import datetime
 
-LOG_FILE = "/app/logs/quant_price_diff.log"
-
-
 def plot_price_diff(
-    log_file: str = LOG_FILE,
+    log_file: str,
     time_from: datetime = None,
     time_to: datetime = None,
-    out_file: str = "/app/logs/price_diff_comparison.png",
+    out_file: str = None,
 ):
+    if out_file is None:
+        out_file = f"/app/logs/price_diff_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+
     price_diff_re = re.compile(
         r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) "
         r"app\.quant\.algorithms\.arbitrage\.price_diff.*"
@@ -77,7 +77,7 @@ def plot_price_diff(
 
 def plot_sim_price_diff(
     log_file: str,
-    out_file: str = "/app/logs/sim_price_diff.png",
+    out_file: str = None,
 ):
     """Parse simulate_bot stdout log and plot published vs consumed ask_diff.
 
@@ -86,6 +86,9 @@ def plot_sim_price_diff(
       - consumed   : ticks the grid_bot accepted (Price diff updated)
       - dropped    : ticks rejected as stale (marked with red X)
     """
+    if out_file is None:
+        out_file = f"/app/logs/sim_price_diff_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+
     ts_pat = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})"
     published_re = re.compile(
         ts_pat + r".*Tick published\s+upper=([+-]?[\d.]+)"
@@ -148,9 +151,12 @@ def plot_sim_price_diff(
 def plot_sim_comparison(
     before_log: str,
     after_log: str,
-    out_file: str = "/app/logs/sim_comparison.png",
+    out_file: str = None,
 ):
     """Side-by-side comparison: before fix (all stale accepted) vs after fix (stale dropped)."""
+
+    if out_file is None:
+        out_file = f"/app/logs/sim_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
 
     def _parse(log_file):
         ts_pat = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})"
@@ -216,16 +222,16 @@ if __name__ == "__main__":
     if "--sim-log" in sys.argv:
         idx = sys.argv.index("--sim-log")
         log = sys.argv[idx + 1]
-        out = sys.argv[idx + 2] if idx + 2 < len(sys.argv) else "/app/logs/sim_price_diff.png"
+        out = sys.argv[idx + 2] if idx + 2 < len(sys.argv) else None
         plot_sim_price_diff(log_file=log, out_file=out)
     elif "--compare" in sys.argv:
         idx = sys.argv.index("--compare")
         before = sys.argv[idx + 1]
         after  = sys.argv[idx + 2]
-        out    = sys.argv[idx + 3] if idx + 3 < len(sys.argv) else "/app/logs/sim_comparison.png"
+        out    = sys.argv[idx + 3] if idx + 3 < len(sys.argv) else None
         plot_sim_comparison(before_log=before, after_log=after, out_file=out)
-    else:
-        plot_price_diff(
-            time_from=datetime(2026, 5, 4, 11, 35),
-            time_to=datetime(2026, 5, 4, 11, 45),
-        )
+    elif "--price-diff" in sys.argv:
+        idx = sys.argv.index("--price-diff")
+        log = sys.argv[idx + 1]
+        out = sys.argv[idx + 2] if idx + 2 < len(sys.argv) else None
+        plot_price_diff(log_file=log, out_file=out)
