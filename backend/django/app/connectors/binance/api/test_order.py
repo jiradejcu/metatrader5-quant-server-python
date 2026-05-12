@@ -40,7 +40,17 @@ models_mod.NewOrderSideEnum = _FakeEnum({"BUY": "BUY", "SELL": "SELL"})
 models_mod.NewOrderTimeInForceEnum = _FakeEnum({"GTX": "GTX"})
 models_mod.ModifyOrderSideEnum = _FakeEnum({"BUY": "BUY", "SELL": "SELL"})
 models_mod.ModifyOrderPriceMatchEnum = _FakeEnum({"QUEUE": "QUEUE"})
+models_mod.ModifyOrderResponse = MagicMock()
 sys.modules[_MODELS_PKG] = models_mod
+
+# Stub binance_common.utils.send_request used by _modify_order_with_price_match
+_common_pkg = "binance_common"
+_common_utils_pkg = "binance_common.utils"
+common_mod = types.ModuleType(_common_pkg)
+common_utils_mod = types.ModuleType(_common_utils_pkg)
+common_utils_mod.send_request = MagicMock()
+sys.modules.setdefault(_common_pkg, common_mod)
+sys.modules[_common_utils_pkg] = common_utils_mod
 
 # Provide dotenv stub
 dotenv_mod = types.ModuleType("dotenv")
@@ -80,52 +90,47 @@ class TestChaseOrderModify:
         open_order = _make_open_order(order_id)
         mock_response = _make_response({"orderId": order_id, "status": "NEW"})
 
-        with patch.object(order, "get_open_orders", return_value=[open_order]) as mock_get, \
-             patch.object(order.client.rest_api, "modify_order", return_value=mock_response) as mock_modify:
+        with patch.object(order, "get_open_orders", return_value=[open_order]), \
+             patch.object(order, "_modify_order_with_price_match", return_value=mock_response) as mock_modify:
 
             result = order.chase_order(symbol, quantity, side)
 
-        return result, mock_get, mock_modify
+        return result, mock_modify
 
     def test_calls_modify_not_new_order(self):
-        _, _, mock_modify = self._run()
+        _, mock_modify = self._run()
         mock_modify.assert_called_once()
 
-    def test_price_is_string_zero(self):
-        _, _, mock_modify = self._run()
-        _, kwargs = mock_modify.call_args
-        assert kwargs["price"] == "0", f"Expected price='0', got {kwargs['price']!r}"
-
     def test_price_match_is_queue(self):
-        _, _, mock_modify = self._run()
+        _, mock_modify = self._run()
         _, kwargs = mock_modify.call_args
         assert kwargs["price_match"] == "QUEUE"
 
     def test_correct_symbol_quantity_order_id(self):
-        _, _, mock_modify = self._run(symbol="ETHUSDT", quantity=1.5, order_id=777)
+        _, mock_modify = self._run(symbol="ETHUSDT", quantity=1.5, order_id=777)
         _, kwargs = mock_modify.call_args
         assert kwargs["symbol"] == "ETHUSDT"
         assert kwargs["quantity"] == 1.5
         assert kwargs["order_id"] == 777
 
     def test_side_buy(self):
-        _, _, mock_modify = self._run(side="BUY")
+        _, mock_modify = self._run(side="BUY")
         _, kwargs = mock_modify.call_args
         assert kwargs["side"] == "BUY"
 
     def test_side_sell(self):
-        _, _, mock_modify = self._run(side="SELL")
+        _, mock_modify = self._run(side="SELL")
         _, kwargs = mock_modify.call_args
         assert kwargs["side"] == "SELL"
 
     def test_returns_response_data(self):
-        result, _, _ = self._run(order_id=42)
+        result, _ = self._run(order_id=42)
         assert result == {"orderId": 42, "status": "NEW"}
 
     def test_returns_none_on_exception(self):
         open_order = _make_open_order(1)
         with patch.object(order, "get_open_orders", return_value=[open_order]), \
-             patch.object(order.client.rest_api, "modify_order", side_effect=Exception("API error")):
+             patch.object(order, "_modify_order_with_price_match", side_effect=Exception("API error")):
             result = order.chase_order("BTCUSDT", 0.01, "BUY")
         assert result is None
 

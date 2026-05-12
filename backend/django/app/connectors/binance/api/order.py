@@ -12,7 +12,9 @@ from binance_sdk_derivatives_trading_usds_futures.rest_api.models import (
     NewOrderTimeInForceEnum,
     ModifyOrderSideEnum,
     ModifyOrderPriceMatchEnum,
+    ModifyOrderResponse,
 )
+from binance_common.utils import send_request
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -85,16 +87,39 @@ def get_open_orders(symbol):
     except Exception as e:
         logger.error(f"Get open orders error: {e}")
 
+def _modify_order_with_price_match(symbol, side, quantity, order_id, price_match):
+    # The SDK's modify_order() hard-rejects price=None, but send_request strips
+    # None values before the HTTP call, so price_match works correctly this way.
+    trade_api = client.rest_api._tradeApi
+    return send_request(
+        trade_api._session,
+        trade_api._configuration,
+        method="PUT",
+        path="/fapi/v1/order",
+        payload={
+            "symbol": symbol,
+            "side": side,
+            "quantity": quantity,
+            "price": None,
+            "order_id": order_id,
+            "price_match": price_match,
+        },
+        body={},
+        time_unit=trade_api._configuration.time_unit,
+        response_model=ModifyOrderResponse,
+        is_signed=True,
+        signer=trade_api._signer,
+    )
+
 def chase_order(symbol, quantity, side):
     try:
         open_orders = get_open_orders(symbol)
         if open_orders:
             order_id = getattr(open_orders[0], 'order_id', None)
-            response = client.rest_api.modify_order(
+            response = _modify_order_with_price_match(
                 symbol=symbol,
                 side=ModifyOrderSideEnum[side].value,
                 quantity=quantity,
-                price=None,
                 order_id=order_id,
                 price_match=ModifyOrderPriceMatchEnum["QUEUE"].value,
             )
