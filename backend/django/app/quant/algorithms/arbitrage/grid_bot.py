@@ -304,7 +304,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                             continue
                     latest_ask_diff = round(float(price_dict.get('ask_diff', "0")), 2)
                     latest_bid_diff = round(float(price_dict.get('bid_diff', "0")), 2)
-                    logger.debug(f"[PubSub] Price diff updated: upper={latest_ask_diff:.2f}, lower={latest_bid_diff:.2f}")
+                    logger.debug(f"[PubSub] Price diff updated: ask_diff={latest_ask_diff:.2f}, bid_diff={latest_bid_diff:.2f}")
                 elif channel == grid_range_key:
                     latest_grid_settings = _parse_grid_settings(json.loads(data_payload) if data_payload else {})
                     logger.info(f"[PubSub] Grid settings updated: {latest_grid_settings}")

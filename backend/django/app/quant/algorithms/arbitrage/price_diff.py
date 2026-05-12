@@ -65,8 +65,12 @@ def compare():
         "hedge_symbol": hedge_symbol,
         "ask_diff": ask_diff,
         "bid_diff": bid_diff,
-        "ask_diff_percent": str(ask_diff_percent),
-        "bid_diff_percent": str(bid_diff_percent),
+        "ask_diff_percent": f"{ask_diff_percent:.3f}",
+        "bid_diff_percent": f"{bid_diff_percent:.3f}",
+        "entry_ask": float(entry_ask),
+        "hedge_ask": float(hedge_ask),
+        "entry_bid": float(entry_bid),
+        "hedge_bid": float(hedge_bid),
         "ts": ts,
     }
 
