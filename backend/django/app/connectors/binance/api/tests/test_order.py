@@ -60,7 +60,7 @@ sys.modules.setdefault("dotenv", dotenv_mod)
 # Now import the module under test via file path so it works without Django on sys.path
 import importlib.util, pathlib
 
-_order_path = pathlib.Path(__file__).parent / "order.py"
+_order_path = pathlib.Path(__file__).parent.parent / "order.py"
 _spec = importlib.util.spec_from_file_location("_order_test_mod", str(_order_path))
 order = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(order)

@@ -2,7 +2,7 @@
 Integration tests — hit the real Binance Futures API.
 
 Run with:
-    pytest backend/django/app/connectors/binance/api/test_order_integration.py -v -s
+    pytest backend/django/app/connectors/binance/api/tests/test_order_integration.py -v -s
 
 Requires API_KEY_BINANCE and API_SECRET_BINANCE in the environment (or .env).
 Orders are placed far from market and cancelled in teardown so they never fill.
@@ -53,7 +53,7 @@ class TestChaseOrderIntegration:
         assert order_id, f"No order_id in response: {placed}"
 
         # Small pause so the order is visible in get_open_orders
-        time.sleep(0.5)
+        time.sleep(1.0)
 
         # 2. Chase (modify) — this is the path that was broken
         result = chase_order(symbol=SYMBOL, quantity=QUANTITY, side="BUY")
