@@ -18,12 +18,12 @@ def plot_price_diff(
     price_diff_re = re.compile(
         r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) "
         r"app\.quant\.algorithms\.arbitrage\.price_diff.*"
-        r"'ask_diff': ([\d.]+)"
+        r"'ask_diff': ([-\d.]+)"
     )
     grid_bot_re = re.compile(
         r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) "
         r"app\.quant\.algorithms\.arbitrage\.grid_bot:_process_tick:\d+.*"
-        r"ask_diff=([\d.]+)"
+        r"ask_diff=([-\d.]+)"
     )
 
     price_diff_times, price_diff_values = [], []
