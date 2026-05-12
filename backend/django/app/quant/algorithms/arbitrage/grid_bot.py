@@ -166,12 +166,6 @@ def watch_user_data_stream(entry_symbol):
                     fill_pct = (executed_qty / orig_qty * 100) if orig_qty > 0 else 0
                     last_fill_price = o.get('L')
                     avg_price = o.get('ap')
-                    if new_status == 'FILLED':
-                        logger.info(
-                            f"[UserDataStream] Order FILLED: side={o.get('S')} "
-                            f"fill_price={last_fill_price} avg_price={avg_price} "
-                            f"qty={executed_qty}/{orig_qty} order_id={o.get('i')}"
-                        )
                     with state.state_lock:
                         state.placing_order_state.update({
                             "order_id": o.get('i'),
@@ -183,8 +177,15 @@ def watch_user_data_stream(entry_symbol):
                             "orig_qty": orig_qty,
                         })
                         if new_status != prev_status and new_status is not None:
-                            logger.debug(f"[UserDataStream] Order status {prev_status} → {new_status} — flagging force position fetch")
+                            logger.debug(f"[UserDataStream] Order status {prev_status} → {new_status}")
                             state.force_position_fetch = True
+                            
+                    if new_status == 'FILLED':
+                        logger.info(
+                            f"[UserDataStream] Order FILLED: side={o.get('S')} "
+                            f"fill_price={last_fill_price} avg_price={avg_price} "
+                            f"qty={executed_qty}/{orig_qty} order_id={o.get('i')}"
+                        )
                     prev_status = new_status
                 except Exception as e:
                     logger.error(f"[UserDataStream] Error processing message: {e}", exc_info=True)
@@ -200,7 +201,7 @@ def watch_user_data_stream(entry_symbol):
                 logger.info("[UserDataStream] WebSocket connected")
 
             ws = websocket.WebSocketApp(
-                f"{WS_BASE}/ws/{listen_key}",
+                f"{WS_BASE}/private/ws/{listen_key}",
                 on_open=on_open,
                 on_message=on_message,
                 on_error=on_error,
