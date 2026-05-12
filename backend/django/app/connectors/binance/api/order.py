@@ -94,6 +94,7 @@ def chase_order(symbol, quantity, side):
                 symbol=symbol,
                 side=ModifyOrderSideEnum[side].value,
                 quantity=quantity,
+                price=None,
                 order_id=order_id,
                 price_match=ModifyOrderPriceMatchEnum["QUEUE"].value,
             )
