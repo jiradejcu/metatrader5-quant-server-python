@@ -164,6 +164,14 @@ def watch_user_data_stream(entry_symbol):
                     orig_qty = float(o.get('q', 0))
                     executed_qty = float(o.get('z', 0))
                     fill_pct = (executed_qty / orig_qty * 100) if orig_qty > 0 else 0
+                    last_fill_price = o.get('L')
+                    avg_price = o.get('ap')
+                    if new_status == 'FILLED':
+                        logger.info(
+                            f"[UserDataStream] Order FILLED: side={o.get('S')} "
+                            f"fill_price={last_fill_price} avg_price={avg_price} "
+                            f"qty={executed_qty}/{orig_qty} order_id={o.get('i')}"
+                        )
                     with state.state_lock:
                         state.placing_order_state.update({
                             "order_id": o.get('i'),
