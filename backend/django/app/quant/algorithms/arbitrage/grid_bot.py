@@ -15,6 +15,15 @@ logger = logging.getLogger(__name__)
 latest_grid_settings = None
 latest_ask_diff = None
 latest_bid_diff = None
+latest_atr = 0.0
+_prev_ask_diff_for_atr = None
+_prev_bid_diff_for_atr = None
+
+ATR_PERIOD = int(os.getenv('ATR_PERIOD', '14'))
+_ATR_ALPHA = 2.0 / (ATR_PERIOD + 1)
+ATR_HIGH_THRESHOLD = float(os.getenv('ATR_HIGH_THRESHOLD', '0.3'))
+
+
 def _parse_grid_settings(grid_dict):
     return {
         "upper": float(grid_dict.get('upper_limit', 0.0)),
@@ -225,11 +234,14 @@ PRICE_DIFF_MAX_AGE_MS = int(os.getenv('PRICE_DIFF_MAX_AGE_MS', '300'))
 
 
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
-    global latest_grid_settings, latest_ask_diff, latest_bid_diff
+    global latest_grid_settings, latest_ask_diff, latest_bid_diff, latest_atr, _prev_ask_diff_for_atr, _prev_bid_diff_for_atr
 
     latest_grid_settings = None
     latest_ask_diff = None
     latest_bid_diff = None
+    latest_atr = 0.0
+    _prev_ask_diff_for_atr = None
+    _prev_bid_diff_for_atr = None
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
     entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
 
@@ -261,6 +273,11 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         f"has_settings={latest_grid_settings is not None} "
                         f"has_price_diff={latest_ask_diff is not None and latest_bid_diff is not None} "
                         f"active={bool(active)}"
+                    )
+                elif latest_atr > ATR_HIGH_THRESHOLD:
+                    logger.warning(
+                        f"[Grid] High volatility — skipping tick: "
+                        f"ATR={latest_atr:.3f} > threshold={ATR_HIGH_THRESHOLD}"
                     )
                 else:
                     upper = latest_grid_settings['upper']
@@ -303,9 +320,19 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                                 f"ask_diff={price_dict.get('ask_diff')} bid_diff={price_dict.get('bid_diff')}"
                             )
                             continue
-                    latest_ask_diff = round(float(price_dict.get('ask_diff', "0")), 2)
-                    latest_bid_diff = round(float(price_dict.get('bid_diff', "0")), 2)
-                    logger.debug(f"[PubSub] Price diff updated: ask_diff={latest_ask_diff:.2f}, bid_diff={latest_bid_diff:.2f}")
+                    new_ask_diff = round(float(price_dict.get('ask_diff', "0")), 2)
+                    new_bid_diff = round(float(price_dict.get('bid_diff', "0")), 2)
+                    if _prev_ask_diff_for_atr is not None and _prev_bid_diff_for_atr is not None:
+                        tr = max(abs(new_ask_diff - _prev_ask_diff_for_atr), abs(new_bid_diff - _prev_bid_diff_for_atr))
+                        latest_atr = _ATR_ALPHA * tr + (1 - _ATR_ALPHA) * latest_atr
+                    _prev_ask_diff_for_atr = new_ask_diff
+                    _prev_bid_diff_for_atr = new_bid_diff
+                    latest_ask_diff = new_ask_diff
+                    latest_bid_diff = new_bid_diff
+                    logger.debug(
+                        f"[PubSub] Price diff updated: ask_diff={latest_ask_diff:.2f}, "
+                        f"bid_diff={latest_bid_diff:.2f}, atr={latest_atr:.3f}"
+                    )
                 elif channel == grid_range_key:
                     latest_grid_settings = _parse_grid_settings(json.loads(data_payload) if data_payload else {})
                     logger.info(f"[PubSub] Grid settings updated: {latest_grid_settings}")
