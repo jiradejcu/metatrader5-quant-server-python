@@ -16,7 +16,7 @@ SIM_ENV="-e PAIR_INDEX=1"
 
 # Run with log output visible
 docker exec -w $WORKDIR $CONTAINER \
-  python -m pytest $BASE/test_grid_bot.py -v -s
+  python -m pytest $BASE/test_grid_bot.py -v -s --log-cli-level=INFO
 
 # # Run a single test class
 # docker exec -w $WORKDIR $CONTAINER \

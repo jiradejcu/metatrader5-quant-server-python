@@ -251,13 +251,17 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
         initial_grid_data = redis_conn.get(grid_range_key)
         if initial_grid_data:
             latest_grid_settings = _parse_grid_settings(json.loads(initial_grid_data))
-            logger.info(f"Initial grid settings loaded: {latest_grid_settings}")
+            logger.debug(f"Initial grid settings loaded: {latest_grid_settings}")
     except Exception as e:
         logger.error(f"Failed to fetch initial grid settings: {e}")
 
-    # --- Tick worker: runs _process_tick on its own timer, never blocks the pubsub loop ---
+    _new_price_event = threading.Event()
+
+    # --- Tick worker: wakes only when a new price diff arrives ---
     def _tick_worker():
         while True:
+            _new_price_event.wait()
+            _new_price_event.clear()
             try:
                 active = get_active_status()
                 allow_place_orders = (
@@ -294,8 +298,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
             except Exception as e:
                 logger.error(f"[Placing Bot Thread] Error in processing grid flow logic: {e}", exc_info=True)
 
-            time.sleep(0.1)
-
     threading.Thread(target=_tick_worker, daemon=True).start()
 
     # --- PubSub loop: fast consumer — only updates globals, no Binance API calls ---
@@ -329,6 +331,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                     _prev_bid_diff_for_atr = new_bid_diff
                     latest_ask_diff = new_ask_diff
                     latest_bid_diff = new_bid_diff
+                    _new_price_event.set()
                     logger.debug(
                         f"[PubSub] Price diff updated: ask_diff={latest_ask_diff:.2f}, "
                         f"bid_diff={latest_bid_diff:.2f}, atr={latest_atr:.3f}"

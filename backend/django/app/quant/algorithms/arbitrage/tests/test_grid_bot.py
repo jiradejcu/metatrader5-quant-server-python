@@ -5,6 +5,7 @@ External Binance calls (get_open_orders, get_position, cancel_all_open_orders,
 chase_order) are patched on the loaded module object.
 """
 import json
+import logging
 import sys
 import time
 import types
@@ -14,6 +15,8 @@ import pathlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import pytest
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Load grid_bot.py under a synthetic parent package so that relative imports
@@ -697,6 +700,7 @@ def _run_handle_grid_flow_active(messages):
 
     def mock_process_tick(*args, **kwargs):
         process_tick_called[0] = True
+        logger.info(f"[TickWorker] _process_tick reached: ask_diff={args[5] if len(args) > 5 else '?'} bid_diff={args[6] if len(args) > 6 else '?'}")
 
     with patch.dict("os.environ", {"PAIR_INDEX": "0"}), \
          patch.object(_gb, "get_redis_connection", return_value=redis_mock), \
@@ -723,3 +727,28 @@ class TestATRVolatilityGate:
         msg1 = make_price_message(PRICE_CH, 1.56, 1.69, ts=time.time())
         msg2 = make_price_message(PRICE_CH, 4.29, 4.41, ts=time.time())  # ATR ≈ 0.364
         assert _run_handle_grid_flow_active([msg1, msg2]) is False
+
+    def test_atr_rise_and_decay_unblocks_after_two_calm_ticks(self):
+        """
+        ATR lifecycle after a spike (threshold=0.3):
+          spike        → ATR=0.364  blocked
+          spike+calm×1 → ATR=0.317  still blocked
+          spike+calm×2 → ATR=0.276  unblocked
+        Each call replays from scratch so ATR is built fresh from the message sequence.
+        Messages omit ts to avoid the stale-price-diff filter across the three sequential calls.
+        """
+        def msgs(*price_pairs):
+            return [make_price_message(PRICE_CH, ask, bid) for ask, bid in price_pairs]
+
+        # (ask, bid) sequence: baseline → spike → calm ticks
+        baseline = (1.56, 1.69)
+        spike    = (4.29, 4.41)  # Δ=2.73 → ATR=0.364
+        calm1    = (4.30, 4.42)  # Δ=0.01 → ATR≈0.317
+        calm2    = (4.31, 4.43)  # Δ=0.01 → ATR≈0.276
+
+        assert _run_handle_grid_flow_active(msgs(baseline, spike)) is False, \
+            "spike should block immediately"
+        assert _run_handle_grid_flow_active(msgs(baseline, spike, calm1)) is False, \
+            "one calm tick is not enough to recover"
+        assert _run_handle_grid_flow_active(msgs(baseline, spike, calm1, calm2)) is True, \
+            "two calm ticks should bring ATR below threshold and unblock"
