@@ -111,6 +111,9 @@ def reset_globals():
     _gb.latest_ask_diff = None
     _gb.latest_bid_diff = None
     _gb.latest_grid_settings = None
+    _gb.latest_atr = 0.0
+    _gb._prev_ask_diff_for_atr = None
+    _gb._prev_bid_diff_for_atr = None
     _state_mod.force_position_fetch = False
     yield
 
@@ -598,3 +601,125 @@ class TestHandleGridFlowStalePriceDiff:
 
         assert ask is None
         assert bid is None
+
+
+# ---------------------------------------------------------------------------
+# ATR computation
+# ---------------------------------------------------------------------------
+
+_ATR_ALPHA = 2.0 / (14 + 1)  # mirrors module default (ATR_PERIOD=14)
+
+
+class TestATRComputation:
+
+    def test_first_message_atr_stays_zero(self):
+        """No previous value to diff against → ATR remains 0."""
+        msg = make_price_message(PRICE_CH, 3.0, 3.2, ts=time.time())
+        _run_handle_grid_flow_with_messages([msg])
+        assert _gb.latest_atr == 0.0
+
+    def test_second_message_computes_atr_from_ask_delta(self):
+        """When ask delta dominates, TR = |Δask|."""
+        msg1 = make_price_message(PRICE_CH, 1.5, 1.6, ts=time.time())
+        msg2 = make_price_message(PRICE_CH, 3.0, 1.7, ts=time.time())  # ask Δ=1.5, bid Δ=0.1
+        _run_handle_grid_flow_with_messages([msg1, msg2])
+        expected = _ATR_ALPHA * 1.5  # prev ATR was 0
+        assert abs(_gb.latest_atr - expected) < 1e-9
+
+    def test_second_message_uses_max_of_ask_and_bid_delta(self):
+        """When bid delta dominates, TR = |Δbid|."""
+        msg1 = make_price_message(PRICE_CH, 3.0, 1.0, ts=time.time())
+        msg2 = make_price_message(PRICE_CH, 3.5, 3.0, ts=time.time())  # ask Δ=0.5, bid Δ=2.0
+        _run_handle_grid_flow_with_messages([msg1, msg2])
+        expected = _ATR_ALPHA * 2.0
+        assert abs(_gb.latest_atr - expected) < 1e-9
+
+    def test_atr_decays_after_spike(self):
+        """After a large spike, calm ticks reduce ATR each step."""
+        msg1 = make_price_message(PRICE_CH, 1.56, 1.69, ts=time.time())
+        msg2 = make_price_message(PRICE_CH, 4.29, 4.41, ts=time.time())  # spike: ask Δ=2.73
+        msg3 = make_price_message(PRICE_CH, 4.30, 4.42, ts=time.time())  # calm: Δ=0.01
+        msg4 = make_price_message(PRICE_CH, 4.31, 4.43, ts=time.time())  # calm: Δ=0.01
+        _run_handle_grid_flow_with_messages([msg1, msg2, msg3, msg4])
+
+        atr_spike  = _ATR_ALPHA * 2.73
+        atr_calm1  = _ATR_ALPHA * 0.01 + (1 - _ATR_ALPHA) * atr_spike
+        atr_calm2  = _ATR_ALPHA * 0.01 + (1 - _ATR_ALPHA) * atr_calm1
+        assert abs(_gb.latest_atr - atr_calm2) < 1e-6
+        assert _gb.latest_atr < atr_spike
+
+    def test_stale_message_does_not_update_atr(self):
+        """Dropped stale messages must not advance ATR state."""
+        stale_ts = time.time() - 1.0
+        msg = make_price_message(PRICE_CH, 5.0, 5.2, ts=stale_ts)
+        _run_handle_grid_flow_with_messages([msg])
+        assert _gb.latest_atr == 0.0
+        assert _gb._prev_ask_diff_for_atr is None
+
+    def test_real_glitch_spike_exceeds_threshold(self):
+        """The 1.56→4.29 glitch seen in prod logs must push ATR above the default threshold."""
+        msg1 = make_price_message(PRICE_CH, 1.56, 1.69, ts=time.time())
+        msg2 = make_price_message(PRICE_CH, 4.29, 4.41, ts=time.time())
+        _run_handle_grid_flow_with_messages([msg1, msg2])
+        assert _gb.latest_atr > _gb.ATR_HIGH_THRESHOLD
+
+
+# ---------------------------------------------------------------------------
+# ATR volatility gate (_tick_worker integration)
+# ---------------------------------------------------------------------------
+
+def _run_handle_grid_flow_active(messages):
+    """
+    Drive handle_grid_flow with active=True and initial grid settings loaded.
+    Returns True if _process_tick was called at least once by the tick worker.
+    """
+    price_key = "spread:binance:XAUUSDT"
+    grid_key = "setting_grid_channel:XAUUSDT:XAUUSD"
+
+    call_count = [0]
+    process_tick_called = [False]
+
+    def listen_side_effect():
+        call_count[0] += 1
+        if call_count[0] > 1:
+            raise _StopLoop("done")
+        return iter(messages)
+
+    pubsub = MagicMock()
+    pubsub.listen.side_effect = listen_side_effect
+
+    redis_mock = MagicMock()
+    grid_data = json.dumps({
+        "upper_limit": 5.0, "lower_limit": -5.0,
+        "max_position_size": 5.0, "order_size": 1.0,
+    })
+    redis_mock.get.return_value = grid_data.encode()
+
+    def mock_process_tick(*args, **kwargs):
+        process_tick_called[0] = True
+
+    with patch.dict("os.environ", {"PAIR_INDEX": "0"}), \
+         patch.object(_gb, "get_redis_connection", return_value=redis_mock), \
+         patch.object(_gb, "get_active_status", return_value=b"1"), \
+         patch.object(_gb, "_process_tick", side_effect=mock_process_tick):
+        try:
+            _gb.handle_grid_flow(pubsub, price_key, grid_key)
+        except _StopLoop:
+            time.sleep(0.25)  # let tick_worker run while patch is still active
+
+    return process_tick_called[0]
+
+
+class TestATRVolatilityGate:
+
+    def test_process_tick_allowed_when_atr_normal(self):
+        """Small consecutive deltas keep ATR low → _process_tick is called."""
+        msg1 = make_price_message(PRICE_CH, 3.0, 3.1, ts=time.time())
+        msg2 = make_price_message(PRICE_CH, 3.1, 3.2, ts=time.time())  # Δ=0.1 → ATR ≈ 0.013
+        assert _run_handle_grid_flow_active([msg1, msg2]) is True
+
+    def test_process_tick_blocked_when_atr_high(self):
+        """1.56→4.29 spike raises ATR above threshold → _process_tick is NOT called."""
+        msg1 = make_price_message(PRICE_CH, 1.56, 1.69, ts=time.time())
+        msg2 = make_price_message(PRICE_CH, 4.29, 4.41, ts=time.time())  # ATR ≈ 0.364
+        assert _run_handle_grid_flow_active([msg1, msg2]) is False
