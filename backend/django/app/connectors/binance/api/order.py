@@ -111,12 +111,21 @@ def _modify_order_with_price_match(symbol, side, quantity, order_id, price_match
         signer=trade_api._signer,
     )
 
-def chase_order(symbol, quantity, side):
+def chase_order(symbol, quantity, side, order_id=None):
+    """Chase a limit order at QUEUE price match.
+
+    Args:
+        order_id: When provided, modify that specific open order in-place.
+                  When None, place a brand-new GTX limit order.
+
+    The caller (``_reconcile``) is responsible for deciding which path to take
+    based on the open-orders snapshot it already holds.  This function never
+    calls ``get_open_orders`` internally, which eliminates the fill-race window
+    where an order could be placed silently after the real order had already
+    filled — bypassing ATR and capacity checks in ``_process_tick``.
+    """
     try:
-        open_orders = get_open_orders(symbol)
-        if open_orders:
-            order_id = getattr(open_orders[0], 'order_id', None)
-            old_price = getattr(open_orders[0], 'price', None)
+        if order_id is not None:
             response = _modify_order_with_price_match(
                 symbol=symbol,
                 side=ModifyOrderSideEnum[side].value,
@@ -125,10 +134,9 @@ def chase_order(symbol, quantity, side):
                 price_match=ModifyOrderPriceMatchEnum["QUEUE"].value,
             )
             data = response.data()
-            new_price = getattr(data, 'price', None)
             logger.info(
                 f"Chase order modified: order_id={order_id} side={side} qty={quantity} "
-                f"price {old_price} → {new_price}"
+                f"price → {getattr(data, 'price', None)}"
             )
         else:
             response = client.rest_api.new_order(
@@ -140,10 +148,9 @@ def chase_order(symbol, quantity, side):
                 price_match="QUEUE",
             )
             data = response.data()
-            new_price = getattr(data, 'price', None)
-            order_id = getattr(data, 'order_id', None)
             logger.info(
-                f"Chase order placed: order_id={order_id} side={side} qty={quantity} price={new_price}"
+                f"Chase order placed: order_id={getattr(data, 'order_id', None)} "
+                f"side={side} qty={quantity} price={getattr(data, 'price', None)}"
             )
         return data
     except Exception as e:

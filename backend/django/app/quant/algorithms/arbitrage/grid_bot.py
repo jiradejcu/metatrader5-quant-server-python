@@ -77,13 +77,14 @@ def _reconcile(entry_symbol, target, position_amt, open_orders):
     size = abs(diff)
 
     if not open_orders:
-        logger.info(f"[Reconcile] No open order → chasing {side}, size={size}")
-        chase_order(entry_symbol, float(size), side)
+        logger.info(f"[Reconcile] No open order → placing {side}, size={size}")
+        chase_order(entry_symbol, float(size), side, order_id=None)
         return
 
     first = open_orders[0]
     current_side = getattr(first, 'side', None)
     current_size = float(getattr(first, 'orig_qty', 0))
+    current_order_id = getattr(first, 'order_id', None)
 
     if current_side != side:
         logger.info(
@@ -92,8 +93,8 @@ def _reconcile(entry_symbol, target, position_amt, open_orders):
         cancel_all_open_orders(entry_symbol)
         return
 
-    logger.debug(f"[Reconcile] Chasing {side}, size={current_size}")
-    chase_order(entry_symbol, current_size, side)
+    logger.debug(f"[Reconcile] Chasing {side}, order_id={current_order_id}, size={current_size}")
+    chase_order(entry_symbol, current_size, side, order_id=current_order_id)
 
 
 def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
@@ -158,10 +159,13 @@ def watch_user_data_stream(entry_symbol):
 
             threading.Thread(target=_keepalive_loop, args=(stop_keepalive,), daemon=True).start()
 
-            prev_status = None
+            # Track status per order ID so cross-order transitions aren't logged
+            # as a single order's state machine (e.g. the spurious "FILLED → NEW"
+            # that appeared when the first order's FILLED bled into the second
+            # order's first NEW event).
+            order_status: dict[str, str] = {}
 
             def on_message(ws, message):
-                nonlocal prev_status
                 try:
                     data = json.loads(message)
                     if data.get('e') != 'ORDER_TRADE_UPDATE':
@@ -169,6 +173,7 @@ def watch_user_data_stream(entry_symbol):
                     o = data.get('o', {})
                     if o.get('s') != entry_symbol:
                         return
+                    order_id = o.get('i')
                     new_status = o.get('X')
                     orig_qty = float(o.get('q', 0))
                     executed_qty = float(o.get('z', 0))
@@ -177,7 +182,7 @@ def watch_user_data_stream(entry_symbol):
                     avg_price = o.get('ap')
                     with state.state_lock:
                         state.placing_order_state.update({
-                            "order_id": o.get('i'),
+                            "order_id": order_id,
                             "status": new_status,
                             "fill_pct": fill_pct,
                             "side": o.get('S'),
@@ -185,17 +190,23 @@ def watch_user_data_stream(entry_symbol):
                             "price": o.get('p'),
                             "orig_qty": orig_qty,
                         })
+                        prev_status = order_status.get(order_id)
                         if new_status != prev_status and new_status is not None:
-                            logger.debug(f"[UserDataStream] Order status {prev_status} → {new_status}")
+                            logger.debug(
+                                f"[UserDataStream] Order {order_id} status {prev_status} → {new_status}"
+                            )
                             state.force_position_fetch = True
-                            
+
                     if new_status == 'FILLED':
                         logger.info(
                             f"[UserDataStream] Order FILLED: side={o.get('S')} "
                             f"fill_price={last_fill_price} avg_price={avg_price} "
-                            f"qty={executed_qty}/{orig_qty} order_id={o.get('i')}"
+                            f"qty={executed_qty}/{orig_qty} order_id={order_id}"
                         )
-                    prev_status = new_status
+                    order_status[order_id] = new_status
+                    # Evict terminal orders to keep the dict from growing unboundedly
+                    if new_status in TERMINAL_STATUSES:
+                        order_status.pop(order_id, None)
                 except Exception as e:
                     logger.error(f"[UserDataStream] Error processing message: {e}", exc_info=True)
 
