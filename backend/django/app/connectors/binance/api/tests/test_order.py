@@ -1,5 +1,12 @@
 """
-Tests for chase_order — specifically the modify_order path (when open orders exist).
+Tests for chase_order.
+
+chase_order(symbol, quantity, side, order_id=None)
+  order_id given  → modify that specific order via _modify_order_with_price_match
+  order_id=None   → place a new GTX limit order via client.rest_api.new_order
+
+The function no longer calls get_open_orders internally — the caller decides
+which path to take, eliminating the fill-race window.
 """
 import os
 import sys
@@ -80,21 +87,21 @@ def _make_response(data):
 
 
 # ---------------------------------------------------------------------------
-# Tests for chase_order — modify path
+# Tests for chase_order — modify path (order_id provided)
 # ---------------------------------------------------------------------------
 
 class TestChaseOrderModify:
-    """chase_order when get_open_orders returns at least one order."""
+    """chase_order(order_id=<id>) → modify that specific order, never touches get_open_orders."""
 
     def _run(self, side="BUY", symbol="BTCUSDT", quantity=0.01, order_id=99):
-        open_order = _make_open_order(order_id)
         mock_response = _make_response({"orderId": order_id, "status": "NEW"})
 
-        with patch.object(order, "get_open_orders", return_value=[open_order]), \
-             patch.object(order, "_modify_order_with_price_match", return_value=mock_response) as mock_modify:
+        with patch.object(order, "_modify_order_with_price_match", return_value=mock_response) as mock_modify, \
+             patch.object(order, "get_open_orders") as mock_get:
 
-            result = order.chase_order(symbol, quantity, side)
+            result = order.chase_order(symbol, quantity, side, order_id=order_id)
 
+        mock_get.assert_not_called()  # caller owns the state — no internal fetch
         return result, mock_modify
 
     def test_calls_modify_not_new_order(self):
@@ -128,26 +135,25 @@ class TestChaseOrderModify:
         assert result == {"orderId": 42, "status": "NEW"}
 
     def test_returns_none_on_exception(self):
-        open_order = _make_open_order(1)
-        with patch.object(order, "get_open_orders", return_value=[open_order]), \
-             patch.object(order, "_modify_order_with_price_match", side_effect=Exception("API error")):
-            result = order.chase_order("BTCUSDT", 0.01, "BUY")
+        with patch.object(order, "_modify_order_with_price_match", side_effect=Exception("API error")):
+            result = order.chase_order("BTCUSDT", 0.01, "BUY", order_id=1)
         assert result is None
 
 
 # ---------------------------------------------------------------------------
-# Tests for chase_order — new order path (no open orders)
+# Tests for chase_order — new order path (order_id=None)
 # ---------------------------------------------------------------------------
 
 class TestChaseOrderNewOrder:
-    """chase_order when get_open_orders returns empty list."""
+    """chase_order(order_id=None) → place a new GTX order, never touches get_open_orders."""
 
     def _run(self, side="BUY"):
         mock_response = _make_response({"orderId": 1, "status": "NEW"})
-        with patch.object(order, "get_open_orders", return_value=[]), \
-             patch.object(order.client.rest_api, "new_order", return_value=mock_response) as mock_new, \
-             patch.object(order.client.rest_api, "modify_order") as mock_modify:
-            result = order.chase_order("BTCUSDT", 0.01, side)
+        with patch.object(order.client.rest_api, "new_order", return_value=mock_response) as mock_new, \
+             patch.object(order, "_modify_order_with_price_match") as mock_modify, \
+             patch.object(order, "get_open_orders") as mock_get:
+            result = order.chase_order("BTCUSDT", 0.01, side)  # order_id defaults to None
+        mock_get.assert_not_called()
         return result, mock_new, mock_modify
 
     def test_calls_new_order_not_modify(self):

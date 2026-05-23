@@ -92,19 +92,18 @@ def mock_cancel_all_open_orders(symbol):
     return None
 
 
-def mock_chase_order(symbol, quantity, side):
+def mock_chase_order(symbol, quantity, side, order_id=None):
     global _order_counter
 
-    if _market["open_orders"]:
-        # Existing open order — update to current OPPONENT price (best market price)
-        order = _market["open_orders"][0]
+    if order_id is not None:
+        # Modify path — caller already knows which order to chase
         sim_log.info(
-            f"  🟡 chase_order  {side:4s}  qty={quantity}  id={order.order_id}  "
+            f"  🟡 chase_order  {side:4s}  qty={quantity}  id={order_id}  "
             f"bid={_market['bid']}  ask={_market['ask']}"
         )
-        return SimpleNamespace(order_id=order.order_id)
+        return SimpleNamespace(order_id=order_id)
 
-    # No open order — place new via OPPONENT price match
+    # New order path — place via QUEUE price match
     _order_counter += 1
     oid = f"SIM_{_order_counter:04d}"
     fill_pct = _market["fill_pct"]

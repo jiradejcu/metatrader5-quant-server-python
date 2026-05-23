@@ -55,8 +55,9 @@ class TestChaseOrderIntegration:
         # Small pause so the order is visible in get_open_orders
         time.sleep(1.0)
 
-        # 2. Chase (modify) — this is the path that was broken
-        result = chase_order(symbol=SYMBOL, quantity=QUANTITY, side="BUY")
+        # 2. Chase (modify) — pass order_id explicitly; chase_order no longer
+        #    calls get_open_orders internally so we must provide it ourselves.
+        result = chase_order(symbol=SYMBOL, quantity=QUANTITY, side="BUY", order_id=order_id)
 
         assert result is not None, (
             "chase_order returned None — modify_order likely failed. "

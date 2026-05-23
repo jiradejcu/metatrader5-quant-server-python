@@ -65,8 +65,8 @@ _spec.loader.exec_module(_gb)
 # ---------------------------------------------------------------------------
 
 
-def _open_order(side="BUY", price=2000.0, orig_qty=1.0):
-    return SimpleNamespace(side=side, price=price, orig_qty=orig_qty)
+def _open_order(side="BUY", price=2000.0, orig_qty=1.0, order_id=None):
+    return SimpleNamespace(side=side, price=price, orig_qty=orig_qty, order_id=order_id)
 
 
 def _position(amt=0.0):
@@ -230,13 +230,13 @@ class TestReconcile:
         mock_resp = SimpleNamespace(order_id="B1")
         with patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._reconcile(SYMBOL, 1.0, 0.0, [])
-        mock_chase.assert_called_once_with(SYMBOL, 1.0, 'BUY')
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, 'BUY', order_id=None)
 
     def test_target_below_position_places_sell(self):
         mock_resp = SimpleNamespace(order_id="S1")
         with patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._reconcile(SYMBOL, -1.0, 0.0, [])
-        mock_chase.assert_called_once_with(SYMBOL, 1.0, 'SELL')
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, 'SELL', order_id=None)
 
     def test_wrong_side_open_order_cancels(self):
         buy_order = _open_order(side='BUY')
@@ -247,10 +247,10 @@ class TestReconcile:
         mock_chase.assert_not_called()
 
     def test_right_side_open_order_chases(self):
-        sell_order = _open_order(side='SELL', orig_qty=1.0)
+        sell_order = _open_order(side='SELL', orig_qty=1.0, order_id=42)
         with patch.object(_gb, "chase_order") as mock_chase:
             _gb._reconcile(SYMBOL, -1.0, 0.0, [sell_order])
-        mock_chase.assert_called_once_with(SYMBOL, 1.0, 'SELL')
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, 'SELL', order_id=42)
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +284,7 @@ class TestProcessTick:
                 max_pos=5.0, order_size=1.0,
                 ask_diff=6.0, bid_diff=0.0,
             )
-        mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL")
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
 
     def test_buy_zone_places_new_order(self):
         mock_resp = SimpleNamespace(order_id="B1")
@@ -297,10 +297,10 @@ class TestProcessTick:
                 max_pos=5.0, order_size=1.0,
                 ask_diff=0.0, bid_diff=-6.0,
             )
-        mock_chase.assert_called_once_with(SYMBOL, 1.0, "BUY")
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, "BUY", order_id=None)
 
     def test_sell_zone_chases_existing_order(self):
-        sell_order = _open_order(side="SELL", price=1800.0, orig_qty=1.0)
+        sell_order = _open_order(side="SELL", price=1800.0, orig_qty=1.0, order_id=77)
         with patch.object(_gb, "get_open_orders", return_value=[sell_order]), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
              patch.object(_gb, "chase_order") as mock_chase:
@@ -310,10 +310,10 @@ class TestProcessTick:
                 max_pos=5.0, order_size=1.0,
                 ask_diff=6.0, bid_diff=0.0,
             )
-        mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL")
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=77)
 
     def test_buy_zone_chases_existing_order(self):
-        buy_order = _open_order(side="BUY", price=1000.0, orig_qty=1.0)
+        buy_order = _open_order(side="BUY", price=1000.0, orig_qty=1.0, order_id=88)
         with patch.object(_gb, "get_open_orders", return_value=[buy_order]), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
              patch.object(_gb, "chase_order") as mock_chase:
@@ -323,7 +323,7 @@ class TestProcessTick:
                 max_pos=5.0, order_size=1.0,
                 ask_diff=0.0, bid_diff=-6.0,
             )
-        mock_chase.assert_called_once_with(SYMBOL, 1.0, "BUY")
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, "BUY", order_id=88)
 
     def test_sell_zone_wrong_side_open_order_cancels(self):
         buy_order = _open_order(side="BUY", price=2000.0, orig_qty=1.0)
@@ -421,26 +421,26 @@ class TestProcessTick:
     def test_sell_accumulates_until_max_position(self):
         """SELL zone: each filled order shifts position; next tick places the next one."""
         mock_resp = SimpleNamespace(order_id="S1")
-        # Step 1: pos=0 → target=-1 → place SELL 1
+        # Step 1: pos=0 → target=-1 → place SELL 1 (no open order → order_id=None)
         with patch.object(_gb, "get_open_orders", return_value=[]), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(SYMBOL, 5.0, -5.0, 3.0, 1.0, 6.0, 0.0)
-        mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL")
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
 
         # Step 2: pos=-1 → target=-2 → place SELL 1
         with patch.object(_gb, "get_open_orders", return_value=[]), \
              patch.object(_gb, "get_position", return_value=_position(-1.0)), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(SYMBOL, 5.0, -5.0, 3.0, 1.0, 6.0, 0.0)
-        mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL")
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
 
         # Step 3: pos=-2 → target=-3 → place SELL 1
         with patch.object(_gb, "get_open_orders", return_value=[]), \
              patch.object(_gb, "get_position", return_value=_position(-2.0)), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(SYMBOL, 5.0, -5.0, 3.0, 1.0, 6.0, 0.0)
-        mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL")
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
 
         # Step 4: pos=-3 → capacity=0 → target=pos → no open order → nothing
         with patch.object(_gb, "get_open_orders", return_value=[]), \
