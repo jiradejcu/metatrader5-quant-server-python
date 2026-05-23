@@ -69,6 +69,7 @@ def get_position_by_symbol(symbol: str) -> Dict:
             'volume': data.get('positionAmt', '0'),
             'time_update': data.get('time_update'),
             'entryPrice': data.get('entryPrice', '0'),
+            'markPrice': data.get('markPrice', '0'),
             'unRealizedProfit': data.get('unRealizedProfit', '0'),
         }
 

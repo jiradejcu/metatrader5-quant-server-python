@@ -51,6 +51,8 @@ def handle_position_update(pubsub):
                 hedge_position = get_hedge_position(hedge_symbol)
 
                 hedge_volume = Decimal(str(hedge_position.get('volume', '0')))
+                hedge_entry_price = Decimal(str(hedge_position.get('entryPrice', '0')))
+                hedge_mark_price = Decimal(str(hedge_position.get('markPrice', '0')))
                 hedge_time_update = hedge_position.get('time_update', None)
 
                 if pre_order_volume is not None:
@@ -62,8 +64,27 @@ def handle_position_update(pubsub):
 
                 logger.debug(
                     f"Hedge Position {hedge_exchange}:{hedge_symbol} - "
-                    f"Volume: {hedge_volume}, Time Update: {hedge_time_update}"
+                    f"Volume: {hedge_volume}, Entry Price: {hedge_entry_price}, "
+                    f"Mark Price: {hedge_mark_price}, Time Update: {hedge_time_update}"
                 )
+
+                # Compare actual mark-price spread with the latest ticker-based price_diff
+                if mark_price > 0 and hedge_mark_price > 0:
+                    redis_conn = get_redis_connection()
+                    entry_symbol_key = config.PAIRS[PAIR_INDEX]['entry']['symbol']
+                    price_diff_raw = redis_conn.get(f"price_diff:{entry_symbol_key}:{hedge_symbol}")
+                    if price_diff_raw:
+                        price_diff_data = json.loads(price_diff_raw)
+                        ticker_ask_diff = price_diff_data.get('ask_diff', 0)
+                        ticker_bid_diff = price_diff_data.get('bid_diff', 0)
+                        mark_diff = float(mark_price - hedge_mark_price)
+                        logger.info(
+                            f"Spread comparison [{entry_symbol_key}/{hedge_symbol}]: "
+                            f"mark_diff={mark_diff:.2f} "
+                            f"(entry_mark={float(mark_price):.2f}, hedge_mark={float(hedge_mark_price):.2f}) "
+                            f"| ticker ask_diff={ticker_ask_diff}, bid_diff={ticker_bid_diff} "
+                            f"| Δask={mark_diff - ticker_ask_diff:.2f}, Δbid={mark_diff - ticker_bid_diff:.2f}"
+                        )
 
                 discrepancy = position_amt + hedge_volume * contract_size
 

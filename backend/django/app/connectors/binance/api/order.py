@@ -116,12 +116,19 @@ def chase_order(symbol, quantity, side):
         open_orders = get_open_orders(symbol)
         if open_orders:
             order_id = getattr(open_orders[0], 'order_id', None)
+            old_price = getattr(open_orders[0], 'price', None)
             response = _modify_order_with_price_match(
                 symbol=symbol,
                 side=ModifyOrderSideEnum[side].value,
                 quantity=quantity,
                 order_id=order_id,
                 price_match=ModifyOrderPriceMatchEnum["QUEUE"].value,
+            )
+            data = response.data()
+            new_price = getattr(data, 'price', None)
+            logger.info(
+                f"Chase order modified: order_id={order_id} side={side} qty={quantity} "
+                f"price {old_price} → {new_price}"
             )
         else:
             response = client.rest_api.new_order(
@@ -132,7 +139,13 @@ def chase_order(symbol, quantity, side):
                 time_in_force=NewOrderTimeInForceEnum["GTX"].value,
                 price_match="QUEUE",
             )
-        return response.data()
+            data = response.data()
+            new_price = getattr(data, 'price', None)
+            order_id = getattr(data, 'order_id', None)
+            logger.info(
+                f"Chase order placed: order_id={order_id} side={side} qty={quantity} price={new_price}"
+            )
+        return data
     except Exception as e:
         logger.error(f"Chase order error: {e}")
         return None
