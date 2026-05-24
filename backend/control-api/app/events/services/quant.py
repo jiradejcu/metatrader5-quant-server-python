@@ -61,11 +61,19 @@ def get_arbitrage_summary():
         if hedge_mark_price == 0.0:
             logger.warning(f"hedgeMarkPrice is 0. hedge_key={hedge_key} hedge_result={hedge_result}")
 
+        # hedgePrice  — group VWAP, unchanged by partial closes (mirrors Binance's entryPrice)
+        # hedgeCurrentEntryPrice — live VWAP of only the remaining open MT5 lots
+        hedge_group_entry = float(hedge_result.get('entryPrice', 0))
+        hedge_current_entry = float(hedge_result.get('currentEntryPrice', hedge_result.get('entryPrice', 0)))
+        hedge_group_id = hedge_result.get('groupId')
+
         response_data = {
             'entryMarkPrice': entry_mark_price,
             'hedgeMarkPrice': hedge_mark_price,
             'entryPrice': float(entry_result.get('entryPrice', 0)),
-            'hedgePrice': float(hedge_result.get('entryPrice', 0)),
+            'hedgePrice': hedge_group_entry,
+            'hedgeCurrentEntryPrice': hedge_current_entry,
+            'hedgeGroupId': hedge_group_id,
             'entrySize': entry_size,
             'hedgeSize': hedge_size,
             'pausePositionSync': pause_position,

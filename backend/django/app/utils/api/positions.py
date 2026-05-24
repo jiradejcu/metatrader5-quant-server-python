@@ -13,6 +13,7 @@ import numpy as np
 from decimal import Decimal
 from dotenv import load_dotenv
 from app.utils.redis_client import get_redis_connection
+from app.utils.position_group import get_position_group
 
 from app.utils.constants import MT5Timeframe
 
@@ -111,7 +112,9 @@ async def subscribe_hedge_position(symbol: str):
             now = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
             result = {
                 "time_update": now,
-                "entryPrice": "0",
+                "groupId": None,
+                "entryPrice": "0",       # group VWAP — unchanged by partial closes
+                "currentEntryPrice": "0", # live VWAP of remaining open lots only
                 "markPrice": "0",
                 "unRealizedProfit": "0",
                 "positionAmt": "0"
@@ -128,11 +131,25 @@ async def subscribe_hedge_position(symbol: str):
                 positions = _add_signed_volume(positions)
 
                 total_volume = float(positions['signed_volume'].sum())
-                weighted_entry = float((positions['price_open'] * positions['signed_volume']).sum() / positions['signed_volume'].sum()) if total_volume != 0.0 else 0
+                # VWAP of currently open MT5 positions only (changes after partial close)
+                current_entry = float(
+                    (positions['price_open'] * positions['signed_volume']).sum()
+                    / positions['signed_volume'].sum()
+                ) if total_volume != 0.0 else 0.0
                 total_profit = 0 if total_volume == 0.0 else float(positions['profit'].sum())
                 mark_price = float(ask if total_volume < 0 else bid)
 
-                result["entryPrice"] = f"{weighted_entry:.3f}"
+                # Group entry price: VWAP of ALL opening fills in this position
+                # group, unchanged by partial closes — mirrors Binance's entryPrice.
+                position_group = get_position_group(redis_conn, symbol)
+                group_entry = float(position_group["entry_price"]) if position_group else None
+                group_id = position_group.get("group_id") if position_group else None
+                # Fall back to current VWAP if no group is tracked yet
+                display_entry = group_entry if (group_entry is not None and group_entry > 0) else current_entry
+
+                result["groupId"] = group_id
+                result["entryPrice"] = f"{display_entry:.3f}"
+                result["currentEntryPrice"] = f"{current_entry:.3f}"
                 result["markPrice"] = f"{mark_price:.3f}"
                 result["unRealizedProfit"] = f"{total_profit:.2f}"
                 result["positionAmt"] = f"{total_volume:.3f}"

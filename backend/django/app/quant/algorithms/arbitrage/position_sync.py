@@ -8,6 +8,7 @@ from decimal import Decimal
 from app.utils.redis_client import get_redis_connection
 from app.utils.api.positions import get_position_by_symbol as get_hedge_position
 from app.utils.api.order import send_market_order
+from app.utils.position_group import update_position_group, resolve_group_id, make_comment
 
 logger = logging.getLogger(__name__)
 
@@ -101,13 +102,48 @@ def handle_position_update(pubsub):
                         f"Placing order to adjust by {order_amt}."
                     )
 
+                    # ── Resolve position group ID before placing the order ──
+                    # is_new_position is True when the hedge has no open volume
+                    # yet — this order starts a brand-new position lifecycle.
+                    expected_hedge_volume = (
+                        float(hedge_volume)
+                        + float(order_amt) / float(contract_size)
+                    )
+                    is_opening = abs(expected_hedge_volume) > abs(float(hedge_volume))
+                    is_new_position = abs(float(hedge_volume)) < 1e-9 and is_opening
+
+                    redis_conn = get_redis_connection()
+                    group_id = resolve_group_id(
+                        redis_conn=redis_conn,
+                        symbol=hedge_symbol,
+                        is_new_position=is_new_position,
+                    )
+                    # ──────────────────────────────────────────────────────
+
                     order = send_market_order(
                         symbol=hedge_symbol,
                         volume=abs(order_amt / contract_size),
                         order_type='BUY' if order_amt > 0 else 'SELL',
+                        # Embed group_id in MT5 ticket comment for durable
+                        # group membership — survives Redis restarts.
+                        comment=make_comment(group_id),
                     )
 
                     if order:
+                        fill_price = float(order.get('price', 0))
+                        fill_volume = abs(float(order.get('volume', 0)))
+
+                        if fill_price > 0 and fill_volume > 0:
+                            redis_conn = get_redis_connection()
+                            update_position_group(
+                                redis_conn=redis_conn,
+                                symbol=hedge_symbol,
+                                fill_price=fill_price,
+                                fill_volume=fill_volume,
+                                is_opening=is_opening,
+                                group_id=group_id,
+                            )
+
                         pre_order_volume = hedge_volume
                         redis_conn = get_redis_connection()
                         redis_conn.delete(f"position:mt5:{hedge_symbol}")

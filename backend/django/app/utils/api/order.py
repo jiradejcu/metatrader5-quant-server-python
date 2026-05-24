@@ -17,10 +17,11 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = os.getenv('MT5_API_URL')
 
-def send_market_order(symbol: str, volume: float = None, order_type: str = None, sl: float = None, tp: float = None, position: int = None, position_by: int = None) -> Dict:
+def send_market_order(symbol: str, volume: float = None, order_type: str = None, sl: float = None, tp: float = None, position: int = None, position_by: int = None, comment: str = '') -> Dict:
     try:
         request = {
             "symbol": symbol,
+            "comment": comment,
         }
 
         if position_by is not None:
@@ -28,14 +29,14 @@ def send_market_order(symbol: str, volume: float = None, order_type: str = None,
             request["position_by"] = position_by
             request["type"] = "BUY" # type is ignored for close_by in backend but required by validation
             # Even though volume is ignored by backend for close_by, it might be required by field validation
-            request["volume"] = 0 
+            request["volume"] = 0
         else:
             if order_type is None or volume is None:
                 logger.error("order_type and volume are required for market orders")
                 return None
-                
+
             order_type_str = order_type if isinstance(order_type, str) else order_type.name
-            
+
             if order_type_str not in ['BUY', 'SELL']:
                 error_msg = f"Invalid order type: {order_type_str}. Must be 'BUY' or 'SELL'"
                 logger.error(error_msg)
@@ -43,13 +44,13 @@ def send_market_order(symbol: str, volume: float = None, order_type: str = None,
 
             request["volume"] = float(volume)
             request["type"] = 0 if order_type_str == 'BUY' else 1
-            
+
             if sl is not None:
                 request["sl"] = float(sl)
 
             if tp is not None:
                 request["tp"] = float(tp)
-            
+
             if position is not None:
                 request["position"] = position
 

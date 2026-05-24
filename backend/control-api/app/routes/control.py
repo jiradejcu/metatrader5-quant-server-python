@@ -8,6 +8,7 @@ import os
 from dotenv import load_dotenv
 from constants.config import PAIRS
 from events.master import event_quants_master_data
+from events.services.quant import get_arbitrage_summary as _get_arbitrage_summary
 
 load_dotenv()
 MT5_URL = os.getenv('API_DOMAIN')
@@ -19,10 +20,6 @@ logger = logging.getLogger(__name__)
 control_bp = Blueprint('control', __name__)
 TARGET_CONTAINER = "django"
 
-def prepare_json(json_str):
-    if json_str == None:
-            return {'positionAmt': 0, 'markPrice': 0, 'unRealizedProfit': 0, 'time_update': None, 'updateTime': None}
-    return json.loads(json_str)
 
 @control_bp.route('/stop-quant', methods=['POST'])
 def stop_quant_container():
@@ -81,78 +78,8 @@ def get_django_status():
 @control_bp.route('/get-arbitrage-summary', methods=['GET'])
 def get_arbitrage_summary():
     try:
-        entry_symbol = PAIRS[PAIR_INDEX]['entry']['symbol']
-        hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
-        ratio = PAIRS[PAIR_INDEX]['contract_size']
-
-        entry_key = f"position:{PAIRS[PAIR_INDEX]['entry']['exchange']}:{entry_symbol}"
-        hedge_key = f"position:{PAIRS[PAIR_INDEX]['hedge']['exchange']}:{hedge_symbol}"
-        pause_position_key = "position_sync_paused_flag"
-
-        redis_conn = get_redis_connection()
-
-        entry_result = prepare_json(redis_conn.get(entry_key))
-        hedge_result = prepare_json(redis_conn.get(hedge_key))
-        pause_position = 'Active'
-
-        entry_action = 'SHORT'
-        hedge_action = 'SHORT'
-        pairStatus = 'Warning'
-
-        entry_size = float(entry_result.get('positionAmt', 0))
-        hedge_size = float(hedge_result.get('positionAmt', 0))
-        unrealizes = [float(entry_result.get('unRealizedProfit', 0)), float(hedge_result.get('unRealizedProfit', 0))]
-        netExpose = entry_size + (hedge_size * ratio)
-        netExposeAction = 'Safe'
-
-        # handle floating point issue
-        epsilon = 1e-12
-        if abs(netExpose) < epsilon:
-            netExpose = 0
-
-        if netExpose != 0:
-            netExposeAction = 'Unsafe'
-
-        if entry_size > 0:
-            entry_action = 'LONG'
-        elif entry_size == 0:
-            entry_action = 'None'
-
-        if hedge_size > 0:
-            hedge_action = 'LONG'
-        elif hedge_size == 0:
-            hedge_action = 'None'
-
-        if netExpose == 0:
-            pairStatus = 'Complete'
-
-        if redis_conn.get(pause_position_key):
-            pause_position = 'Pause'
-
-        response_data = {
-            'entryMarkPrice': entry_result.get('markPrice'),
-            'hedgeMarkPrice': hedge_result.get('markPrice'),
-            'entryPrice': entry_result.get('entryPrice'),
-            'hedgePrice': hedge_result.get('entryPrice'),
-            'spread': float(entry_result.get('markPrice', 0)) - float(hedge_result.get('markPrice', 0)),
-            'pairStatus': pairStatus,
-            'entrySize': entry_size,
-            'entryAction': entry_action,
-            'hedgeSize': hedge_size,
-            'netExpose': netExpose,
-            'netExposeAction': netExposeAction,
-            'hedgeAction': hedge_action,
-            'unrealizedTotal': sum(unrealizes),
-            'pausePositionSync': pause_position,
-            'time_update_hedge': hedge_result.get('time_update'),
-            'time_update_entry': entry_result.get('updateTime'),
-            'entrySymbol': entry_symbol,
-            'hedgeSymbol': hedge_symbol,
-        }
-
-        # logger.info("Successful get arbitrage information!!")
-        return jsonify({"message": "Successful retrieved summary data", "data": response_data}), 200
-
+        data = _get_arbitrage_summary()
+        return jsonify({"message": "Successful retrieved summary data", "data": data}), 200
     except Exception as e:
         logger.error(f"Summary data error: {e}")
         return jsonify({"message": f"Server error: {str(e)}", "data": None}), 500
