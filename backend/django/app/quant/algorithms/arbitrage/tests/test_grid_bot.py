@@ -253,6 +253,138 @@ class TestComputeTargetTruncation:
 
 
 # ---------------------------------------------------------------------------
+# _compute_target — contract_size (MOCK_ENTRY_POSITION_AMT) truncation
+# ---------------------------------------------------------------------------
+
+class TestComputeTargetContractSize:
+    """
+    When contract_size is passed, the target is truncated to the nearest
+    1/contract_size lot (trunc(val * contract_size) / contract_size) instead
+    of the nearest integer.
+    """
+
+    # --- BUY zone ---
+
+    def test_buy_exact_lot_unchanged(self):
+        # 0 + 0.01 = 0.01 → trunc(0.01 × 100)/100 = trunc(1.0)/100 = 0.01
+        assert _gb._compute_target('BUY', 0.0, 0.01, 5.0, contract_size=100) == pytest.approx(0.01)
+
+    def test_buy_fractional_lot_truncated_down(self):
+        # 0 + 0.012 = 0.012 → trunc(1.2)/100 = 0.01   (not 0.02)
+        assert _gb._compute_target('BUY', 0.0, 0.012, 5.0, contract_size=100) == pytest.approx(0.01)
+
+    def test_buy_accumulates_with_existing_position(self):
+        # 0.01 + 0.01 = 0.02 → trunc(2.0)/100 = 0.02
+        assert _gb._compute_target('BUY', 0.01, 0.01, 5.0, contract_size=100) == pytest.approx(0.02)
+
+    def test_buy_fractional_lot_with_existing_position(self):
+        # 0.01 + 0.012 = 0.022 → trunc(2.2)/100 = 0.02
+        assert _gb._compute_target('BUY', 0.01, 0.012, 5.0, contract_size=100) == pytest.approx(0.02)
+
+    # --- SELL zone ---
+
+    def test_sell_exact_lot_unchanged(self):
+        # 0 - 0.01 = -0.01 → trunc(-1.0)/100 = -0.01
+        assert _gb._compute_target('SELL', 0.0, 0.01, 5.0, contract_size=100) == pytest.approx(-0.01)
+
+    def test_sell_fractional_lot_truncates_towards_zero(self):
+        # 0 - 0.012 = -0.012 → trunc(-1.2)/100 = -0.01   (not -0.02)
+        assert _gb._compute_target('SELL', 0.0, 0.012, 5.0, contract_size=100) == pytest.approx(-0.01)
+
+    def test_sell_accumulates_with_existing_negative_position(self):
+        # -0.01 - 0.01 = -0.02 → trunc(-2.0)/100 = -0.02
+        assert _gb._compute_target('SELL', -0.01, 0.01, 5.0, contract_size=100) == pytest.approx(-0.02)
+
+    def test_sell_fractional_lot_with_existing_negative_position(self):
+        # -0.01 - 0.012 = -0.022 → trunc(-2.2)/100 = -0.02
+        assert _gb._compute_target('SELL', -0.01, 0.012, 5.0, contract_size=100) == pytest.approx(-0.02)
+
+    # --- NEUTRAL / capacity exhausted — short-circuit, no truncation ---
+
+    def test_neutral_returns_position_unchanged(self):
+        assert _gb._compute_target('NEUTRAL', 0.05, 0.01, 5.0, contract_size=100) == 0.05
+
+    def test_capacity_exhausted_returns_position_unchanged(self):
+        assert _gb._compute_target('BUY', 0.05, 0.01, 0.0, contract_size=100) == 0.05
+
+    # --- without contract_size — existing integer truncation unaffected ---
+
+    def test_without_contract_size_buy_integer_trunc(self):
+        assert _gb._compute_target('BUY', 0.0, 1.0, 5.0) == 1
+
+    def test_without_contract_size_sell_integer_trunc(self):
+        assert _gb._compute_target('SELL', 0.0, 1.0, 5.0) == -1
+
+
+# ---------------------------------------------------------------------------
+# _process_tick — MOCK_ENTRY_POSITION_AMT integration
+# ---------------------------------------------------------------------------
+
+class TestProcessTickMockEntryPosition:
+    """MOCK_ENTRY_POSITION_AMT=true routes contract_size through to _compute_target."""
+
+    def test_valid_lot_order_size_places_order(self):
+        """order_size=0.01, contract_size=100 → 0.01×100=1 (integer) → valid lot."""
+        mock_resp = SimpleNamespace(order_id="B1")
+        with patch.object(_gb, "get_open_orders", return_value=[]), \
+             patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase, \
+             patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "true", "PAIR_INDEX": "0"}):
+            _gb._process_tick(
+                SYMBOL,
+                upper_limit=5.0, lower_limit=-5.0,
+                max_pos=5.0, order_size=0.01,
+                ask_diff=0.0, bid_diff=-6.0,  # BUY zone
+            )
+        mock_chase.assert_called_once_with(SYMBOL, pytest.approx(0.01), "BUY", order_id=None)
+
+    def test_fractional_lot_order_size_is_truncated(self):
+        """order_size=0.012 → trunc(0.012×100)/100=0.01 → chase_order receives 0.01."""
+        mock_resp = SimpleNamespace(order_id="B1")
+        with patch.object(_gb, "get_open_orders", return_value=[]), \
+             patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase, \
+             patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "true", "PAIR_INDEX": "0"}):
+            _gb._process_tick(
+                SYMBOL,
+                upper_limit=5.0, lower_limit=-5.0,
+                max_pos=5.0, order_size=0.012,
+                ask_diff=0.0, bid_diff=-6.0,  # BUY zone
+            )
+        mock_chase.assert_called_once_with(SYMBOL, pytest.approx(0.01), "BUY", order_id=None)
+
+    def test_sell_zone_fractional_lot_truncated(self):
+        """SELL zone: order_size=0.012 → truncated to 0.01."""
+        mock_resp = SimpleNamespace(order_id="S1")
+        with patch.object(_gb, "get_open_orders", return_value=[]), \
+             patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase, \
+             patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "true", "PAIR_INDEX": "0"}):
+            _gb._process_tick(
+                SYMBOL,
+                upper_limit=5.0, lower_limit=-5.0,
+                max_pos=5.0, order_size=0.012,
+                ask_diff=6.0, bid_diff=0.0,  # SELL zone
+            )
+        mock_chase.assert_called_once_with(SYMBOL, pytest.approx(0.01), "SELL", order_id=None)
+
+    def test_mock_entry_false_uses_integer_truncation(self):
+        """MOCK_ENTRY_POSITION_AMT=false → standard integer truncation, no change."""
+        mock_resp = SimpleNamespace(order_id="B1")
+        with patch.object(_gb, "get_open_orders", return_value=[]), \
+             patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase, \
+             patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "false", "PAIR_INDEX": "0"}):
+            _gb._process_tick(
+                SYMBOL,
+                upper_limit=5.0, lower_limit=-5.0,
+                max_pos=5.0, order_size=1.0,
+                ask_diff=0.0, bid_diff=-6.0,  # BUY zone
+            )
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, "BUY", order_id=None)
+
+
+# ---------------------------------------------------------------------------
 # _reconcile
 # ---------------------------------------------------------------------------
 
@@ -803,3 +935,209 @@ class TestATRVolatilityGate:
             "one calm tick is not enough to recover"
         assert _run_handle_grid_flow_active(msgs(baseline, spike, calm1, calm2)) is True, \
             "two calm ticks should bring ATR below threshold and unblock"
+
+
+# ---------------------------------------------------------------------------
+# watch_user_data_stream — on_message handler
+# ---------------------------------------------------------------------------
+
+class _StopUserStream(BaseException):
+    """Abort watch_user_data_stream's while-True loop from run_forever.
+
+    Must subclass BaseException so it isn't caught by the bare
+    ``except Exception`` inside watch_user_data_stream.
+    """
+
+
+def _capture_on_message(symbol="XAUUSDT"):
+    """
+    Drive watch_user_data_stream just far enough to capture the on_message
+    closure, then abort.
+
+    The returned callable shares the same ``order_status`` dict for its whole
+    lifetime, accurately modelling a live WebSocket session where multiple
+    order events arrive on the same connection.
+    """
+    captured: dict = {}
+
+    class _FakeWSApp:
+        def __init__(self, url, on_open=None, on_message=None,
+                     on_error=None, on_close=None):
+            captured["on_message"] = on_message
+
+        def run_forever(self, **kwargs):
+            raise _StopUserStream()
+
+    fake_stream = MagicMock()
+    fake_stream.data.return_value.listen_key = "test_key"
+
+    with patch.object(_gb.binance_client.rest_api, "start_user_data_stream",
+                      return_value=fake_stream), \
+         patch.object(_gb.websocket, "WebSocketApp", _FakeWSApp):
+        try:
+            _gb.watch_user_data_stream(symbol)
+        except _StopUserStream:
+            pass
+
+    return captured["on_message"]
+
+
+def _order_event(order_id, status, *, side="BUY", symbol="XAUUSDT",
+                 orig_qty=1.0, executed_qty=0.0, price="2000.0"):
+    """Return a serialised ORDER_TRADE_UPDATE WebSocket message."""
+    return json.dumps({
+        "e": "ORDER_TRADE_UPDATE",
+        "o": {
+            "s": symbol,
+            "i": order_id,
+            "X": status,
+            "S": side,
+            "q": str(orig_qty),
+            "z": str(executed_qty),
+            "p": price,
+            "L": "0.0",
+            "ap": "0.0",
+        },
+    })
+
+
+class TestOnMessage:
+    """Unit tests for the on_message closure inside watch_user_data_stream."""
+
+    @pytest.fixture(autouse=True)
+    def reset_order_state(self):
+        """Isolate placing_order_state and force_position_fetch between tests."""
+        def _reset():
+            _state_mod.placing_order_state.update({
+                "order_id": None, "status": None, "is_clean": True,
+                "fill_pct": 0, "side": None, "price": None, "orig_qty": 0,
+            })
+            _state_mod.force_position_fetch = False
+
+        _reset()
+        yield
+        _reset()
+
+    # --- basic state updates ---
+
+    def test_state_updated_on_new_order(self):
+        on_msg = _capture_on_message()
+        on_msg(None, _order_event(111, "NEW", side="SELL"))
+        with _state_mod.state_lock:
+            s = dict(_state_mod.placing_order_state)
+        assert s["order_id"] == 111
+        assert s["status"] == "NEW"
+        assert s["side"] == "SELL"
+        assert s["is_clean"] is False
+
+    def test_state_updated_on_filled_order(self):
+        on_msg = _capture_on_message()
+        on_msg(None, _order_event(111, "FILLED", orig_qty=2.0, executed_qty=2.0))
+        with _state_mod.state_lock:
+            s = dict(_state_mod.placing_order_state)
+        assert s["order_id"] == 111
+        assert s["status"] == "FILLED"
+        assert s["fill_pct"] == 100.0
+        assert s["is_clean"] is True
+
+    # --- core cross-order reset scenario ---
+
+    def test_placing_order_state_reflects_order2_after_order1_filled(self):
+        """
+        placing_order_state must be overwritten with Order 2's data when its
+        event arrives, regardless of Order 1's previous terminal state.
+        """
+        on_msg = _capture_on_message()
+        on_msg(None, _order_event(111, "FILLED", side="SELL", orig_qty=1.0, executed_qty=1.0))
+        on_msg(None, _order_event(222, "NEW",    side="BUY"))
+        with _state_mod.state_lock:
+            s = dict(_state_mod.placing_order_state)
+        assert s["order_id"] == 222
+        assert s["status"] == "NEW"
+        assert s["side"] == "BUY"
+
+    def test_is_clean_resets_to_false_when_order2_arrives_new(self):
+        """
+        Regression: is_clean must flip back to False for Order 2's NEW event
+        even though Order 1 left it True (FILLED is a terminal status).
+        """
+        on_msg = _capture_on_message()
+        # Order 1 → FILLED leaves is_clean=True
+        on_msg(None, _order_event(111, "FILLED", orig_qty=1.0, executed_qty=1.0))
+        with _state_mod.state_lock:
+            assert _state_mod.placing_order_state["is_clean"] is True
+        # Order 2 → NEW must flip is_clean back to False
+        on_msg(None, _order_event(222, "NEW"))
+        with _state_mod.state_lock:
+            assert _state_mod.placing_order_state["is_clean"] is False
+
+    # --- force_position_fetch / per-order status tracking ---
+
+    def test_force_position_fetch_set_on_status_change(self):
+        on_msg = _capture_on_message()
+        _state_mod.force_position_fetch = False
+        on_msg(None, _order_event(111, "NEW"))
+        with _state_mod.state_lock:
+            assert _state_mod.force_position_fetch is True
+
+    def test_force_position_fetch_set_for_order2_after_order1_evicted(self):
+        """
+        After Order 1 is FILLED (and evicted from the internal order_status dict),
+        Order 2's first event must be seen as None→NEW — a genuine status change —
+        and must set force_position_fetch.
+
+        Without per-order-id tracking the handler would have mis-read this as a
+        spurious FILLED→NEW transition on the same logical order.
+        """
+        on_msg = _capture_on_message()
+        on_msg(None, _order_event(111, "FILLED", orig_qty=1.0, executed_qty=1.0))
+        with _state_mod.state_lock:
+            _state_mod.force_position_fetch = False  # clear so Order 2's change is detectable
+
+        on_msg(None, _order_event(222, "NEW"))
+        with _state_mod.state_lock:
+            assert _state_mod.force_position_fetch is True
+
+    def test_same_status_repeat_does_not_retrigger_force_position_fetch(self):
+        """Duplicate events for the same order and status must not re-set the flag."""
+        on_msg = _capture_on_message()
+        on_msg(None, _order_event(111, "NEW"))
+        with _state_mod.state_lock:
+            _state_mod.force_position_fetch = False
+        on_msg(None, _order_event(111, "NEW"))   # identical — no change
+        with _state_mod.state_lock:
+            assert _state_mod.force_position_fetch is False
+
+    # --- filtering ---
+
+    def test_different_symbol_is_ignored(self):
+        on_msg = _capture_on_message(symbol="XAUUSDT")
+        on_msg(None, _order_event(999, "NEW", symbol="BTCUSDT"))
+        with _state_mod.state_lock:
+            assert _state_mod.placing_order_state["order_id"] is None
+
+    def test_non_order_trade_update_event_is_ignored(self):
+        on_msg = _capture_on_message()
+        on_msg(None, json.dumps({"e": "ACCOUNT_UPDATE"}))
+        with _state_mod.state_lock:
+            assert _state_mod.placing_order_state["order_id"] is None
+
+    # --- fill_pct ---
+
+    def test_fill_pct_for_partial_fill(self):
+        on_msg = _capture_on_message()
+        on_msg(None, _order_event(111, "PARTIALLY_FILLED", orig_qty=4.0, executed_qty=1.0))
+        with _state_mod.state_lock:
+            assert _state_mod.placing_order_state["fill_pct"] == 25.0
+
+    # --- terminal statuses ---
+
+    @pytest.mark.parametrize("status", [
+        "FILLED", "CANCELED", "EXPIRED", "REJECTED", "EXPIRED_IN_MATCH",
+    ])
+    def test_terminal_status_sets_is_clean_true(self, status):
+        on_msg = _capture_on_message()
+        executed = 1.0 if status == "FILLED" else 0.0
+        on_msg(None, _order_event(111, status, orig_qty=1.0, executed_qty=executed))
+        with _state_mod.state_lock:
+            assert _state_mod.placing_order_state["is_clean"] is True

@@ -42,18 +42,29 @@ def _determine_zone(ask_diff, bid_diff, upper_limit, lower_limit):
     return 'NEUTRAL'
 
 
-def _compute_target(zone, position_amt, order_size, remaining_capacity):
+def _compute_target(zone, position_amt, order_size, remaining_capacity, contract_size=None):
     """Return desired position amount, or None to do nothing.
 
     When target == position_amt, reconcile will cancel open orders.
+
+    contract_size: when provided (MOCK_ENTRY_POSITION_AMT mode), the result is
+                   truncated to the nearest 1/contract_size lot instead of the
+                   nearest integer, so every order size is a valid exchange lot.
+                   Example: contract_size=100, order_size=0.012 →
+                   trunc(0.012 × 100) / 100 = 0.01.
     """
+    def _trunc(val):
+        if contract_size is not None:
+            return math.trunc(val * contract_size) / contract_size
+        return math.trunc(val)
+
     if zone == 'NEUTRAL' or remaining_capacity <= 0:
         return position_amt  # hold current position — no open order needed
 
     if zone == 'BUY':
-        return math.trunc(position_amt + order_size)
+        return _trunc(position_amt + order_size)
     if zone == 'SELL':
-        return math.trunc(position_amt - order_size)
+        return _trunc(position_amt - order_size)
 
     return None
 
@@ -133,7 +144,9 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
         f"bid_diff={bid_diff:.2f} (limit={lower_limit:.2f})"
     )
 
-    target = _compute_target(zone, position_amt, order_size, remaining_capacity)
+    mock_entry = os.getenv('MOCK_ENTRY_POSITION_AMT', 'false').lower() == 'true'
+    contract_size = config.PAIRS[int(os.getenv('PAIR_INDEX', '0'))]['contract_size'] if mock_entry else None
+    target = _compute_target(zone, position_amt, order_size, remaining_capacity, contract_size=contract_size)
     logger.debug(f"Target={target}")
 
     _reconcile(entry_symbol, target, position_amt, open_orders)
