@@ -1,4 +1,5 @@
 import logging
+import math
 import time
 import threading
 import os
@@ -50,9 +51,9 @@ def _compute_target(zone, position_amt, order_size, remaining_capacity):
         return position_amt  # hold current position — no open order needed
 
     if zone == 'BUY':
-        return position_amt + order_size
+        return math.trunc(position_amt + order_size)
     if zone == 'SELL':
-        return position_amt - order_size
+        return math.trunc(position_amt - order_size)
 
     return None
 
