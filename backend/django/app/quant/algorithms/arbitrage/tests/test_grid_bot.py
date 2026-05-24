@@ -202,6 +202,57 @@ class TestComputeTarget:
 
 
 # ---------------------------------------------------------------------------
+# _compute_target — truncation towards zero
+# ---------------------------------------------------------------------------
+
+class TestComputeTargetTruncation:
+    """Target must be truncated towards zero (math.trunc), not floored."""
+
+    # --- BUY zone (positive result) ---
+
+    def test_buy_fractional_position_truncates_down(self):
+        # 0.531 + 1.0 = 1.531 → trunc → 1  (not 2)
+        assert _gb._compute_target('BUY', 0.531, 1.0, remaining_capacity=5.0) == 1
+
+    def test_buy_large_fractional_position_truncates(self):
+        # real-world case from logs: 287.531 + 1.0 = 288.531 → trunc → 288
+        assert _gb._compute_target('BUY', 287.531, 1.0, remaining_capacity=5.0) == 288
+
+    def test_buy_result_near_zero_truncates_to_zero(self):
+        # -0.8 + 1.0 = 0.2 → trunc → 0
+        assert _gb._compute_target('BUY', -0.8, 1.0, remaining_capacity=5.0) == 0
+
+    # --- SELL zone (negative result) ---
+
+    def test_sell_fractional_position_truncates_towards_zero(self):
+        # -0.531 - 1.0 = -1.531 → trunc → -1  (not -2, which floor would give)
+        assert _gb._compute_target('SELL', -0.531, 1.0, remaining_capacity=5.0) == -1
+
+    def test_sell_large_fractional_position_truncates_towards_zero(self):
+        # -287.531 - 1.0 = -288.531 → trunc → -288  (not -289)
+        assert _gb._compute_target('SELL', -287.531, 1.0, remaining_capacity=5.0) == -288
+
+    def test_sell_result_near_zero_truncates_to_zero(self):
+        # 0.8 - 1.0 = -0.2 → trunc → 0  (not -1 which floor would give)
+        assert _gb._compute_target('SELL', 0.8, 1.0, remaining_capacity=5.0) == 0
+
+    # --- trunc vs floor distinction ---
+
+    def test_trunc_differs_from_floor_for_negative(self):
+        # This is the key property: trunc(-1.531)==-1, floor(-1.531)==-2
+        result = _gb._compute_target('SELL', -0.531, 1.0, remaining_capacity=5.0)
+        assert result == -1, f"Expected -1 (trunc), got {result} (floor would give -2)"
+
+    # --- whole numbers are unaffected ---
+
+    def test_whole_number_buy_unchanged(self):
+        assert _gb._compute_target('BUY', 0.0, 1.0, remaining_capacity=5.0) == 1
+
+    def test_whole_number_sell_unchanged(self):
+        assert _gb._compute_target('SELL', 0.0, 1.0, remaining_capacity=5.0) == -1
+
+
+# ---------------------------------------------------------------------------
 # _reconcile
 # ---------------------------------------------------------------------------
 
