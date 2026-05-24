@@ -42,36 +42,42 @@ def _determine_zone(ask_diff, bid_diff, upper_limit, lower_limit):
     return 'NEUTRAL'
 
 
-def _compute_target(zone, position_amt, order_size, remaining_capacity, contract_size=None, net_pending=0):
+def _compute_target(zone, position_amt, order_size, remaining_capacity, net_pending=0):
     """Return desired position amount, or None to do nothing.
 
     When target == position_amt, reconcile will cancel open orders.
 
-    contract_size: when provided (MOCK_ENTRY_POSITION_AMT mode), the result is
-                   truncated to the nearest 1/contract_size lot instead of the
-                   nearest integer, so every order size is a valid exchange lot.
-                   Example: contract_size=100, order_size=0.012 →
-                   trunc(0.012 × 100) / 100 = 0.01.
+    In MOCK_ENTRY_POSITION_AMT mode the result is truncated to the nearest
+    1/contract_size lot (from config.PAIRS[PAIR_INDEX]); otherwise it is
+    truncated to the nearest integer.
+    Example (contract_size=100, order_size=0.012):
+        trunc(0.012 × 100) / 100 = 0.01.
 
-    net_pending: buy_pending - sell_pending from open orders. When
-                 remaining_capacity is exhausted by a pending order, return
-                 the committed target (position_amt + net_pending) so reconcile
-                 chases the existing order instead of cancelling it.
+    net_pending: buy_pending - sell_pending from open orders.
+                 remaining_capacity == 0: a pending order legitimately fills the
+                 last slot — return the committed target so reconcile chases it
+                 instead of cancelling (avoids alternate cancel/place loop).
+                 remaining_capacity < 0: over-committed — return position_amt so
+                 reconcile cancels the excess open order.
     """
     def _trunc(val):
-        if contract_size is not None:
+        if os.getenv('MOCK_ENTRY_POSITION_AMT', 'false').lower() == 'true':
+            contract_size = config.PAIRS[int(os.getenv('PAIR_INDEX', '0'))]['contract_size']
             return math.trunc(val * contract_size) / contract_size
         return math.trunc(val)
 
     if zone == 'NEUTRAL':
-        return position_amt  # hold current position — no open order needed
+        return _trunc(position_amt)  # hold current position — no open order needed
 
-    if remaining_capacity <= 0:
-        # Capacity is exhausted. If there's a pending order that accounts for
-        # the capacity, preserve it by returning the committed target.
-        # When net_pending=0 (no open orders) this is identical to returning
-        # position_amt, which correctly holds the filled position.
-        return round(position_amt + net_pending, 10)
+    if remaining_capacity < 0:
+        # Over-committed: open order would push position beyond max_pos.
+        # Return position_amt so reconcile cancels the excess order.
+        return _trunc(position_amt)
+
+    if remaining_capacity == 0:
+        # Capacity exactly exhausted by a pending order — chase it.
+        # When net_pending=0 (no open orders) this equals position_amt (hold).
+        return _trunc(position_amt + net_pending)
 
     if zone == 'BUY':
         return _trunc(position_amt + order_size)
@@ -156,9 +162,7 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
         f"bid_diff={bid_diff:.2f} (limit={lower_limit:.2f})"
     )
 
-    mock_entry = os.getenv('MOCK_ENTRY_POSITION_AMT', 'false').lower() == 'true'
-    contract_size = config.PAIRS[int(os.getenv('PAIR_INDEX', '0'))]['contract_size'] if mock_entry else None
-    target = _compute_target(zone, position_amt, order_size, remaining_capacity, contract_size=contract_size, net_pending=net_pending)
+    target = _compute_target(zone, position_amt, order_size, remaining_capacity, net_pending=net_pending)
     logger.debug(f"Target={target}")
 
     _reconcile(entry_symbol, target, position_amt, open_orders)
