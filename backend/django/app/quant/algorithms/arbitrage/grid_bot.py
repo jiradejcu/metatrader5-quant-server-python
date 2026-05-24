@@ -71,6 +71,10 @@ def _compute_target(zone, position_amt, order_size, remaining_capacity, contract
         # the capacity, preserve it by returning the committed target.
         # When net_pending=0 (no open orders) this is identical to returning
         # position_amt, which correctly holds the filled position.
+        # If remaining_capacity < 0, the open order pushes beyond max_pos —
+        # return position_amt so reconcile cancels the excess order.
+        if remaining_capacity < 0:
+            return position_amt
         return round(position_amt + net_pending, 10)
 
     if zone == 'BUY':
