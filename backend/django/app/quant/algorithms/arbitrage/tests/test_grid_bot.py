@@ -193,9 +193,18 @@ class TestComputeTarget:
     def test_neutral_flat_returns_zero(self):
         assert _gb._compute_target('NEUTRAL', 0.0, 1.0, remaining_capacity=5.0) == 0.0
 
-    def test_capacity_exhausted_returns_current_position(self):
+    def test_capacity_exhausted_no_pending_returns_current_position(self):
+        # No pending order (net_pending=0): hold filled position
         assert _gb._compute_target('SELL', -4.0, 1.0, remaining_capacity=0.0) == -4.0
         assert _gb._compute_target('BUY',   4.0, 1.0, remaining_capacity=-1.0) == 4.0
+
+    def test_capacity_exhausted_with_pending_returns_committed_target(self):
+        # Pending SELL 0.01 fills the last slot: return committed target so
+        # reconcile chases the order instead of cancelling it.
+        # position=-0.04, net_pending=-0.01, remaining_capacity=0 → target=-0.05
+        assert _gb._compute_target('SELL', -0.04, 0.01, remaining_capacity=0.0, net_pending=-0.01) == pytest.approx(-0.05)
+        # Same for BUY direction
+        assert _gb._compute_target('BUY', 0.04, 0.01, remaining_capacity=0.0, net_pending=0.01) == pytest.approx(0.05)
 
     def test_capacity_exhausted_in_neutral_returns_current_position(self):
         assert _gb._compute_target('NEUTRAL', -3.0, 1.0, remaining_capacity=0.0) == -3.0
