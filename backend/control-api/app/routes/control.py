@@ -223,7 +223,7 @@ def set_grid_setting_values():
         errors = []
         if ord_size <= 0:
             errors.append("order_size must be greater than 0")
-        if max_pos <= 0:
+        if max_pos < 0:
             errors.append("max_position_size must be greater than 0")
 
         if not (upper > lower):
