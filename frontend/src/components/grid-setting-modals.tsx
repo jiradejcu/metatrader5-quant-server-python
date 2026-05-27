@@ -5,7 +5,7 @@ import { FloatingLabelInput } from './float-input';
 import { SECOND } from '../constant/time';
 import { useMutation } from '@tanstack/react-query';
 import { useGetSummaryStreamData } from '../hooks/summary';
-import { setupGridParameters } from '../query/apis';
+import { setupGridParameters, ApiError } from '../query/apis';
 import { useGetGridSettingsStreamData } from '../hooks/grid-settings';
 
 export const GridSettingModal = (
@@ -14,6 +14,7 @@ export const GridSettingModal = (
     const [isOpen, setIsOpen] = useState(false);
     const { data } = useGetGridSettingsStreamData(url)
     const hasInitialized = useRef(false);
+    const [notification, setNotification] = useState<{ type: 'success' | 'error'; messages: string[] } | null>(null);
     const [formData, setFormData] = useState({
         upper_limit: 0,
         lower_limit: 0,
@@ -32,20 +33,24 @@ export const GridSettingModal = (
     const setupGridMutation = useMutation({
             mutationFn: (url: string) => setupGridParameters(url, formData),
             onSuccess: () => {
-              alert('Grid parameters updated successfully!');
-              setFormData(formData)
-              
-              // revert the button state after 2 seconds
+              setNotification({ type: 'success', messages: ['Grid parameters updated successfully!'] });
+              setFormData(formData);
+
               setTimeout(() => {
                 setupGridMutation.reset();
+                setNotification(null);
               }, 2 * SECOND);
             },
-            onError: (error: any) => {
-              alert('Failed to update grid parameters. Please try again.');  
+            onError: (error: unknown) => {
+              const messages = error instanceof ApiError
+                ? error.messages
+                : ['Failed to update grid parameters. Please try again.'];
+              setNotification({ type: 'error', messages });
               console.error('Error setting grid parameters:', error);
-        
+
               setTimeout(() => {
                 setupGridMutation.reset();
+                setNotification(null);
               }, 4 * SECOND);
             },
           });
@@ -166,6 +171,24 @@ export const GridSettingModal = (
                                 <FloatingLabelInput label="Max Pos Size" name="max_position_size" value={formData.max_position_size} onChange={handleChange} />
                                 <FloatingLabelInput label="Order Size" name="order_size" value={formData.order_size} onChange={handleChange} />
                             </div>
+
+                            {notification && (
+                                <div className={`mt-4 px-4 py-3 rounded-lg border text-sm font-semibold ${
+                                    notification.type === 'success'
+                                        ? 'bg-green-50 border-green-300 text-green-800'
+                                        : 'bg-red-50 border-red-300 text-red-800'
+                                }`}>
+                                    {notification.messages.length === 1 ? (
+                                        <p>{notification.messages[0]}</p>
+                                    ) : (
+                                        <ul className="list-disc list-inside space-y-0.5">
+                                            {notification.messages.map((msg, i) => (
+                                                <li key={i}>{msg}</li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                            )}
 
                             <button
                                 type="submit"

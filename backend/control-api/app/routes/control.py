@@ -193,21 +193,25 @@ def set_grid_setting_values():
         data = request.get_json()
         if not data:
             return jsonify({'status': 'error', 'message': 'Required define data on body!!'}), 400
-        
+
+        logger.info(f"Grid setting update requested: {data}")
+
         # 1. Validate required fields and types
         required_fields = [
             'upper_limit', 'lower_limit', 'max_position_size', 'order_size'
         ]
-        
+
         for field in required_fields:
             if field not in data:
+                logger.warning(f"Grid setting update rejected — missing field: {field}")
                 return jsonify({
-                    'status': 'error', 
+                    'status': 'error',
                     'message': f'Required attribute "{field}" is missing!'
                 }), 400
             if not isinstance(data[field], (int, float)):
+                logger.warning(f"Grid setting update rejected — non-numeric field: {field}={data[field]!r}")
                 return jsonify({
-                    'status': 'error', 
+                    'status': 'error',
                     'message': f'Attribute "{field}" must be numeric!'
                 }), 400
 
@@ -223,6 +227,7 @@ def set_grid_setting_values():
             errors.append("upper_limit must be greater than lower_limit")
 
         if errors:
+            logger.warning(f"Grid setting update rejected — validation errors: {errors}")
             return jsonify({
                 'status': 'error',
                 'message': 'Validation failed',
@@ -243,11 +248,13 @@ def set_grid_setting_values():
             "max_position_size": max_pos,
             "order_size": ord_size,
         }
-        
+
         payload = json.dumps(grid_channel)
-        
+
         redis_conn.set(redis_key, payload)
         redis_conn.publish(redis_key, payload)
+
+        logger.info(f"Grid setting updated successfully [{entry_symbol}/{hedge_symbol}]: {grid_channel}")
 
         return jsonify({
             'status': 'successful',

@@ -32,6 +32,14 @@ export async function toggleGridBot(API_BASE_URL: string): Promise<Response> {
   return response;
 }
 
+export class ApiError extends Error {
+  messages: string[];
+  constructor(messages: string[]) {
+    super(messages.join('; '));
+    this.messages = messages;
+  }
+}
+
 export async function setupGridParameters(API_BASE_URL: string, parameters: SettingGridProps): Promise<Response> {
   const url = `${API_BASE_URL}/set-grid-channel`;
   const response = await fetch(url, {
@@ -41,9 +49,26 @@ export async function setupGridParameters(API_BASE_URL: string, parameters: Sett
     },
     body: JSON.stringify(parameters),
   });
-  
+
   if (!response.ok) {
-    throw new Error(`Failed to set grid parameters: ${response.statusText}`);
+    let messages: string[];
+    try {
+      const body = await response.json();
+      if (Array.isArray(body.errors) && body.errors.length > 0) {
+        messages = body.errors;
+      } else if (typeof body.message === 'string') {
+        messages = [body.message];
+      } else if (Array.isArray(body.detail)) {
+        messages = body.detail.map((e: any) => e.msg ?? JSON.stringify(e));
+      } else if (typeof body.detail === 'string') {
+        messages = [body.detail];
+      } else {
+        messages = [response.statusText];
+      }
+    } catch {
+      messages = [response.statusText];
+    }
+    throw new ApiError(messages);
   }
 
   return response;
