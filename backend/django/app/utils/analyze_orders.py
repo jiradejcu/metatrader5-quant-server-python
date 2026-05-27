@@ -1,5 +1,6 @@
 import re
 import sys
+import csv
 from datetime import datetime
 
 if len(sys.argv) < 2:
@@ -160,3 +161,92 @@ if unmatched:
         f_ = r['fill']
         print(f"  {f_['ts_str']} side={f_['side']} fill={f_['fill_price']}"
               f"  pred={'YES' if r['pred'] else 'NO'} hedge={'YES' if r['hedge'] else 'NO'}")
+
+
+# ── Chase delay analysis ───────────────────────────────────────────────────────
+
+def analyze_chase_delay(log_file, out_csv, symbol='XAUUSDT', threshold=0.10):
+    chase_re = re.compile(
+        r'(\d{2}:\d{2}:\d{2},\d{3}).*Chase order placed: order_id=(\d+) side=(\w+) qty=([\d.]+) price=([\d.]+)'
+    )
+    pdiff_re = re.compile(
+        rf'(\d{{2}}:\d{{2}}:\d{{2}},\d{{3}}).*Price diff for {symbol}.*entry_ask.: ([\d.]+).*entry_bid.: ([\d.]+)'
+    )
+
+    chases = []
+    pdiffs = []
+
+    with open(log_file, encoding='utf-8', errors='replace') as f:
+        for line in f:
+            m = chase_re.search(line)
+            if m:
+                chases.append({'time': m.group(1), 'order_id': m.group(2), 'side': m.group(3),
+                                'qty': m.group(4), 'price': float(m.group(5))})
+            m = pdiff_re.search(line)
+            if m:
+                pdiffs.append({'time': m.group(1), 'entry_ask': float(m.group(2)), 'entry_bid': float(m.group(3))})
+
+    def time_to_ms(t):
+        h, m, s = t.split(':')
+        s, ms = s.split(',')
+        return int(h) * 3600000 + int(m) * 60000 + int(s) * 1000 + int(ms)
+
+    rows = []
+    for c in chases:
+        ct = time_to_ms(c['time'])
+        p = c['price']
+
+        best = None
+        for pd in pdiffs:
+            ref = pd['entry_ask'] if c['side'] == 'BUY' else pd['entry_bid']
+            if abs(ref - p) <= threshold:
+                if best is None or abs(time_to_ms(pd['time']) - ct) < abs(time_to_ms(best['time']) - ct):
+                    best = pd
+
+        if best:
+            delay_ms = time_to_ms(best['time']) - ct
+            matched = best['entry_ask'] if c['side'] == 'BUY' else best['entry_bid']
+            price_seen_before = delay_ms <= 0
+        else:
+            delay_ms = None
+            matched = None
+            price_seen_before = None
+
+        rows.append({
+            'order_id':          c['order_id'],
+            'chase_time':        c['time'],
+            'side':              c['side'],
+            'qty':               c['qty'],
+            'chase_price':       p,
+            'matched_pdiff_time': best['time'] if best else '',
+            'delay_ms':          delay_ms if delay_ms is not None else '',
+            'matched_price':     matched if matched is not None else '',
+            'price_seen_before': ('YES' if price_seen_before else 'NO') if price_seen_before is not None else '',
+        })
+
+    with open(out_csv, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            'order_id', 'chase_time', 'side', 'qty', 'chase_price',
+            'matched_pdiff_time', 'delay_ms', 'matched_price', 'price_seen_before',
+        ])
+        writer.writeheader()
+        writer.writerows(rows)
+
+    seen_before = sum(1 for r in rows if r['price_seen_before'] == 'YES')
+    not_seen    = sum(1 for r in rows if r['price_seen_before'] == 'NO')
+    no_match    = sum(1 for r in rows if r['price_seen_before'] == '')
+    delayed     = sum(1 for r in rows if isinstance(r['delay_ms'], int) and r['delay_ms'] > 500)
+
+    print(f"Chase orders analysed : {len(rows)}")
+    print(f"Price seen before      : {seen_before}  (delay <= 0)")
+    print(f"Price seen after       : {not_seen}  (delay > 0)")
+    print(f"  of which > 500ms    : {delayed}")
+    print(f"No match in log        : {no_match}")
+    print(f"Written to {out_csv}")
+
+
+if len(sys.argv) >= 2 and sys.argv[1] == '--chase-delay':
+    if len(sys.argv) < 4:
+        print(f"Usage: python {sys.argv[0]} --chase-delay <log_file> <out_csv>")
+        sys.exit(1)
+    analyze_chase_delay(sys.argv[2], sys.argv[3])
