@@ -25,7 +25,7 @@ def compare():
     entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
     hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
 
-    ts = time.time()  # captured before API call so latency is included in age
+    now = time.time()
 
     get_ticker = _get_ticker_fn(entry_exchange)
     entry_ticker = get_ticker(entry_symbol)
@@ -39,6 +39,16 @@ def compare():
 
     if hedge_ticker is None:
         logger.warning(f"No hedge ticker data for {hedge_symbol} in Redis")
+        return
+
+    entry_price_age = now - entry_ticker.get("recv_ts", 0)
+    if entry_price_age > 0.5:
+        logger.warning(f"Stale entry ticker for {entry_symbol}: {entry_price_age:.3f}s old — skipping")
+        return
+
+    hedge_price_age = now - hedge_ticker.get("recv_ts", 0)
+    if hedge_price_age > 0.5:
+        logger.warning(f"Stale hedge ticker for {hedge_symbol}: {hedge_price_age:.3f}s old — skipping")
         return
 
     try:
@@ -71,7 +81,7 @@ def compare():
         "hedge_ask": float(hedge_ask),
         "entry_bid": float(entry_bid),
         "hedge_bid": float(hedge_bid),
-        "ts": ts,
+        "ts": min(entry_ticker["recv_ts"], hedge_ticker.get("recv_ts", entry_ticker["recv_ts"])),
     }
 
     logger.info(f"Price diff for {entry_symbol}/{hedge_symbol}: {result}")
