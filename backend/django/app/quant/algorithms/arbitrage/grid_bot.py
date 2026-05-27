@@ -70,19 +70,24 @@ def _compute_target(zone, position_amt, order_size, remaining_capacity, net_pend
     # +order_size for BUY, -order_size for SELL, None for NEUTRAL.
     zone_delta = {'BUY': order_size, 'SELL': -order_size}.get(zone)
 
-    # NEUTRAL or over-committed: hold position so reconcile cancels open orders.
-    if zone_delta is None or remaining_capacity < 0:
+    if zone_delta is None:
         return _trunc(position_amt)
 
-    # Place order when capacity allows (remaining_capacity > 0), or when the order
-    # direction is opposite to the current position (position_amt * zone_delta < 0),
-    # meaning it reduces abs(position) and doesn't consume capacity.
-    if remaining_capacity > 0 or position_amt * zone_delta < 0:
+    # Order is opposite to current position: it reduces abs(position), so place it
+    # regardless of capacity — even when max_pos was lowered below current position.
+    if position_amt * zone_delta < 0:
         return _trunc(position_amt + zone_delta)
 
-    # remaining_capacity == 0 with same-direction position: a pending order already
-    # fills the last slot — chase it instead of cancelling and re-placing.
-    return _trunc(position_amt + net_pending)
+    # Same-direction order below: check capacity.
+    if remaining_capacity > 0:
+        return _trunc(position_amt + zone_delta)
+
+    # remaining_capacity == 0: a pending order fills the last slot — chase it.
+    if remaining_capacity == 0:
+        return _trunc(position_amt + net_pending)
+
+    # remaining_capacity < 0: over-committed — hold so reconcile cancels excess order.
+    return _trunc(position_amt)
 
 
 def _reconcile(entry_symbol, target, position_amt, open_orders):
