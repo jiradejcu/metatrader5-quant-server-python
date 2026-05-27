@@ -149,8 +149,8 @@ if matched:
     if buy_slip:
         print(f"  BUY  avg slip  : {sum(buy_slip)/len(buy_slip):+.4f}  "
               f"(n={len(buy_slip)}, range [{min(buy_slip):+.4f} to {max(buy_slip):+.4f}])")
-    worse  = sum(1 for s in slippages if s < 0)
-    better = sum(1 for s in slippages if s > 0)
+    worse  = sum(1 for r in matched if (r['side'] == 'SELL' and r['slippage'] < 0) or (r['side'] == 'BUY' and r['slippage'] > 0))
+    better = sum(1 for r in matched if (r['side'] == 'SELL' and r['slippage'] > 0) or (r['side'] == 'BUY' and r['slippage'] < 0))
     print(f"  Worse than pred: {worse}  |  Better: {better}")
     print(sep)
 
