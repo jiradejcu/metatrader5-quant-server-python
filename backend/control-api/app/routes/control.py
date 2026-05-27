@@ -221,8 +221,11 @@ def set_grid_setting_values():
         ord_size = float(data['order_size'])
         # Validation Logic
         errors = []
-        if not (ord_size <= max_pos):
-            errors.append("order_size must be less than max_position_size")
+        if ord_size <= 0:
+            errors.append("order_size must be greater than 0")
+        if max_pos <= 0:
+            errors.append("max_position_size must be greater than 0")
+
         if not (upper > lower):
             errors.append("upper_limit must be greater than lower_limit")
 
