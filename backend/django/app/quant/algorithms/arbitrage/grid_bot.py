@@ -54,11 +54,12 @@ def _compute_target(zone, position_amt, order_size, remaining_capacity, net_pend
         trunc(0.012 × 100) / 100 = 0.01.
 
     net_pending: buy_pending - sell_pending from open orders.
-                 remaining_capacity == 0: a pending order legitimately fills the
-                 last slot — return the committed target so reconcile chases it
-                 instead of cancelling (avoids alternate cancel/place loop).
-                 remaining_capacity < 0: over-committed — return position_amt so
-                 reconcile cancels the excess open order.
+                 remaining_capacity == 0 with same-direction position: a pending
+                 order legitimately fills the last slot — return the committed
+                 target so reconcile chases it instead of cancelling.
+                 remaining_capacity == 0 with opposite-direction position: order
+                 reduces abs(position), so capacity is not truly exhausted.
+                 remaining_capacity < 0: over-committed — cancel excess order.
     """
     def _trunc(val):
         if os.getenv('MOCK_ENTRY_POSITION_AMT', 'false').lower() == 'true':
@@ -66,25 +67,22 @@ def _compute_target(zone, position_amt, order_size, remaining_capacity, net_pend
             return math.trunc(val * contract_size) / contract_size
         return math.trunc(val)
 
-    if zone == 'NEUTRAL':
-        return _trunc(position_amt)  # hold current position — no open order needed
+    # +order_size for BUY, -order_size for SELL, None for NEUTRAL.
+    zone_delta = {'BUY': order_size, 'SELL': -order_size}.get(zone)
 
-    if remaining_capacity < 0:
-        # Over-committed: open order would push position beyond max_pos.
-        # Return position_amt so reconcile cancels the excess order.
+    # NEUTRAL or over-committed: hold position so reconcile cancels open orders.
+    if zone_delta is None or remaining_capacity < 0:
         return _trunc(position_amt)
 
-    if remaining_capacity == 0:
-        # Capacity exactly exhausted by a pending order — chase it.
-        # When net_pending=0 (no open orders) this equals position_amt (hold).
-        return _trunc(position_amt + net_pending)
+    # Place order when capacity allows (remaining_capacity > 0), or when the order
+    # direction is opposite to the current position (position_amt * zone_delta < 0),
+    # meaning it reduces abs(position) and doesn't consume capacity.
+    if remaining_capacity > 0 or position_amt * zone_delta < 0:
+        return _trunc(position_amt + zone_delta)
 
-    if zone == 'BUY':
-        return _trunc(position_amt + order_size)
-    if zone == 'SELL':
-        return _trunc(position_amt - order_size)
-
-    return None
+    # remaining_capacity == 0 with same-direction position: a pending order already
+    # fills the last slot — chase it instead of cancelling and re-placing.
+    return _trunc(position_amt + net_pending)
 
 
 def _reconcile(entry_symbol, target, position_amt, open_orders):
