@@ -25,7 +25,7 @@ def compare():
     entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
     hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
 
-    now = time.time()
+    now_ms = time.time() * 1000
 
     get_ticker = _get_ticker_fn(entry_exchange)
     entry_ticker = get_ticker(entry_symbol)
@@ -40,17 +40,17 @@ def compare():
     if hedge_ticker is None:
         logger.warning(f"No hedge ticker data for {hedge_symbol} in Redis")
         return
-    
+
     PRICE_DIFF_MAX_AGE_MS = int(os.getenv('PRICE_DIFF_MAX_AGE_MS', '1600'))
-    
-    entry_price_age = now - entry_ticker.get("event_ts", 0)
-    if entry_price_age > PRICE_DIFF_MAX_AGE_MS / 1000:
-        logger.warning(f"Stale entry ticker for {entry_symbol}: {entry_price_age:.3f}s old — skipping")
+
+    entry_price_age_ms = now_ms - entry_ticker.get("event_ts", 0)
+    if entry_price_age_ms > PRICE_DIFF_MAX_AGE_MS:
+        logger.warning(f"Stale entry ticker for {entry_symbol}: {entry_price_age_ms:.0f}ms old — skipping")
         return
 
-    hedge_price_age = now - hedge_ticker.get("event_ts", 0)
-    if hedge_price_age > PRICE_DIFF_MAX_AGE_MS / 1000:
-        logger.warning(f"Stale hedge ticker for {hedge_symbol}: {hedge_price_age:.3f}s old — skipping")
+    hedge_price_age_ms = now_ms - hedge_ticker.get("event_ts", 0)
+    if hedge_price_age_ms > PRICE_DIFF_MAX_AGE_MS:
+        logger.warning(f"Stale hedge ticker for {hedge_symbol}: {hedge_price_age_ms:.0f}ms old — skipping")
         return
 
     try:
@@ -86,7 +86,7 @@ def compare():
         "ts": min(entry_ticker["event_ts"], hedge_ticker.get("event_ts", entry_ticker["event_ts"])),
     }
 
-    logger.info(f"Price diff for {entry_symbol}/{hedge_symbol}: {result}")
+    logger.debug(f"Price diff for {entry_symbol}/{hedge_symbol}: {result}")
 
     try:
         redis_key = f"price_diff:{entry_symbol}:{hedge_symbol}"

@@ -41,7 +41,7 @@ async def subscribe_symbol_ticker(symbol: str):
             def handle_message(data):
                 redis_key = f"ticker:binance:{symbol}"
                 now = time.time()
-                event_ts = data.E / 1000
+                event_ts = data.E
                 redis_conn.hset(redis_key, mapping={"best_bid": data.b, "best_ask": data.a, "event_ts": event_ts})
                 redis_conn.expire(redis_key, 10)
                 last_message_time[0] = now
