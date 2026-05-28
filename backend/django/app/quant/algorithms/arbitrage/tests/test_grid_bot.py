@@ -179,53 +179,52 @@ class TestComputeTarget:
             yield
 
     def test_sell_zone_returns_position_minus_order_size(self):
-        assert _gb._compute_target('SELL', 0.0, 1.0, remaining_capacity=5.0) == -1.0
+        assert _gb._compute_target('SELL', 0.0, 1.0, max_pos=5.0) == -1.0
 
     def test_sell_zone_with_existing_position(self):
-        assert _gb._compute_target('SELL', -1.0, 1.0, remaining_capacity=4.0) == -2.0
+        assert _gb._compute_target('SELL', -1.0, 1.0, max_pos=5.0) == -2.0
 
     def test_buy_zone_returns_position_plus_order_size(self):
-        assert _gb._compute_target('BUY', 0.0, 1.0, remaining_capacity=5.0) == 1.0
+        assert _gb._compute_target('BUY', 0.0, 1.0, max_pos=5.0) == 1.0
 
     def test_buy_zone_with_existing_position(self):
-        assert _gb._compute_target('BUY', 1.0, 1.0, remaining_capacity=4.0) == 2.0
+        assert _gb._compute_target('BUY', 1.0, 1.0, max_pos=5.0) == 2.0
 
     def test_neutral_returns_current_position(self):
-        assert _gb._compute_target('NEUTRAL', 2.0, 1.0, remaining_capacity=5.0) == 2.0
+        assert _gb._compute_target('NEUTRAL', 2.0, 1.0, max_pos=5.0) == 2.0
 
     def test_neutral_flat_returns_zero(self):
-        assert _gb._compute_target('NEUTRAL', 0.0, 1.0, remaining_capacity=5.0) == 0.0
+        assert _gb._compute_target('NEUTRAL', 0.0, 1.0, max_pos=5.0) == 0.0
 
     def test_capacity_exhausted_no_pending_returns_current_position(self):
-        # No pending order (net_pending=0): hold filled position
-        assert _gb._compute_target('SELL', -4.0, 1.0, remaining_capacity=0.0) == -4.0
-        assert _gb._compute_target('BUY',   4.0, 1.0, remaining_capacity=-1.0) == 4.0
+        # max_pos == abs(position_amt): no remaining capacity, hold filled position
+        assert _gb._compute_target('SELL', -4.0, 1.0, max_pos=4.0) == -4.0
+        # max_pos < abs(position_amt): over-committed, hold position
+        assert _gb._compute_target('BUY',   4.0, 1.0, max_pos=3.0) == 4.0
 
     def test_capacity_exhausted_with_pending_returns_committed_target(self):
-        # remaining_capacity==0: pending order legitimately fills the last slot.
-        # Return committed target (truncated) so reconcile chases instead of
-        # cancelling (avoids alternate cancel/place loop).
+        # max_pos == abs(position_amt + net_pending): pending fills the last slot — chase it.
         # Fractional lots only occur in MOCK_ENTRY mode.
         with patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "true", "PAIR_INDEX": "0"}):
-            assert _gb._compute_target('SELL', -0.04, 0.01, remaining_capacity=0.0, net_pending=-0.01) == pytest.approx(-0.05)
+            assert _gb._compute_target('SELL', -0.04, 0.01, max_pos=0.05, net_pending=-0.01) == pytest.approx(-0.05)
             # Same for BUY direction
-            assert _gb._compute_target('BUY', 0.04, 0.01, remaining_capacity=0.0, net_pending=0.01) == pytest.approx(0.05)
+            assert _gb._compute_target('BUY', 0.04, 0.01, max_pos=0.05, net_pending=0.01) == pytest.approx(0.05)
 
     def test_over_committed_returns_current_position(self):
-        # remaining_capacity<0: open order pushes beyond max_pos — cancel it.
+        # max_pos < abs(position_amt + net_pending): over-committed — cancel excess order.
         # Fractional lots only occur in MOCK_ENTRY mode.
         with patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "true", "PAIR_INDEX": "0"}):
-            assert _gb._compute_target('SELL', -0.03, 0.01, remaining_capacity=-0.01, net_pending=-0.01) == pytest.approx(-0.03)
-            assert _gb._compute_target('BUY', 0.03, 0.01, remaining_capacity=-0.01, net_pending=0.01) == pytest.approx(0.03)
+            assert _gb._compute_target('SELL', -0.03, 0.01, max_pos=0.03, net_pending=-0.01) == pytest.approx(-0.03)
+            assert _gb._compute_target('BUY', 0.03, 0.01, max_pos=0.03, net_pending=0.01) == pytest.approx(0.03)
 
     def test_neutral_truncates_fractional_position(self):
         # NEUTRAL zone: _trunc applied — fractional position is truncated.
         # Fractional lots only occur in MOCK_ENTRY mode.
         with patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "true", "PAIR_INDEX": "0"}):
-            assert _gb._compute_target('NEUTRAL', -0.03, 0.01, remaining_capacity=0.0) == pytest.approx(-0.03)
+            assert _gb._compute_target('NEUTRAL', -0.03, 0.01, max_pos=0.03) == pytest.approx(-0.03)
 
     def test_capacity_exhausted_in_neutral_returns_current_position(self):
-        assert _gb._compute_target('NEUTRAL', -3.0, 1.0, remaining_capacity=0.0) == -3.0
+        assert _gb._compute_target('NEUTRAL', -3.0, 1.0, max_pos=3.0) == -3.0
 
 
 # ---------------------------------------------------------------------------
@@ -243,52 +242,52 @@ class TestComputeTargetTruncation:
     def test_buy_fractional_position_truncates_down(self):
         # 0.531 + 1.0 = 1.531 → trunc → 1  (not 2)
         with patch.dict("os.environ", _INTEGER_ENV):
-            assert _gb._compute_target('BUY', 0.531, 1.0, remaining_capacity=5.0) == 1
+            assert _gb._compute_target('BUY', 0.531, 1.0, max_pos=10.0) == 1
 
     def test_buy_large_fractional_position_truncates(self):
         # real-world case from logs: 287.531 + 1.0 = 288.531 → trunc → 288
         with patch.dict("os.environ", _INTEGER_ENV):
-            assert _gb._compute_target('BUY', 287.531, 1.0, remaining_capacity=5.0) == 288
+            assert _gb._compute_target('BUY', 287.531, 1.0, max_pos=300.0) == 288
 
     def test_buy_result_near_zero_truncates_to_zero(self):
         # -0.8 + 1.0 = 0.2 → trunc → 0
         with patch.dict("os.environ", _INTEGER_ENV):
-            assert _gb._compute_target('BUY', -0.8, 1.0, remaining_capacity=5.0) == 0
+            assert _gb._compute_target('BUY', -0.8, 1.0, max_pos=5.0) == 0
 
     # --- SELL zone (negative result) ---
 
     def test_sell_fractional_position_truncates_towards_zero(self):
         # -0.531 - 1.0 = -1.531 → trunc → -1  (not -2, which floor would give)
         with patch.dict("os.environ", _INTEGER_ENV):
-            assert _gb._compute_target('SELL', -0.531, 1.0, remaining_capacity=5.0) == -1
+            assert _gb._compute_target('SELL', -0.531, 1.0, max_pos=10.0) == -1
 
     def test_sell_large_fractional_position_truncates_towards_zero(self):
         # -287.531 - 1.0 = -288.531 → trunc → -288  (not -289)
         with patch.dict("os.environ", _INTEGER_ENV):
-            assert _gb._compute_target('SELL', -287.531, 1.0, remaining_capacity=5.0) == -288
+            assert _gb._compute_target('SELL', -287.531, 1.0, max_pos=300.0) == -288
 
     def test_sell_result_near_zero_truncates_to_zero(self):
         # 0.8 - 1.0 = -0.2 → trunc → 0  (not -1 which floor would give)
         with patch.dict("os.environ", _INTEGER_ENV):
-            assert _gb._compute_target('SELL', 0.8, 1.0, remaining_capacity=5.0) == 0
+            assert _gb._compute_target('SELL', 0.8, 1.0, max_pos=5.0) == 0
 
     # --- trunc vs floor distinction ---
 
     def test_trunc_differs_from_floor_for_negative(self):
         # This is the key property: trunc(-1.531)==-1, floor(-1.531)==-2
         with patch.dict("os.environ", _INTEGER_ENV):
-            result = _gb._compute_target('SELL', -0.531, 1.0, remaining_capacity=5.0)
+            result = _gb._compute_target('SELL', -0.531, 1.0, max_pos=10.0)
         assert result == -1, f"Expected -1 (trunc), got {result} (floor would give -2)"
 
     # --- whole numbers are unaffected ---
 
     def test_whole_number_buy_unchanged(self):
         with patch.dict("os.environ", _INTEGER_ENV):
-            assert _gb._compute_target('BUY', 0.0, 1.0, remaining_capacity=5.0) == 1
+            assert _gb._compute_target('BUY', 0.0, 1.0, max_pos=5.0) == 1
 
     def test_whole_number_sell_unchanged(self):
         with patch.dict("os.environ", _INTEGER_ENV):
-            assert _gb._compute_target('SELL', 0.0, 1.0, remaining_capacity=5.0) == -1
+            assert _gb._compute_target('SELL', 0.0, 1.0, max_pos=5.0) == -1
 
 
 # ---------------------------------------------------------------------------
