@@ -97,11 +97,12 @@ def subscribe_symbol_ticker(symbol: str):
             try:
                 ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
                 bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
+                event_ts = tick['time_msc'].iloc[0] / 1000
 
                 ticker_key = f"ticker:mt5:{symbol}"
-                recv_ts = time.time()
-                redis_conn.set(ticker_key, json.dumps({"best_ask": ask, "best_bid": bid, "recv_ts": recv_ts}))
-                redis_conn.publish(ticker_key, json.dumps({"best_ask": ask, "best_bid": bid, "recv_ts": recv_ts}))
+                payload = json.dumps({"best_ask": ask, "best_bid": bid, "event_ts": event_ts})
+                redis_conn.set(ticker_key, payload)
+                redis_conn.publish(ticker_key, payload)
                 redis_conn.expire(ticker_key, 10)
                 time.sleep(0.2)
             except asyncio.CancelledError:

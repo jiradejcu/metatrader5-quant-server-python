@@ -41,7 +41,8 @@ async def subscribe_symbol_ticker(symbol: str):
             def handle_message(data):
                 redis_key = f"ticker:binance:{symbol}"
                 now = time.time()
-                redis_conn.hset(redis_key, mapping={"best_bid": data.b, "best_ask": data.a, "recv_ts": now})
+                event_ts = data.E / 1000
+                redis_conn.hset(redis_key, mapping={"best_bid": data.b, "best_ask": data.a, "event_ts": event_ts})
                 redis_conn.expire(redis_key, 10)
                 last_message_time[0] = now
                 if not first_message_received[0]:
@@ -83,7 +84,7 @@ def get_ticker(symbol: str):
         return {
             "best_bid": ticker_data.get(b'best_bid').decode('utf-8'),
             "best_ask": ticker_data.get(b'best_ask').decode('utf-8'),
-            "recv_ts": float(ticker_data.get(b'recv_ts', 0)),
+            "event_ts": float(ticker_data.get(b'event_ts', 0)),
         }
     return None
 
