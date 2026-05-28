@@ -42,7 +42,7 @@ def _determine_zone(ask_diff, bid_diff, upper_limit, lower_limit):
     return 'NEUTRAL'
 
 
-def _compute_target(zone, position_amt, order_size, remaining_capacity, net_pending=0):
+def _compute_target(zone, position_amt, order_size, max_pos, net_pending=0):
     """Return desired position amount, or None to do nothing.
 
     When target == position_amt, reconcile will cancel open orders.
@@ -73,10 +73,13 @@ def _compute_target(zone, position_amt, order_size, remaining_capacity, net_pend
     if zone_delta is None:
         return _trunc(position_amt)
 
+    remaining_capacity = max_pos - abs(position_amt + net_pending)
+
     # Order is opposite to current position: it reduces abs(position), so place it
     # regardless of capacity — even when max_pos was lowered below current position.
+    # Clamp so the result doesn't overshoot past max_pos on the opposite side.
     if position_amt * zone_delta < 0:
-        return _trunc(position_amt + zone_delta)
+        return _trunc(max(-max_pos, position_amt + zone_delta))
 
     # Same-direction order below: check capacity.
     if remaining_capacity > 0:
@@ -146,12 +149,10 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
     buy_pending = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders if getattr(o, 'side', '') == 'BUY')
     sell_pending = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders if getattr(o, 'side', '') == 'SELL')
     net_pending = buy_pending - sell_pending
-    remaining_capacity = max_pos - abs(position_amt + net_pending)
 
     logger.debug(
         f"position={position_amt} open_orders={len(open_orders or [])} "
-        f"net_pending={net_pending} remaining_capacity={remaining_capacity:.4f} "
-        f"ask_diff={ask_diff:.2f} bid_diff={bid_diff:.2f}"
+        f"net_pending={net_pending} max_pos={max_pos} ask_diff={ask_diff:.2f} bid_diff={bid_diff:.2f}"
     )
 
     if len(open_orders) > 1:
@@ -165,7 +166,7 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
         f"bid_diff={bid_diff:.2f} (limit={lower_limit:.2f})"
     )
 
-    target = _compute_target(zone, position_amt, order_size, remaining_capacity, net_pending=net_pending)
+    target = _compute_target(zone, position_amt, order_size, max_pos, net_pending=net_pending)
     logger.debug(f"Target={target}")
 
     _reconcile(entry_symbol, target, position_amt, open_orders)
