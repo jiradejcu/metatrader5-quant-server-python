@@ -8,11 +8,25 @@ from decimal import Decimal
 from app.utils.redis_client import get_redis_connection
 from app.utils.api.positions import get_position_by_symbol as get_hedge_position
 from app.utils.api.order import send_market_order
-from app.utils.position_group import update_position_group, resolve_group_id, make_comment
+from app.utils.position_group import update_position_group, resolve_group_id, make_comment, get_position_group
 
 logger = logging.getLogger(__name__)
 
 pre_order_volume = None
+_prev_binance_entry_price = None
+
+
+def _log_entry_price_diff(redis_conn, hedge_symbol: str, binance_entry: float, trigger: str):
+    group = get_position_group(redis_conn, hedge_symbol)
+    hedge_entry = float(group["entry_price"]) if group else 0.0
+    if binance_entry == 0 or hedge_entry == 0:
+        return
+    diff = binance_entry - hedge_entry
+    diff_pct = diff / hedge_entry * 100
+    logger.info(
+        "[EntryPriceDiff][%s] binance_entry=%.5f hedge_entry=%.5f diff=%.5f (%.3f%%)",
+        trigger, binance_entry, hedge_entry, diff, diff_pct,
+    )
 
 def get_pause_status():
     redis_conn = get_redis_connection()
@@ -21,7 +35,7 @@ def get_pause_status():
     return is_paused
 
 def handle_position_update(pubsub):
-    global pre_order_volume
+    global pre_order_volume, _prev_binance_entry_price
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
     entry_exchange = config.PAIRS[PAIR_INDEX]['entry']['exchange']
     hedge_exchange = config.PAIRS[PAIR_INDEX]['hedge']['exchange']
@@ -49,6 +63,11 @@ def handle_position_update(pubsub):
                 )
 
                 hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
+
+                binance_entry_float = float(entry_price)
+                if binance_entry_float != 0 and binance_entry_float != _prev_binance_entry_price:
+                    _log_entry_price_diff(get_redis_connection(), hedge_symbol, binance_entry_float, "binance_fill")
+                    _prev_binance_entry_price = binance_entry_float
                 hedge_position = get_hedge_position(hedge_symbol)
 
                 hedge_volume = Decimal(str(hedge_position.get('volume', '0')))
@@ -143,6 +162,7 @@ def handle_position_update(pubsub):
                                 is_opening=is_opening,
                                 group_id=group_id,
                             )
+                            _log_entry_price_diff(redis_conn, hedge_symbol, float(entry_price), "hedge_fill")
 
                         pre_order_volume = hedge_volume
                         redis_conn = get_redis_connection()
