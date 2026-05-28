@@ -40,14 +40,16 @@ def compare():
     if hedge_ticker is None:
         logger.warning(f"No hedge ticker data for {hedge_symbol} in Redis")
         return
-
+    
+    PRICE_DIFF_MAX_AGE_MS = int(os.getenv('PRICE_DIFF_MAX_AGE_MS', '1600'))
+    
     entry_price_age = now - entry_ticker.get("event_ts", 0)
-    if entry_price_age > 0.5:
+    if entry_price_age > PRICE_DIFF_MAX_AGE_MS / 1000:
         logger.warning(f"Stale entry ticker for {entry_symbol}: {entry_price_age:.3f}s old — skipping")
         return
 
     hedge_price_age = now - hedge_ticker.get("event_ts", 0)
-    if hedge_price_age > 0.5:
+    if hedge_price_age > PRICE_DIFF_MAX_AGE_MS / 1000:
         logger.warning(f"Stale hedge ticker for {hedge_symbol}: {hedge_price_age:.3f}s old — skipping")
         return
 
