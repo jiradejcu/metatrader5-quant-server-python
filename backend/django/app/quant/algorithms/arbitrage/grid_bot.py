@@ -150,6 +150,17 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
     sell_pending = sum(float(getattr(o, 'orig_qty', 0)) for o in open_orders if getattr(o, 'side', '') == 'SELL')
     net_pending = buy_pending - sell_pending
 
+    # Refresh price after slow API calls — use the freshest diff available
+    if latest_ask_diff is not None and latest_bid_diff is not None:
+        if ask_diff != latest_ask_diff or bid_diff != latest_bid_diff:
+            logger.debug(
+                f"Price refreshed after API calls: "
+                f"ask_diff {ask_diff:.2f}→{latest_ask_diff:.2f}, "
+                f"bid_diff {bid_diff:.2f}→{latest_bid_diff:.2f}"
+            )
+        ask_diff = latest_ask_diff
+        bid_diff = latest_bid_diff
+
     logger.debug(
         f"position={position_amt} open_orders={len(open_orders or [])} "
         f"net_pending={net_pending} max_pos={max_pos} ask_diff={ask_diff:.2f} bid_diff={bid_diff:.2f}"
