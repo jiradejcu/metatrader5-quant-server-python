@@ -97,7 +97,7 @@ def subscribe_symbol_ticker(symbol: str):
             try:
                 ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
                 bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
-                event_ts = tick['time_msc'].iloc[0] / 1000
+                event_ts = int(tick['time_msc'].iloc[0])
 
                 ticker_key = f"ticker:mt5:{symbol}"
                 payload = json.dumps({"best_ask": ask, "best_bid": bid, "event_ts": event_ts})

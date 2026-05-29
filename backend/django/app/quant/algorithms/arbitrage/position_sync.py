@@ -98,7 +98,7 @@ def handle_position_update(pubsub):
                         ticker_ask_diff = price_diff_data.get('ask_diff', 0)
                         ticker_bid_diff = price_diff_data.get('bid_diff', 0)
                         mark_diff = float(mark_price - hedge_mark_price)
-                        logger.info(
+                        logger.debug(
                             f"Spread comparison [{entry_symbol_key}/{hedge_symbol}]: "
                             f"mark_diff={mark_diff:.2f} "
                             f"(entry_mark={float(mark_price):.2f}, hedge_mark={float(hedge_mark_price):.2f}) "
