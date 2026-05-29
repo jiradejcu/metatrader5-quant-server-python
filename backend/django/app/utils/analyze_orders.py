@@ -8,7 +8,9 @@ ts_fmt = "%Y-%m-%d %H:%M:%S,%f"
 
 price_diff_pat = re.compile(
     r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*Price diff for \S+:.*?"
-    r"'ask_diff': ([0-9.]+).*?'entry_ask': ([0-9.]+).*?'hedge_ask': ([0-9.]+)"
+    r"'ask_diff': ([0-9.]+).*?'bid_diff': ([0-9.]+).*?"
+    r"'entry_ask': ([0-9.]+).*?'hedge_ask': ([0-9.]+).*?"
+    r"'entry_bid': ([0-9.]+).*?'hedge_bid': ([0-9.]+)"
 )
 filled_pat = re.compile(
     r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*\[UserDataStream\] Order FILLED: "
@@ -39,8 +41,9 @@ def analyze_orders(log_file, out_csv=None):
             if m:
                 price_diffs.append({
                     'ts_str': m.group(1), 'ts_dt': datetime.strptime(m.group(1), ts_fmt),
-                    'ask_diff': float(m.group(2)),
-                    'entry_ask': float(m.group(3)), 'hedge_ask': float(m.group(4))
+                    'ask_diff': float(m.group(2)), 'bid_diff': float(m.group(3)),
+                    'entry_ask': float(m.group(4)), 'hedge_ask': float(m.group(5)),
+                    'entry_bid': float(m.group(6)), 'hedge_bid': float(m.group(7)),
                 })
                 continue
             m = filled_pat.search(line)
@@ -90,26 +93,34 @@ def analyze_orders(log_file, out_csv=None):
             results.append({'fill': fill, 'pred': pred, 'hedge': hedge, 'match': False})
             continue
 
-        predicted_ask_diff = pred['ask_diff']
+        is_buy = fill['side'] == 'BUY'
+        pred_entry_price      = pred['entry_bid'] if is_buy else pred['entry_ask']
+        pred_hedge_price      = pred['hedge_bid'] if is_buy else pred['hedge_ask']
+        predicted_price_diff  = pred['bid_diff']  if is_buy else pred['ask_diff']
+
         actual_entry_price = fill['fill_price']
         actual_hedge_price = hedge['price']
-        actual_ask_diff    = round(actual_entry_price - actual_hedge_price, 4)
-        slippage           = round(actual_ask_diff - predicted_ask_diff, 4)
+        actual_price_diff  = round(actual_entry_price - actual_hedge_price, 4)
+        entry_price_diff   = round(actual_entry_price - pred_entry_price, 4)
+        hedge_price_diff   = round(actual_hedge_price - pred_hedge_price, 4)
+        slippage           = round(actual_price_diff - predicted_price_diff, 4)
 
         results.append({
-            'fill_ts'            : fill['ts_str'],
-            'side'               : fill['side'],
-            'order_id'           : fill['order_id'],
-            'pred_ts'            : pred['ts_str'],
-            'pred_entry_ask'     : pred['entry_ask'],
-            'pred_hedge_ask'     : pred['hedge_ask'],
-            'predicted_ask_diff' : predicted_ask_diff,
-            'hedge_ts'           : hedge['ts_str'],
-            'actual_entry_price' : actual_entry_price,
-            'actual_hedge_price' : actual_hedge_price,
-            'actual_ask_diff'    : actual_ask_diff,
-            'slippage'           : slippage,
-            'match'              : True
+            'fill_ts'              : fill['ts_str'],
+            'side'                 : fill['side'],
+            'order_id'             : fill['order_id'],
+            'pred_ts'              : pred['ts_str'],
+            'pred_entry_price'     : pred_entry_price,
+            'pred_hedge_price'     : pred_hedge_price,
+            'predicted_price_diff' : predicted_price_diff,
+            'hedge_ts'             : hedge['ts_str'],
+            'actual_entry_price'   : actual_entry_price,
+            'actual_hedge_price'   : actual_hedge_price,
+            'actual_price_diff'    : actual_price_diff,
+            'entry_price_diff'     : entry_price_diff,
+            'hedge_price_diff'     : hedge_price_diff,
+            'slippage'             : slippage,
+            'match'                : True
         })
 
     matched   = [r for r in results if r['match']]
@@ -118,9 +129,9 @@ def analyze_orders(log_file, out_csv=None):
     with open(out_csv, 'w', newline='') as f:
         fieldnames = [
             'fill_ts', 'side', 'order_id', 'pred_ts',
-            'pred_entry_ask', 'pred_hedge_ask', 'predicted_ask_diff',
-            'hedge_ts', 'actual_entry_price', 'actual_hedge_price',
-            'actual_ask_diff', 'slippage',
+            'pred_entry_price', 'pred_hedge_price', 'predicted_price_diff',
+            'hedge_ts', 'actual_entry_price', 'actual_hedge_price', 'actual_price_diff',
+            'entry_price_diff', 'hedge_price_diff', 'slippage',
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
         writer.writeheader()
@@ -131,7 +142,8 @@ def analyze_orders(log_file, out_csv=None):
     col = (
         f"{'#':<3} {'Fill Time':<26} {'S':<5} {'Order ID':<14}"
         f"{'PredEntry':>10} {'PredHedge':>10} {'PredDiff':>9}"
-        f"{'ActEntry':>10} {'ActHedge':>10} {'ActDiff':>9} {'Slippage':>9}"
+        f"{'ActEntry':>10} {'ActHedge':>10} {'ActDiff':>9}"
+        f"{'EntryDiff':>10} {'HedgeDiff':>10} {'Slippage':>9}"
     )
     print(col)
     print("-" * len(col))
@@ -140,9 +152,9 @@ def analyze_orders(log_file, out_csv=None):
         s = f"{r['slippage']:+.4f}"
         print(
             f"{i:<3} {r['fill_ts']:<26} {r['side']:<5} {r['order_id']:<14}"
-            f"{r['pred_entry_ask']:>10.2f} {r['pred_hedge_ask']:>10.2f} {r['predicted_ask_diff']:>9.2f}"
-            f"{r['actual_entry_price']:>10.2f} {r['actual_hedge_price']:>10.2f}"
-            f"{r['actual_ask_diff']:>9.4f} {s:>9}"
+            f"{r['pred_entry_price']:>10.2f} {r['pred_hedge_price']:>10.2f} {r['predicted_price_diff']:>9.2f}"
+            f"{r['actual_entry_price']:>10.2f} {r['actual_hedge_price']:>10.2f} {r['actual_price_diff']:>9.4f}"
+            f"{r['entry_price_diff']:>+10.4f} {r['hedge_price_diff']:>+10.4f} {s:>9}"
         )
 
     print()
