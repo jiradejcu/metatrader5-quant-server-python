@@ -9,6 +9,7 @@ import websocket
 from app.utils.redis_client import get_redis_connection
 from app.connectors.binance.api.order import get_open_orders, cancel_all_open_orders, chase_order, client as binance_client
 from app.connectors.binance.api.position import get_position
+from .price_diff import PRICE_DIFF_MAX_AGE_MS
 from . import state
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 latest_grid_settings = None
 latest_ask_diff = None
 latest_bid_diff = None
+latest_price_ts = None
 latest_atr = 0.0
 _prev_ask_diff_for_atr = None
 _prev_bid_diff_for_atr = None
@@ -23,6 +25,7 @@ _prev_bid_diff_for_atr = None
 ATR_PERIOD = int(os.getenv('ATR_PERIOD', '14'))
 _ATR_ALPHA = 2.0 / (ATR_PERIOD + 1)
 ATR_HIGH_THRESHOLD = float(os.getenv('ATR_HIGH_THRESHOLD', '0.3'))
+
 
 
 def _parse_grid_settings(grid_dict):
@@ -180,6 +183,12 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
     target = _compute_target(zone, position_amt, order_size, max_pos, net_pending=net_pending)
     logger.debug(f"Target={target}")
 
+    if latest_price_ts is not None:
+        price_age_ms = (time.monotonic() - latest_price_ts) * 1000
+        if price_age_ms > PRICE_DIFF_MAX_AGE_MS:
+            logger.warning(f"Price diff is stale ({price_age_ms:.0f}ms > {PRICE_DIFF_MAX_AGE_MS}ms) — skipping reconcile")
+            return
+
     _reconcile(entry_symbol, target, position_amt, open_orders)
 
 
@@ -287,11 +296,12 @@ def get_active_status():
 
 
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
-    global latest_grid_settings, latest_ask_diff, latest_bid_diff, latest_atr, _prev_ask_diff_for_atr, _prev_bid_diff_for_atr
+    global latest_grid_settings, latest_ask_diff, latest_bid_diff, latest_price_ts, latest_atr, _prev_ask_diff_for_atr, _prev_bid_diff_for_atr
 
     latest_grid_settings = None
     latest_ask_diff = None
     latest_bid_diff = None
+    latest_price_ts = None
     latest_atr = 0.0
     _prev_ask_diff_for_atr = None
     _prev_bid_diff_for_atr = None
@@ -374,6 +384,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                     _prev_bid_diff_for_atr = new_bid_diff
                     latest_ask_diff = new_ask_diff
                     latest_bid_diff = new_bid_diff
+                    latest_price_ts = time.monotonic()
                     _new_price_event.set()
                     logger.debug(
                         f"[PubSub] Price diff updated: ask_diff={latest_ask_diff:.2f}, "

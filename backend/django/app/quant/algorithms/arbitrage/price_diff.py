@@ -15,6 +15,7 @@ def _get_ticker_fn(exchange: str):
     return module.get_ticker
 
 WEBHOOK_URL = os.getenv('N8N_WEBHOOK_URL')
+PRICE_DIFF_MAX_AGE_MS = int(os.getenv('PRICE_DIFF_MAX_AGE_MS', '1600'))
 logger = logging.getLogger(__name__)
 redis_conn = get_redis_connection()
 
@@ -40,8 +41,6 @@ def compare():
     if hedge_ticker is None:
         logger.warning(f"No hedge ticker data for {hedge_symbol} in Redis")
         return
-
-    PRICE_DIFF_MAX_AGE_MS = int(os.getenv('PRICE_DIFF_MAX_AGE_MS', '1600'))
 
     entry_price_age_ms = now_ms - entry_ticker.get("event_ts", 0)
     if entry_price_age_ms > PRICE_DIFF_MAX_AGE_MS:
