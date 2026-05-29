@@ -122,7 +122,7 @@ def analyze_orders(log_file, out_csv=None):
             'hedge_ts', 'actual_entry_price', 'actual_hedge_price',
             'actual_ask_diff', 'slippage',
         ]
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
         writer.writeheader()
         writer.writerows(matched)
     print(f"Written to {out_csv}")
