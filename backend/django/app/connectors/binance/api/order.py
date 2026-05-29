@@ -83,7 +83,7 @@ def fetch_open_orders_from_api(symbol):
         open_order_data = response.data() or []
         redis_key = f"open_orders:binance:{symbol}"
         redis_conn.set(redis_key, json.dumps([o.to_dict() for o in open_order_data]))
-        redis_conn.expire(redis_key, 10)
+        redis_conn.expire(redis_key, 60)
         logger.debug(f"[OpenOrders] Force-fetched from API: {symbol} count={len(open_order_data)}")
         return open_order_data
     except Exception as e:
@@ -98,7 +98,7 @@ def get_open_orders(symbol, force=False):
     open_order_data = redis_conn.get(redis_key)
     if open_order_data:
         return [types.SimpleNamespace(**o) for o in json.loads(open_order_data)]
-    return None
+    return fetch_open_orders_from_api(symbol)
 
 def _modify_order_with_price_match(symbol, side, quantity, order_id, price_match):
     # The SDK's modify_order() hard-rejects price=None, but send_request strips
