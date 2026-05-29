@@ -137,11 +137,11 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
                   ask_diff, bid_diff):
     """Execute one trading decision from a pubsub tick."""
     with state.state_lock:
-        force = state.force_position_fetch
+        force = state.force_fetch
         if force:
-            state.force_position_fetch = False
+            state.force_fetch = False
 
-    open_orders = get_open_orders(entry_symbol)
+    open_orders = get_open_orders(entry_symbol, force=force)
     positions = get_position(entry_symbol, force=force)
 
     position_amt = float((positions or {}).get('positionAmt', '0'))
@@ -240,7 +240,7 @@ def watch_user_data_stream(entry_symbol):
                             logger.debug(
                                 f"[UserDataStream] Order {order_id} status {prev_status} → {new_status}"
                             )
-                            state.force_position_fetch = True
+                            state.force_fetch = True
 
                     if new_status == 'FILLED':
                         logger.info(

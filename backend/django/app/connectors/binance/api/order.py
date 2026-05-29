@@ -1,6 +1,9 @@
 import os
+import json
 import logging
+import types
 from dotenv import load_dotenv
+from app.utils.redis_client import get_redis_connection
 
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,
@@ -70,22 +73,32 @@ def cancel_all_open_orders(symbol):
     except Exception as e:
         logger.error(f"Cancel all open order error: {e}")
 
-def get_open_orders(symbol):
+redis_conn = get_redis_connection()
+
+
+def fetch_open_orders_from_api(symbol):
+    """Force-fetch open orders from Binance REST API and refresh Redis cache."""
     try:
-        # logger.info(f"Get open orders for symbol={symbol}")
-        response = client.rest_api.current_all_open_orders(
-            symbol=symbol,
-        )
-
-        rate_limits = response.rate_limits
-        # logger.info(f"Get open orders rate limits: {rate_limits}")
-
-        data = response.data()
-        # logger.info(f"Get open orders response: {data}")
-        
-        return data
+        response = client.rest_api.current_all_open_orders(symbol=symbol)
+        open_order_data = response.data() or []
+        redis_key = f"open_orders:binance:{symbol}"
+        redis_conn.set(redis_key, json.dumps([o.to_dict() for o in open_order_data]))
+        redis_conn.expire(redis_key, 10)
+        logger.debug(f"[OpenOrders] Force-fetched from API: {symbol} count={len(open_order_data)}")
+        return open_order_data
     except Exception as e:
         logger.error(f"Get open orders error: {e}")
+        return None
+
+
+def get_open_orders(symbol, force=False):
+    if force:
+        return fetch_open_orders_from_api(symbol)
+    redis_key = f"open_orders:binance:{symbol}"
+    open_order_data = redis_conn.get(redis_key)
+    if open_order_data:
+        return [types.SimpleNamespace(**o) for o in json.loads(open_order_data)]
+    return None
 
 def _modify_order_with_price_match(symbol, side, quantity, order_id, price_match):
     # The SDK's modify_order() hard-rejects price=None, but send_request strips

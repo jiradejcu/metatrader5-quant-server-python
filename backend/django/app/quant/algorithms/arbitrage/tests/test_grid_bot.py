@@ -46,7 +46,7 @@ _state_mod.placing_order_state = {
     "order_id": None, "status": None, "is_clean": True,
     "fill_pct": 0, "side": None, "price": None, "orig_qty": 0,
 }
-_state_mod.force_position_fetch = False
+_state_mod.force_fetch = False
 sys.modules[f"{_PKG}.state"] = _state_mod
 
 # --- load grid_bot.py as _PKG.grid_bot ---
@@ -114,7 +114,7 @@ def reset_globals():
     _gb.latest_atr = 0.0
     _gb._prev_ask_diff_for_atr = None
     _gb._prev_bid_diff_for_atr = None
-    _state_mod.force_position_fetch = False
+    _state_mod.force_fetch = False
     yield
 
 
@@ -1059,13 +1059,13 @@ class TestOnMessage:
 
     @pytest.fixture(autouse=True)
     def reset_order_state(self):
-        """Isolate placing_order_state and force_position_fetch between tests."""
+        """Isolate placing_order_state and force_fetch between tests."""
         def _reset():
             _state_mod.placing_order_state.update({
                 "order_id": None, "status": None, "is_clean": True,
                 "fill_pct": 0, "side": None, "price": None, "orig_qty": 0,
             })
-            _state_mod.force_position_fetch = False
+            _state_mod.force_fetch = False
 
         _reset()
         yield
@@ -1124,20 +1124,20 @@ class TestOnMessage:
         with _state_mod.state_lock:
             assert _state_mod.placing_order_state["is_clean"] is False
 
-    # --- force_position_fetch / per-order status tracking ---
+    # --- force_fetch / per-order status tracking ---
 
-    def test_force_position_fetch_set_on_status_change(self):
+    def test_force_fetch_set_on_status_change(self):
         on_msg = _capture_on_message()
-        _state_mod.force_position_fetch = False
+        _state_mod.force_fetch = False
         on_msg(None, _order_event(111, "NEW"))
         with _state_mod.state_lock:
-            assert _state_mod.force_position_fetch is True
+            assert _state_mod.force_fetch is True
 
-    def test_force_position_fetch_set_for_order2_after_order1_evicted(self):
+    def test_force_fetch_set_for_order2_after_order1_evicted(self):
         """
         After Order 1 is FILLED (and evicted from the internal order_status dict),
         Order 2's first event must be seen as None→NEW — a genuine status change —
-        and must set force_position_fetch.
+        and must set force_fetch.
 
         Without per-order-id tracking the handler would have mis-read this as a
         spurious FILLED→NEW transition on the same logical order.
@@ -1145,21 +1145,21 @@ class TestOnMessage:
         on_msg = _capture_on_message()
         on_msg(None, _order_event(111, "FILLED", orig_qty=1.0, executed_qty=1.0))
         with _state_mod.state_lock:
-            _state_mod.force_position_fetch = False  # clear so Order 2's change is detectable
+            _state_mod.force_fetch = False  # clear so Order 2's change is detectable
 
         on_msg(None, _order_event(222, "NEW"))
         with _state_mod.state_lock:
-            assert _state_mod.force_position_fetch is True
+            assert _state_mod.force_fetch is True
 
-    def test_same_status_repeat_does_not_retrigger_force_position_fetch(self):
+    def test_same_status_repeat_does_not_retrigger_force_fetch(self):
         """Duplicate events for the same order and status must not re-set the flag."""
         on_msg = _capture_on_message()
         on_msg(None, _order_event(111, "NEW"))
         with _state_mod.state_lock:
-            _state_mod.force_position_fetch = False
+            _state_mod.force_fetch = False
         on_msg(None, _order_event(111, "NEW"))   # identical — no change
         with _state_mod.state_lock:
-            assert _state_mod.force_position_fetch is False
+            assert _state_mod.force_fetch is False
 
     # --- filtering ---
 
