@@ -70,6 +70,11 @@ def send_market_order(symbol: str, volume: float = None, order_type: str = None,
         order = response_data['result']
         logger.info(f"Order successful: {order}")
 
+        # Broker may return price=0 for async fills; fall back to the requested
+        # price (MqlTradeRequest index 5) which is the bid/ask at submission time.
+        if not order.get('price') and isinstance(order.get('request'), list):
+            order['price'] = order['request'][5]
+
         return order
         
     except requests.exceptions.HTTPError as e:
