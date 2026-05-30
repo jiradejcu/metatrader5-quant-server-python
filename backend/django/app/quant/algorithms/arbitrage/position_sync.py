@@ -53,23 +53,22 @@ def handle_position_update(pubsub):
                 position_amt = Decimal(str(position_data.get('positionAmt', '0')))
                 if os.getenv('MOCK_ENTRY_POSITION_AMT', 'false').lower() == 'true':
                     position_amt *= contract_size
-                primary_price = Decimal(str(position_data.get('entryPrice', '0')))
-                mark_price = Decimal(str(position_data.get('markPrice', '0')))
-                update_time = position_data.get('updateTime', None)
+                primary_entry_price = Decimal(str(position_data.get('entryPrice', '0')))
+                primary_mark_price = Decimal(str(position_data.get('markPrice', '0')))
+                primary_time_update = position_data.get('updateTime', None)
 
                 logger.debug(
                     f"Primary Position {primary_exchange}:{primary_symbol} - "
-                    f"Amount: {position_amt}, Entry Price: {primary_price}, Mark Price: {mark_price}, Update Time: {update_time}"
+                    f"Amount: {position_amt}, Entry Price: {primary_entry_price}, Mark Price: {primary_mark_price}, Update Time: {primary_time_update}"
                 )
 
                 hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
 
-                primary_entry_float = float(primary_price)
-                if primary_entry_float != 0 and primary_entry_float != _prev_primary_entry_price:
-                    _log_entry_price_diff(get_redis_connection(), hedge_symbol, primary_entry_float, "primary_fill")
-                    _prev_primary_entry_price = primary_entry_float
+                if primary_entry_price != 0 and primary_entry_price != _prev_primary_entry_price:
+                    _log_entry_price_diff(get_redis_connection(), hedge_symbol, float(primary_entry_price), "primary_fill")
+                    _prev_primary_entry_price = primary_entry_price
+                    
                 hedge_position = get_hedge_position(hedge_symbol)
-
                 hedge_volume = Decimal(str(hedge_position.get('volume', '0')))
                 hedge_entry_price = Decimal(str(hedge_position.get('entryPrice', '0')))
                 hedge_mark_price = Decimal(str(hedge_position.get('markPrice', '0')))
@@ -89,7 +88,7 @@ def handle_position_update(pubsub):
                 )
 
                 # Compare actual mark-price spread with the latest ticker-based price_diff
-                if mark_price > 0 and hedge_mark_price > 0:
+                if primary_mark_price > 0 and hedge_mark_price > 0:
                     redis_conn = get_redis_connection()
                     primary_symbol_key = config.PAIRS[PAIR_INDEX]['primary']['symbol']
                     price_diff_raw = redis_conn.get(f"price_diff:{primary_symbol_key}:{hedge_symbol}")
@@ -97,11 +96,11 @@ def handle_position_update(pubsub):
                         price_diff_data = json.loads(price_diff_raw)
                         ticker_ask_diff = price_diff_data.get('ask_diff', 0)
                         ticker_bid_diff = price_diff_data.get('bid_diff', 0)
-                        mark_diff = float(mark_price - hedge_mark_price)
+                        mark_diff = float(primary_mark_price - hedge_mark_price)
                         logger.debug(
                             f"Spread comparison [{primary_symbol_key}/{hedge_symbol}]: "
                             f"mark_diff={mark_diff:.2f} "
-                            f"(primary_mark={float(mark_price):.2f}, hedge_mark={float(hedge_mark_price):.2f}) "
+                            f"(primary_mark={float(primary_mark_price):.2f}, hedge_mark={float(hedge_mark_price):.2f}) "
                             f"| ticker ask_diff={ticker_ask_diff}, bid_diff={ticker_bid_diff} "
                             f"| Δask={mark_diff - ticker_ask_diff:.2f}, Δbid={mark_diff - ticker_bid_diff:.2f}"
                         )
@@ -162,7 +161,7 @@ def handle_position_update(pubsub):
                                 is_opening=is_opening,
                                 group_id=group_id,
                             )
-                            _log_entry_price_diff(redis_conn, hedge_symbol, float(primary_price), "hedge_fill")
+                            _log_entry_price_diff(redis_conn, hedge_symbol, float(primary_entry_price), "hedge_fill")
 
                         pre_order_volume = hedge_volume
                         redis_conn = get_redis_connection()
