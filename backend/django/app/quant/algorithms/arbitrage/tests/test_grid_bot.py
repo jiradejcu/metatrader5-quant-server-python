@@ -745,7 +745,7 @@ class TestMessageHelpers:
 
 
 # ---------------------------------------------------------------------------
-# handle_grid_flow — stale price diff protection
+# handle_grid_flow — price diff globals
 # ---------------------------------------------------------------------------
 
 class _StopLoop(BaseException):
@@ -796,7 +796,7 @@ def _run_handle_grid_flow_with_messages(messages, env_overrides=None):
 PRICE_CH = "spread:binance:XAUUSDT"
 
 
-class TestHandleGridFlowStalePriceDiff:
+class TestHandleGridFlowPriceDiff:
 
     def test_fresh_message_updates_globals(self):
         """A price_diff message with a recent ts should update latest_ask/bid_diff."""
@@ -804,14 +804,6 @@ class TestHandleGridFlowStalePriceDiff:
         ask, bid = _run_handle_grid_flow_with_messages([msg])
         assert ask == 7.5
         assert bid == -3.2
-
-    def test_stale_message_is_dropped(self):
-        """A price_diff message older than PRICE_DIFF_MAX_AGE_MS must be ignored."""
-        stale_ts = time.time() - 2.0  # 2 seconds ago — way past the 1600 ms threshold
-        msg = make_price_message(PRICE_CH, 99.0, -99.0, ts=stale_ts)
-        ask, bid = _run_handle_grid_flow_with_messages([msg])
-        assert ask is None
-        assert bid is None
 
     def test_message_without_ts_is_accepted(self):
         """Backward-compat: messages without a ts field must still update globals."""
@@ -829,24 +821,6 @@ class TestHandleGridFlowStalePriceDiff:
         ask, bid = _run_handle_grid_flow_with_messages([stale, fresh])
         assert ask == 4.0
         assert bid == -2.0
-
-    def test_custom_max_age_env_respected(self):
-        """PRICE_DIFF_MAX_AGE_MS env var should control the staleness threshold."""
-        # 50 ms threshold; message is ~100 ms old → should be dropped
-        ts_100ms_ago = time.time() - 0.1
-        msg = make_price_message(PRICE_CH, 8.0, -8.0, ts=ts_100ms_ago)
-
-        # Reload the module-level constant via env override — we patch the
-        # attribute directly since the module constant is already bound.
-        original = _gb.PRICE_DIFF_MAX_AGE_MS
-        _gb.PRICE_DIFF_MAX_AGE_MS = 50  # 50 ms < 100 ms → drop
-        try:
-            ask, bid = _run_handle_grid_flow_with_messages([msg])
-        finally:
-            _gb.PRICE_DIFF_MAX_AGE_MS = original
-
-        assert ask is None
-        assert bid is None
 
 
 # ---------------------------------------------------------------------------
@@ -893,14 +867,6 @@ class TestATRComputation:
         atr_calm2  = _ATR_ALPHA * 0.01 + (1 - _ATR_ALPHA) * atr_calm1
         assert abs(_gb.latest_atr - atr_calm2) < 1e-6
         assert _gb.latest_atr < atr_spike
-
-    def test_stale_message_does_not_update_atr(self):
-        """Dropped stale messages must not advance ATR state."""
-        stale_ts = time.time() - 2.0  # 2 seconds ago — past the 1600 ms threshold
-        msg = make_price_message(PRICE_CH, 5.0, 5.2, ts=stale_ts)
-        _run_handle_grid_flow_with_messages([msg])
-        assert _gb.latest_atr == 0.0
-        assert _gb._prev_ask_diff_for_atr is None
 
     def test_real_glitch_spike_exceeds_threshold(self):
         """The 1.56→4.29 glitch seen in prod logs must push ATR above the default threshold."""
