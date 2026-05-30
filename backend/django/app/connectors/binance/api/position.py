@@ -6,7 +6,8 @@ import json
 from app.utils.redis_client import get_redis_connection
 from app.utils.api.data import symbol_info_tick
 from dotenv import load_dotenv
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
+from app.utils.constants import LOCAL_TZ
 
 from binance_sdk_derivatives_trading_usds_futures.derivatives_trading_usds_futures import (
     DerivativesTradingUsdsFutures,
@@ -60,8 +61,7 @@ async def subscribe_position_information(symbol: str):
                 if not symbol_open_position_df.empty:
                     position_data = symbol_open_position_df.iloc[0].to_dict()
 
-                    thailand_tz = timezone(timedelta(hours=7))
-                    latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                    latest_update = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
                     position_data['updateTime'] = latest_update
 
                     redis_conn.set(redis_key, json.dumps(position_data))

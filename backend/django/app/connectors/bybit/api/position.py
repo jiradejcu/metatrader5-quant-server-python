@@ -5,7 +5,8 @@ import json
 from pybit.unified_trading import HTTP
 from app.utils.redis_client import get_redis_connection
 from dotenv import load_dotenv
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
+from app.utils.constants import LOCAL_TZ
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -37,8 +38,7 @@ async def subscribe_position_information(symbol: str):
             )
 
             if open_position:
-                thailand_tz = timezone(timedelta(hours=7))
-                latest_update = datetime.now(thailand_tz).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                latest_update = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
                 position_data = {
                     "symbol": open_position.get('symbol'),
