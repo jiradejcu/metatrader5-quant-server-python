@@ -397,17 +397,17 @@ def main():
     # ---- resolve pair config ----
     pair_index = int(os.getenv("PAIR_INDEX", "1"))
     pair = config.PAIRS[pair_index]
-    exchange = pair["entry"]["exchange"]
-    entry_symbol = pair["entry"]["symbol"]
+    primary_exchange = pair["primary"]["exchange"]
+    primary_symbol = pair["primary"]["symbol"]
     hedge_symbol = pair["hedge"]["symbol"]
 
     if args.live_channels:
-        price_diff_key = f"spread:{exchange}:{entry_symbol}"
-        grid_range_key = f"setting_grid_channel:{entry_symbol}:{hedge_symbol}"
+        price_diff_key = f"spread:{primary_exchange}:{primary_symbol}"
+        grid_range_key = f"setting_grid_channel:{primary_symbol}:{hedge_symbol}"
         sim_log.warning("⚠️  LIVE CHANNELS — messages will reach the running bot too")
     else:
-        price_diff_key = f"sim:spread:{exchange}:{entry_symbol}"
-        grid_range_key = f"sim:setting_grid_channel:{entry_symbol}:{hedge_symbol}"
+        price_diff_key = f"sim:spread:{primary_exchange}:{primary_symbol}"
+        grid_range_key = f"sim:setting_grid_channel:{primary_symbol}:{hedge_symbol}"
 
     # ---- update market state ----
     _market["bid"] = args.bid
@@ -415,7 +415,7 @@ def main():
     _market["position"] = args.position
 
     sim_log.info("=== Grid Bot Simulation ===")
-    sim_log.info(f"  Pair        : {entry_symbol}  (PAIR_INDEX={pair_index})")
+    sim_log.info(f"  Pair        : {primary_symbol}  (PAIR_INDEX={pair_index})")
     sim_log.info(f"  Price ch    : {price_diff_key}")
     sim_log.info(f"  Settings ch : {grid_range_key}")
     sim_log.info(f"  Market      : bid={args.bid}  ask={args.ask}  position={args.position}")

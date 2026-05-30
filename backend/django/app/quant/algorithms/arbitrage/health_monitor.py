@@ -12,13 +12,13 @@ CHECK_INTERVAL = 30       # seconds between each health check
 STARTUP_GRACE = 30        # seconds to wait before first check (allow subs to come up)
 
 
-def _check_loop(entry_exchange: str, entry_symbol: str, hedge_symbol: str):
+def _check_loop(primary_exchange: str, primary_symbol: str, hedge_symbol: str):
     keys = {
-        f"ticker:{entry_exchange}:{entry_symbol}": f"{entry_exchange} ticker ({entry_symbol})",
-        f"ticker:mt5:{hedge_symbol}":              f"mt5 ticker ({hedge_symbol})",
-        f"position:{entry_exchange}:{entry_symbol}": f"{entry_exchange} position ({entry_symbol})",
-        f"position:mt5:{hedge_symbol}":             f"mt5 position ({hedge_symbol})",
-        f"price_diff:{entry_symbol}:{hedge_symbol}": f"price diff feed ({entry_symbol}/{hedge_symbol})",
+        f"ticker:{primary_exchange}:{primary_symbol}": f"{primary_exchange} ticker ({primary_symbol})",
+        f"ticker:mt5:{hedge_symbol}":                  f"mt5 ticker ({hedge_symbol})",
+        f"position:{primary_exchange}:{primary_symbol}": f"{primary_exchange} position ({primary_symbol})",
+        f"position:mt5:{hedge_symbol}":                f"mt5 position ({hedge_symbol})",
+        f"price_diff:{primary_symbol}:{hedge_symbol}": f"price diff feed ({primary_symbol}/{hedge_symbol})",
     }
 
     redis_conn = get_redis_connection()
@@ -64,13 +64,13 @@ def start_health_monitor():
             return
 
         pair = config.PAIRS[int(pair_index_env)]
-        entry_exchange = pair['entry']['exchange']
-        entry_symbol = pair['entry']['symbol']
+        primary_exchange = pair['primary']['exchange']
+        primary_symbol = pair['primary']['symbol']
         hedge_symbol = pair['hedge']['symbol']
 
         threading.Thread(
             target=_check_loop,
-            args=(entry_exchange, entry_symbol, hedge_symbol),
+            args=(primary_exchange, primary_symbol, hedge_symbol),
             daemon=True,
             name="subscription-health-monitor",
         ).start()

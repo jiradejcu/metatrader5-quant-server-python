@@ -26,8 +26,8 @@ export const GridSettingModal = (
         ask_diff, 
         bid_diff, 
         gridBotStatus, 
-        time_update_entry: time_update, 
-        entrySymbol  
+        time_update_primary: time_update,
+        primarySymbol
     } = useGetSummaryStreamData(url)
 
     const setupGridMutation = useMutation({
@@ -134,7 +134,7 @@ export const GridSettingModal = (
                                 <div className="mt-2 inline-block px-4 py-2 bg-slate-100 rounded-3xl">
                                     <div className="flex flex-col items-center justify-center space-y-0.5">
                                         <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">
-                                            Symbol: <span className="text-[#FFC640]">{entrySymbol}</span> 
+                                            Symbol: <span className="text-[#FFC640]">{primarySymbol}</span> 
                                         </p>
 
                                         <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">

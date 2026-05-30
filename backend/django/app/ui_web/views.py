@@ -15,58 +15,58 @@ def prepare_json(json_str):
 
 def health_check_page(request):
     # todo dynamic value
-    entry_symbol = 'PAXGUSDT'
+    primary_symbol = 'PAXGUSDT'
     hedge_symbol = 'XAUUSD'
     ratio = 1 # edit to 100 after changing contract_size in position_sync
 
     redis_conn = get_redis_connection()
-    entry_key = f"position:binance:{entry_symbol}"
+    primary_key = f"position:binance:{primary_symbol}"
     hedge_key = f"position:mt5:{hedge_symbol}"
     pause_position_key = f"position_sync_paused_flag"
 
     # Retrieve cache data
-    data = redis_conn.get(entry_key)
+    data = redis_conn.get(primary_key)
     hedge_data = redis_conn.get(hedge_key)
     pause_position = 'Active'
 
     result = prepare_json(data)
     hedge_result = prepare_json(hedge_data)
 
-    entry_action = 'SHORT'
+    primary_action = 'SHORT'
     hedge_action  = 'SHORT'
     pairStatus = 'Warning'
 
-    entry_size = float(result['positionAmt'])
+    primary_size = float(result['positionAmt'])
     hedge_size = float(hedge_result['positionAmt'])
     unrealizes = [float(result['unRealizedProfit']), float(hedge_result['unRealizedProfit'])]
-    netExpose = (entry_size * ratio) + hedge_size
+    netExpose = (primary_size * ratio) + hedge_size
     netExposeAction = 'Safe'
 
     if netExpose != 0:
         netExposeAction = 'Unsafe'
 
     # Condition defined
-    if entry_size > 0:
-        entry_action = 'LONG'
-    if entry_size == 0:
-        entry_action = 'None'
+    if primary_size > 0:
+        primary_action = 'LONG'
+    if primary_size == 0:
+        primary_action = 'None'
     if hedge_size > 0:
         hedge_action = 'LONG'
     if hedge_size == 0:
         hedge_action = 'None'
-    if (entry_size + hedge_size) == 0:
+    if (primary_size + hedge_size) == 0:
         pairStatus = 'Complete'
     if redis_conn.get(pause_position_key):
         pause_position = 'Pause'
 
 
     context = {
-        'entryMarkPrice': result['markPrice'],
+        'primaryMarkPrice': result['markPrice'],
         'hedgeMarkPrice': hedge_result['markPrice'],
         'spread': float(result['markPrice']) - float(hedge_result['markPrice']),
         'pairStatus': pairStatus,
-        'entrySize': entry_size,
-        'entryAction': entry_action,
+        'primarySize': primary_size,
+        'primaryAction': primary_action,
         'hedgeSize': hedge_size,
         'netExpose': netExpose,
         'netExposeAction': netExposeAction,
@@ -74,65 +74,65 @@ def health_check_page(request):
         'unrealizedTotal': sum(unrealizes),
         'pausePositionSync': pause_position,
         'time_update_hedge': hedge_result['time_update'],
-        'time_update_entry': result['updateTime']
+        'time_update_primary': result['updateTime']
     }
     return render(request, 'health-check.html', context)
 
 @api_view(['GET'])
 def get_arbitrage_summary(request):
     try:
-        entry_symbol = 'PAXGUSDT'
+        primary_symbol = 'PAXGUSDT'
         hedge_symbol = 'XAUUSD'
         ratio = 1 # edit to 100 after changing contract_size in position_sync
 
         redis_conn = get_redis_connection()
-        entry_key = f"position:binance:{entry_symbol}"
+        primary_key = f"position:binance:{primary_symbol}"
         hedge_key = f"position:mt5:{hedge_symbol}"
         pause_position_key = f"position_sync_paused_flag"
 
         # Retrieve cache data
-        data = redis_conn.get(entry_key)
+        data = redis_conn.get(primary_key)
         hedge_data = redis_conn.get(hedge_key)
         pause_position = 'Active'
 
         result = prepare_json(data)
         hedge_result = prepare_json(hedge_data)
 
-        entry_action = 'SHORT'
+        primary_action = 'SHORT'
         hedge_action  = 'SHORT'
         pairStatus = 'Warning'
 
-        entry_size = float(result['positionAmt'])
+        primary_size = float(result['positionAmt'])
         hedge_size = float(hedge_result['positionAmt'])
         unrealizes = [float(result['unRealizedProfit']), float(hedge_result['unRealizedProfit'])]
-        netExpose = (entry_size * ratio) + hedge_size
+        netExpose = (primary_size * ratio) + hedge_size
         netExposeAction = 'Safe'
 
         if netExpose != 0:
             netExposeAction = 'Unsafe'
 
         # Condition defined
-        if entry_size > 0:
-            entry_action = 'LONG'
-        if entry_size == 0:
-            entry_action = 'None'
+        if primary_size > 0:
+            primary_action = 'LONG'
+        if primary_size == 0:
+            primary_action = 'None'
         if hedge_size > 0:
             hedge_action = 'LONG'
         if hedge_size == 0:
             hedge_action = 'None'
-        if (entry_size + hedge_size) == 0:
+        if (primary_size + hedge_size) == 0:
             pairStatus = 'Complete'
         if redis_conn.get(pause_position_key):
             pause_position = 'Pause'
 
 
         data = {
-            'entryMarkPrice': result['markPrice'],
+            'primaryMarkPrice': result['markPrice'],
             'hedgeMarkPrice': hedge_result['markPrice'],
             'spread': float(result['markPrice']) - float(hedge_result['markPrice']),
             'pairStatus': pairStatus,
-            'entrySize': entry_size,
-            'entryAction': entry_action,
+            'primarySize': primary_size,
+            'primaryAction': primary_action,
             'hedgeSize': hedge_size,
             'netExpose': netExpose,
             'netExposeAction': netExposeAction,
@@ -140,7 +140,7 @@ def get_arbitrage_summary(request):
             'unrealizedTotal': sum(unrealizes),
             'pausePositionSync': pause_position,
             'time_update_hedge': hedge_result['time_update'],
-            'time_update_entry': result['updateTime']
+            'time_update_primary': result['updateTime']
         }
 
         return Response({ message: "Successful retrieved summary data", data: data }, status=status.HTTP_200_OK)

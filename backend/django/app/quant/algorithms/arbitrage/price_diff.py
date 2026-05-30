@@ -22,29 +22,29 @@ redis_conn = get_redis_connection()
 
 def compare():
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-    entry_exchange = config.PAIRS[PAIR_INDEX]['entry']['exchange']
-    entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
+    primary_exchange = config.PAIRS[PAIR_INDEX]['primary']['exchange']
+    primary_symbol = config.PAIRS[PAIR_INDEX]['primary']['symbol']
     hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
 
     now_ms = time.time() * 1000
 
-    get_ticker = _get_ticker_fn(entry_exchange)
-    entry_ticker = get_ticker(entry_symbol)
+    get_ticker = _get_ticker_fn(primary_exchange)
+    primary_ticker = get_ticker(primary_symbol)
 
     ticker_mt5_raw = redis_conn.get(f"ticker:mt5:{hedge_symbol}")
     hedge_ticker = json.loads(ticker_mt5_raw) if ticker_mt5_raw else None
 
-    if entry_ticker is None:
-        logger.warning(f"No entry ticker data for {entry_symbol} in Redis")
+    if primary_ticker is None:
+        logger.warning(f"No primary ticker data for {primary_symbol} in Redis")
         return
 
     if hedge_ticker is None:
         logger.warning(f"No hedge ticker data for {hedge_symbol} in Redis")
         return
 
-    entry_price_age_ms = now_ms - entry_ticker.get("event_ts", 0)
-    if entry_price_age_ms > PRICE_DIFF_MAX_AGE_MS:
-        logger.warning(f"Stale entry ticker for {entry_symbol}: {entry_price_age_ms:.0f}ms old — skipping")
+    primary_price_age_ms = now_ms - primary_ticker.get("event_ts", 0)
+    if primary_price_age_ms > PRICE_DIFF_MAX_AGE_MS:
+        logger.warning(f"Stale primary ticker for {primary_symbol}: {primary_price_age_ms:.0f}ms old — skipping")
         return
 
     hedge_price_age_ms = now_ms - hedge_ticker.get("event_ts", 0)
@@ -53,42 +53,42 @@ def compare():
         return
 
     try:
-        entry_ask = Decimal(entry_ticker['best_ask'])
-        entry_bid = Decimal(entry_ticker['best_bid'])
+        primary_ask = Decimal(primary_ticker['best_ask'])
+        primary_bid = Decimal(primary_ticker['best_bid'])
 
         hedge_ask = Decimal(str(hedge_ticker.get('best_ask', 0)))
         hedge_bid = Decimal(str(hedge_ticker.get('best_bid', 0)))
     except (KeyError, IndexError, AttributeError) as e:
-        logger.error(f"Error parsing ticker data for {entry_symbol}/{hedge_symbol}: {e}")
+        logger.error(f"Error parsing ticker data for {primary_symbol}/{hedge_symbol}: {e}")
         return
 
     try:
-        ask_diff = round(float(entry_ask - hedge_ask), 2)
-        bid_diff = round(float(entry_bid - hedge_bid), 2)
-        ask_diff_percent = (entry_ask - hedge_ask) / hedge_ask * Decimal('100')
-        bid_diff_percent = (entry_bid - hedge_bid) / hedge_bid * Decimal('100')
+        ask_diff = round(float(primary_ask - hedge_ask), 2)
+        bid_diff = round(float(primary_bid - hedge_bid), 2)
+        ask_diff_percent = (primary_ask - hedge_ask) / hedge_ask * Decimal('100')
+        bid_diff_percent = (primary_bid - hedge_bid) / hedge_bid * Decimal('100')
     except Exception as e:
-        logger.exception(f"Error calculating price diff for {entry_symbol} and {hedge_symbol}: {e}")
+        logger.exception(f"Error calculating price diff for {primary_symbol} and {hedge_symbol}: {e}")
         return
 
     result = {
-        "entry_symbol": entry_symbol,
+        "primary_symbol": primary_symbol,
         "hedge_symbol": hedge_symbol,
         "ask_diff": ask_diff,
         "bid_diff": bid_diff,
         "ask_diff_percent": f"{ask_diff_percent:.3f}",
         "bid_diff_percent": f"{bid_diff_percent:.3f}",
-        "entry_ask": float(entry_ask),
+        "primary_ask": float(primary_ask),
         "hedge_ask": float(hedge_ask),
-        "entry_bid": float(entry_bid),
+        "primary_bid": float(primary_bid),
         "hedge_bid": float(hedge_bid),
-        "ts": min(entry_ticker["event_ts"], hedge_ticker.get("event_ts", entry_ticker["event_ts"])),
+        "ts": min(primary_ticker["event_ts"], hedge_ticker.get("event_ts", primary_ticker["event_ts"])),
     }
 
-    logger.debug(f"Price diff for {entry_symbol}/{hedge_symbol}: {result}")
+    logger.debug(f"Price diff for {primary_symbol}/{hedge_symbol}: {result}")
 
     try:
-        redis_key = f"price_diff:{entry_symbol}:{hedge_symbol}"
+        redis_key = f"price_diff:{primary_symbol}:{hedge_symbol}"
         redis_conn.set(redis_key, json.dumps(result))
         redis_conn.publish(redis_key, json.dumps(result))
         redis_conn.expire(redis_key, 10)

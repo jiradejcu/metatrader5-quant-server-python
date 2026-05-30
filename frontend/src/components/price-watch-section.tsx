@@ -8,7 +8,7 @@ const GlassLine: React.FC = () => (
 
 const SpreadHighlight: React.FC<SpreadHighlightProps> = ({ spread }) => {
   const isPositive = (spread ?? 0) > 0;
-  
+
   return (
     <div className={`mt-4 p-4 rounded-xl border-l-4 shadow-sm transition-colors duration-300 ${
       isPositive
@@ -18,7 +18,7 @@ const SpreadHighlight: React.FC<SpreadHighlightProps> = ({ spread }) => {
       <div className="flex justify-between items-center">
         <div className="flex flex-col">
           <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Analysis</span>
-          <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Market Spread</span>
+          <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Mark Price Diff</span>
         </div>
         <div className="text-right">
           <span className={`text-base font-black font-mono leading-none ${
@@ -34,15 +34,15 @@ const SpreadHighlight: React.FC<SpreadHighlightProps> = ({ spread }) => {
 
 export const PriceWatchSection = (arg: ICardSection) => {
     const { apiUrl } = arg
-    const { 
+    const {
       isLoading,
-      entrySymbol,
+      primarySymbol,
       hedgeSymbol,
       spread,
-      entryMarkPrice,
+      primaryMarkPrice,
       hedgeMarkPrice
     } = useGetSummaryStreamData(apiUrl)
-    
+
     if (isLoading) {
         return <div className="flex justify-center mt-20 font-medium text-gray-600">Price Watch: Connecting to API...</div>;
     }
@@ -53,11 +53,11 @@ export const PriceWatchSection = (arg: ICardSection) => {
             <div className="space-y-4">
                 <div className="flex justify-between items-end">
                     <div>
-                    <p className="text-[10px] font-bold text-blue-500 uppercase tracking-tighter">Entry Symbol</p>
-                    <p className="text-sm font-medium text-slate-600 dark:text-gray-300">{entrySymbol}</p>
+                    <p className="text-[10px] font-bold text-blue-500 uppercase tracking-tighter">Primary Symbol</p>
+                    <p className="text-sm font-medium text-slate-600 dark:text-gray-300">{primarySymbol}</p>
                     </div>
                     <span className="font-mono text-slate-900 dark:text-gray-100 font-bold text-base tracking-tight">
-                    {entryMarkPrice?.toFixed(2) ?? '0.00'}
+                    {primaryMarkPrice?.toFixed(2) ?? '0.00'}
                     </span>
                 </div>
 

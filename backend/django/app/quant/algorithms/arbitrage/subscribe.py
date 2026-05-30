@@ -14,12 +14,12 @@ def start_subscriptions():
         return
 
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-    entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
+    primary_symbol = config.PAIRS[PAIR_INDEX]['primary']['symbol']
     hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
-    logger.info(f"Starting arbitrage subscription tasks for {entry_symbol}...")
+    logger.info(f"Starting arbitrage subscription tasks for {primary_symbol}...")
     try:
-        threading.Thread(target=asyncio.run, args=(position_stream.subscribe_position_information(entry_symbol),), daemon=True).start()
+        threading.Thread(target=asyncio.run, args=(position_stream.subscribe_position_information(primary_symbol),), daemon=True).start()
         threading.Thread(target=asyncio.run, args=(subscribe_hedge_position(hedge_symbol),), daemon=True).start()
-        logger.info(f"Successfully started subscription threads for {entry_symbol}.")
+        logger.info(f"Successfully started subscription threads for {primary_symbol}.")
     except Exception as e:
-        logger.error(f"Error in arbitrage subscribe tasks for {entry_symbol}: {e}", exc_info=True)
+        logger.error(f"Error in arbitrage subscribe tasks for {primary_symbol}: {e}", exc_info=True)

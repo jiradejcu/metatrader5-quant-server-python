@@ -239,11 +239,11 @@ def set_grid_setting_values():
 
         # Process Redis Update
         PAIR_INDEX = int(os.getenv('PAIR_INDEX', 0))
-        entry_symbol = PAIRS[PAIR_INDEX]['entry']['symbol']
+        primary_symbol = PAIRS[PAIR_INDEX]['primary']['symbol']
         hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
 
         redis_conn = get_redis_connection()
-        redis_key = f"setting_grid_channel:{entry_symbol}:{hedge_symbol}"
+        redis_key = f"setting_grid_channel:{primary_symbol}:{hedge_symbol}"
 
         grid_channel = {
             "upper_limit": upper,
@@ -257,7 +257,7 @@ def set_grid_setting_values():
         redis_conn.set(redis_key, payload)
         redis_conn.publish(redis_key, payload)
 
-        logger.info(f"Grid setting updated successfully [{entry_symbol}/{hedge_symbol}]: {grid_channel}")
+        logger.info(f"Grid setting updated successfully [{primary_symbol}/{hedge_symbol}]: {grid_channel}")
 
         return jsonify({
             'status': 'successful',

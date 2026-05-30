@@ -32,17 +32,17 @@ class QuantConfig(AppConfig):
         pair_index_env = os.getenv('PAIR_INDEX')
         if pair_index_env is not None:
             pair = config.PAIRS[int(pair_index_env)]
-            entry_exchange = pair['entry']['exchange']
-            entry_symbol = pair['entry']['symbol']
+            primary_exchange = pair['primary']['exchange']
+            primary_symbol = pair['primary']['symbol']
             hedge_exchange = pair['hedge']['exchange']
             hedge_symbol = pair['hedge']['symbol']
 
-            if entry_exchange == 'binance':
+            if primary_exchange == 'binance':
                 from app.connectors.binance.api.ticker import fetch_ticker_data as fetch_binance_ticker_data
-                fetch_binance_ticker_data(entry_symbol)
-            elif entry_exchange == 'bybit':
+                fetch_binance_ticker_data(primary_symbol)
+            elif primary_exchange == 'bybit':
                 from app.connectors.bybit.api.ticker import fetch_ticker_data as fetch_bybit_ticker_data
-                fetch_bybit_ticker_data(entry_symbol)
+                fetch_bybit_ticker_data(primary_symbol)
 
             if hedge_exchange == 'mt5':
                 from app.utils.api.data import subscribe_symbol_ticker as subscribe_mt5_ticker

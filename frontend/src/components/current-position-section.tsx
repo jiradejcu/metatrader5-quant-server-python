@@ -6,36 +6,36 @@ import type { IPairDetails } from "../interfaces/current-position.interface";
 const PairDetails = (arg: IPairDetails) => {
   const {
     pairStatus,
-    entryAction,
-    entrySize,
-    entrySymbol,
-    time_update_entry,
+    primaryAction,
+    primarySize,
+    primarySymbol,
+    time_update_primary,
     hedgeAction,
     hedgeSize,
     hedgeSymbol,
     time_update_hedge,
-    entryPrice,
+    primaryPrice,
     hedgePrice,
     unrealizedTotal,
     ask_diff,
     bid_diff
   } = arg
-  
+
   const dataRows = [
-    { 
-      label: 'Status', 
-      value: pairStatus, 
-      valueClass: pairStatus === 'Warning' ? 'text-red-600 font-bold' : 'text-green-600 font-bold' 
+    {
+      label: 'Status',
+      value: pairStatus,
+      valueClass: pairStatus === 'Warning' ? 'text-red-600 font-bold' : 'text-green-600 font-bold'
     },
-    { 
-      label: 'Entry Position Info', 
-      value: `${entryAction} ${entrySize} ${entrySymbol}`, 
-      subValue: `(${time_update_entry})` 
+    {
+      label: 'Primary Position Info',
+      value: `${primaryAction} ${primarySize} ${primarySymbol}`,
+      subValue: `(${time_update_primary})`
     },
-    { 
-      label: 'Hedge Position Info', 
-      value: `${hedgeAction} ${hedgeSize} ${hedgeSymbol}`, 
-      subValue: `(${time_update_hedge})` 
+    {
+      label: 'Hedge Position Info',
+      value: `${hedgeAction} ${hedgeSize} ${hedgeSymbol}`,
+      subValue: `(${time_update_hedge})`
     },
     {
       label: 'Ask Diff',
@@ -47,23 +47,23 @@ const PairDetails = (arg: IPairDetails) => {
       value: `${bid_diff != null ? bid_diff.toFixed(2) : '0.00'}`,
       valueClass: bid_diff != null ? (bid_diff > 0 ? 'text-green-500' : 'text-red-500') : 'text-gray-400'
     },
-    { 
-      label: 'Entry Price', 
-      value: entryPrice ? entryPrice.toFixed(2) : 0.00 
+    {
+      label: 'Primary Price',
+      value: primaryPrice ? primaryPrice.toFixed(2) : 0.00
     },
-    { 
-      label: 'Hedge Price', 
-      value: hedgePrice ? hedgePrice.toFixed(2) : 0.00 
+    {
+      label: 'Hedge Price',
+      value: hedgePrice ? hedgePrice.toFixed(2) : 0.00
     },
-    { 
-      label: 'Price Diff', 
-      value: (entryPrice && hedgePrice) ? (entryPrice - hedgePrice).toFixed(2) : 0.00,
+    {
+      label: 'Price Diff',
+      value: (primaryPrice && hedgePrice) ? (primaryPrice - hedgePrice).toFixed(2) : 0.00,
       valueClass: 'font-mono'
     },
-    { 
-      label: 'PNL', 
-      value: `${unrealizedTotal ? unrealizedTotal.toFixed(2) : 0.00} USD`, 
-      valueClass: (unrealizedTotal && unrealizedTotal >= 0) ? 'text-green-500 font-bold' : 'text-red-500 font-bold' 
+    {
+      label: 'PNL',
+      value: `${unrealizedTotal ? unrealizedTotal.toFixed(2) : 0.00} USD`,
+      valueClass: (unrealizedTotal && unrealizedTotal >= 0) ? 'text-green-500 font-bold' : 'text-red-500 font-bold'
     }
   ];
 
@@ -92,18 +92,18 @@ const PairDetails = (arg: IPairDetails) => {
 
 export const CurrentPositionSection = (arg: ICardSection) => {
     const { apiUrl } = arg
-        const { 
+        const {
           isLoading,
           pairStatus,
-          entryAction,
-          entrySize,
-          entrySymbol,
-          time_update_entry,
+          primaryAction,
+          primarySize,
+          primarySymbol,
+          time_update_primary,
           hedgeAction,
           hedgeSize,
           hedgeSymbol,
           time_update_hedge,
-          entryPrice,
+          primaryPrice,
           hedgePrice,
           unrealizedTotal,
           ask_diff,
@@ -112,15 +112,15 @@ export const CurrentPositionSection = (arg: ICardSection) => {
         const { activeUser } = useGetActiveUser(apiUrl)
         const input_pair_data: IPairDetails = {
           pairStatus,
-          entryAction,
-          entrySize,
-          entrySymbol,
-          time_update_entry,
+          primaryAction,
+          primarySize,
+          primarySymbol,
+          time_update_primary,
           hedgeAction,
           hedgeSize,
           hedgeSymbol,
           time_update_hedge,
-          entryPrice,
+          primaryPrice,
           hedgePrice,
           unrealizedTotal,
           ask_diff,

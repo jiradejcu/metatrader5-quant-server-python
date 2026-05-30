@@ -19,32 +19,32 @@ def get_arbitrage_summary():
     global latest_response_data
     redis_conn = get_redis_connection()
     try:
-        entry_exchange = PAIRS[PAIR_INDEX]['entry']['exchange']
+        primary_exchange = PAIRS[PAIR_INDEX]['primary']['exchange']
         hedge_exchange = PAIRS[PAIR_INDEX]['hedge']['exchange']
-        entry_symbol = PAIRS[PAIR_INDEX]['entry']['symbol']
+        primary_symbol = PAIRS[PAIR_INDEX]['primary']['symbol']
         hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
         ratio = PAIRS[PAIR_INDEX]['contract_size']
 
-        entry_key = f"position:{entry_exchange}:{entry_symbol}"
+        primary_key = f"position:{primary_exchange}:{primary_symbol}"
         hedge_key = f"position:{hedge_exchange}:{hedge_symbol}"
         pause_position_key = "position_sync_paused_flag"
         grid_bot_active_key = "grid_bot_active_flag"
 
         redis_conn = get_redis_connection()
 
-        entry_result = prepare_json(redis_conn.get(entry_key), position_data_default)
-        logger.info(f"Get redis key: {entry_key} success")
+        primary_result = prepare_json(redis_conn.get(primary_key), position_data_default)
+        logger.info(f"Get redis key: {primary_key} success")
         hedge_result = prepare_json(redis_conn.get(hedge_key), position_data_default)
         logger.info(f"Get redis key: {hedge_key} success")
-        price_diff_data = prepare_json(redis_conn.get(f"price_diff:{entry_symbol}:{hedge_symbol}"), {})
+        price_diff_data = prepare_json(redis_conn.get(f"price_diff:{primary_symbol}:{hedge_symbol}"), {})
 
         pause_position = 'Active'
         grid_bot_status = 'Inactive'
         pairStatus = 'Warning'
 
-        entry_size = float(entry_result.get('positionAmt', 0))
+        primary_size = float(primary_result.get('positionAmt', 0))
         hedge_size = float(hedge_result.get('positionAmt', 0))
-        unrealizes = [float(entry_result.get('unRealizedProfit', 0)), float(hedge_result.get('unRealizedProfit', 0))]
+        unrealizes = [float(primary_result.get('unRealizedProfit', 0)), float(hedge_result.get('unRealizedProfit', 0))]
 
         if redis_conn.get(pause_position_key):
             pause_position = 'Pause'
@@ -53,11 +53,11 @@ def get_arbitrage_summary():
             grid_bot_status = 'Active'
 
         now = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S") # use UTC(+7) Thailand time zone
-        entry_mark_price = float(entry_result.get('markPrice', 0))
+        primary_mark_price = float(primary_result.get('markPrice', 0))
         hedge_mark_price = float(hedge_result.get('markPrice', 0))
 
-        if entry_mark_price == 0.0:
-            logger.warning(f"entryMarkPrice is 0. entry_key={entry_key} entry_result={entry_result}")
+        if primary_mark_price == 0.0:
+            logger.warning(f"primaryMarkPrice is 0. primary_key={primary_key} primary_result={primary_result}")
         if hedge_mark_price == 0.0:
             logger.warning(f"hedgeMarkPrice is 0. hedge_key={hedge_key} hedge_result={hedge_result}")
 
@@ -68,30 +68,30 @@ def get_arbitrage_summary():
         hedge_group_id = hedge_result.get('groupId')
 
         response_data = {
-            'entryMarkPrice': entry_mark_price,
+            'primaryMarkPrice': primary_mark_price,
             'hedgeMarkPrice': hedge_mark_price,
-            'entryPrice': float(entry_result.get('entryPrice', 0)),
+            'primaryPrice': float(primary_result.get('entryPrice', 0)),
             'hedgePrice': hedge_group_entry,
             'hedgeCurrentEntryPrice': hedge_current_entry,
             'hedgeGroupId': hedge_group_id,
-            'entrySize': entry_size,
+            'primarySize': primary_size,
             'hedgeSize': hedge_size,
             'pausePositionSync': pause_position,
             'gridBotStatus': grid_bot_status,
             'time_update_hedge': now,
-            'time_update_entry': now,
-            'entrySymbol': entry_symbol,
+            'time_update_primary': now,
+            'primarySymbol': primary_symbol,
             'hedgeSymbol': hedge_symbol,
-            'entry_unrealized_profit': float(entry_result.get('unRealizedProfit', 0)),
+            'primary_unrealized_profit': float(primary_result.get('unRealizedProfit', 0)),
             'hedge_unrealized_profit': float(hedge_result.get('unRealizedProfit', 0)),
             'price_diff_percent': round(float(price_diff_data.get('ask_diff_percent', "0")), 3),
             'ask_diff': price_diff_data.get('ask_diff', None),
             'bid_diff': price_diff_data.get('bid_diff', None),
         }
 
-        response_data['netExpose'] = response_data['entrySize'] + (response_data['hedgeSize'] * ratio)
-        response_data['spread'] = response_data['entryMarkPrice'] - response_data['hedgeMarkPrice']
-        response_data['unrealizedTotal'] = response_data['entry_unrealized_profit'] + response_data['hedge_unrealized_profit']
+        response_data['netExpose'] = response_data['primarySize'] + (response_data['hedgeSize'] * ratio)
+        response_data['spread'] = response_data['primaryMarkPrice'] - response_data['hedgeMarkPrice']
+        response_data['unrealizedTotal'] = response_data['primary_unrealized_profit'] + response_data['hedge_unrealized_profit']
         response_data['netExposeAction'] = 'Safe'
 
         # handle floating point issue
@@ -102,12 +102,12 @@ def get_arbitrage_summary():
         if response_data['netExpose'] != 0:
             response_data['netExposeAction'] = 'Unsafe'
 
-        if response_data['entrySize'] > 0:
-            response_data['entryAction'] = 'LONG'
-        elif response_data['entrySize'] == 0:
-            response_data['entryAction'] = 'None'
+        if response_data['primarySize'] > 0:
+            response_data['primaryAction'] = 'LONG'
+        elif response_data['primarySize'] == 0:
+            response_data['primaryAction'] = 'None'
         else:
-            response_data['entryAction'] = 'SHORT'
+            response_data['primaryAction'] = 'SHORT'
 
         if response_data['hedgeSize'] > 0:
             response_data['hedgeAction'] = 'LONG'

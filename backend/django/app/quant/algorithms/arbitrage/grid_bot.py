@@ -96,7 +96,7 @@ def _compute_target(zone, position_amt, order_size, max_pos, net_pending=0):
     return _trunc(position_amt)
 
 
-def _reconcile(entry_symbol, target, position_amt, open_orders):
+def _reconcile(primary_symbol, target, position_amt, open_orders):
     """Take the minimal action to reach the target position."""
     if target is None:
         logger.debug("[Reconcile] do nothing")
@@ -107,7 +107,7 @@ def _reconcile(entry_symbol, target, position_amt, open_orders):
     if diff == 0:
         if open_orders:
             logger.info(f"[Reconcile] At target position — cancelling {len(open_orders)} open order(s)")
-            cancel_all_open_orders(entry_symbol)
+            cancel_all_open_orders(primary_symbol)
         else:
             logger.debug("[Reconcile] At target position — no open orders")
         return
@@ -117,7 +117,7 @@ def _reconcile(entry_symbol, target, position_amt, open_orders):
 
     if not open_orders:
         logger.info(f"[Reconcile] No open order → placing {side}, size={size}")
-        chase_order(entry_symbol, float(size), side, order_id=None)
+        chase_order(primary_symbol, float(size), side, order_id=None)
         return
 
     first = open_orders[0]
@@ -129,14 +129,14 @@ def _reconcile(entry_symbol, target, position_amt, open_orders):
         logger.info(
             f"[Reconcile] Wrong side ({current_side} vs target {side}) — cancelling, will re-place next tick"
         )
-        cancel_all_open_orders(entry_symbol)
+        cancel_all_open_orders(primary_symbol)
         return
 
     logger.debug(f"[Reconcile] Chasing {side}, order_id={current_order_id}, size={current_size}")
-    chase_order(entry_symbol, current_size, side, order_id=current_order_id)
+    chase_order(primary_symbol, current_size, side, order_id=current_order_id)
 
 
-def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
+def _process_tick(primary_symbol, upper_limit, lower_limit, max_pos, order_size,
                   ask_diff, bid_diff):
     """Execute one trading decision from a pubsub tick."""
     with state.state_lock:
@@ -144,8 +144,8 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
         if force:
             state.force_fetch = False
 
-    open_orders = get_open_orders(entry_symbol, force=force)
-    positions = get_position(entry_symbol, force=force)
+    open_orders = get_open_orders(primary_symbol, force=force)
+    positions = get_position(primary_symbol, force=force)
 
     position_amt = float((positions or {}).get('positionAmt', '0'))
 
@@ -171,7 +171,7 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
 
     if len(open_orders) > 1:
         logger.info(f"Multiple open orders ({len(open_orders)}) — cancelling all before reconcile")
-        cancel_all_open_orders(entry_symbol)
+        cancel_all_open_orders(primary_symbol)
         return
 
     zone = _determine_zone(ask_diff, bid_diff, upper_limit, lower_limit)
@@ -189,10 +189,10 @@ def _process_tick(entry_symbol, upper_limit, lower_limit, max_pos, order_size,
             logger.warning(f"Price diff is stale ({price_age_ms:.0f}ms > {PRICE_DIFF_MAX_AGE_MS}ms) — skipping reconcile")
             return
 
-    _reconcile(entry_symbol, target, position_amt, open_orders)
+    _reconcile(primary_symbol, target, position_amt, open_orders)
 
 
-def watch_user_data_stream(entry_symbol):
+def watch_user_data_stream(primary_symbol):
     """Subscribe to Binance user data stream for real-time order status updates."""
     WS_BASE = os.getenv("WS_STREAM_URL", "wss://fstream.binance.com")
     TERMINAL_STATUSES = {'FILLED', 'CANCELED', 'EXPIRED', 'REJECTED', 'EXPIRED_IN_MATCH'}
@@ -225,7 +225,7 @@ def watch_user_data_stream(entry_symbol):
                     if data.get('e') != 'ORDER_TRADE_UPDATE':
                         return
                     o = data.get('o', {})
-                    if o.get('s') != entry_symbol:
+                    if o.get('s') != primary_symbol:
                         return
                     order_id = o.get('i')
                     new_status = o.get('X')
@@ -306,7 +306,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
     _prev_ask_diff_for_atr = None
     _prev_bid_diff_for_atr = None
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-    entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
+    primary_symbol = config.PAIRS[PAIR_INDEX]['primary']['symbol']
 
     # --- Initial Fetch for Grid Settings ---
     try:
@@ -353,7 +353,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                     order_size = latest_grid_settings['order_size']
 
                     _process_tick(
-                        entry_symbol,
+                        primary_symbol,
                         upper, lower, max_pos, order_size,
                         latest_ask_diff, latest_bid_diff,
                     )
@@ -405,15 +405,15 @@ def start_grid_bot_sync():
 
     try:
         PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-        entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
+        primary_symbol = config.PAIRS[PAIR_INDEX]['primary']['symbol']
         hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
-        logger.info(f"Starting grid trading process for {entry_symbol} ...")
+        logger.info(f"Starting grid trading process for {primary_symbol} ...")
 
         redis_conn = get_redis_connection()
         pubsub = redis_conn.pubsub()
 
-        price_diff = f"price_diff:{entry_symbol}:{hedge_symbol}"
-        grid_range = f"setting_grid_channel:{entry_symbol}:{hedge_symbol}"
+        price_diff = f"price_diff:{primary_symbol}:{hedge_symbol}"
+        grid_range = f"setting_grid_channel:{primary_symbol}:{hedge_symbol}"
         pubsub.subscribe(price_diff, grid_range)
         logger.info(f"Grid bot subscribed to channels: [{price_diff}], [{grid_range}].")
 
@@ -423,7 +423,7 @@ def start_grid_bot_sync():
         ).start()
         threading.Thread(
             target=watch_user_data_stream,
-            args=(entry_symbol,), daemon=True
+            args=(primary_symbol,), daemon=True
         ).start()
         logger.info("Grid Bot thread started and running in background.")
     except Exception as e:

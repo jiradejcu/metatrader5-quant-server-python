@@ -5,20 +5,20 @@ interface IArbitrageSummary {
   pausePositionSync?: string;
   spread?: number;
   pairStatus?: string;
-  entryAction?: string;
-  entryMarkPrice?: number;
+  primaryAction?: string;
+  primaryMarkPrice?: number;
   hedgeMarkPrice?: number;
-  entryPrice?: number;
+  primaryPrice?: number;
   hedgePrice?: number;
-  entrySize?: number;
+  primarySize?: number;
   hedgeSize?: number;
   hedgeAction?: string;
   unrealizedTotal?: number;
   time_update_hedge?: string;
-  time_update_entry?: string;
+  time_update_primary?: string;
   netExpose?: number;
   netExposeAction?: string;
-  entrySymbol?: string;
+  primarySymbol?: string;
   hedgeSymbol?: string;
   price_diff_percent?: number;
   gridBotStatus?: string;
@@ -39,46 +39,46 @@ export const useGetSummaryStreamData = (url: string) => {
         gridBotStatus = 'Inactive',
         spread = 0,
         pairStatus = 'Idle',
-        entryAction = 'N/A',
-        entryMarkPrice = 0,
+        primaryAction = 'N/A',
+        primaryMarkPrice = 0,
         hedgeMarkPrice = 0,
-        entryPrice = 0,
+        primaryPrice = 0,
         hedgePrice = 0,
-        entrySize = 0,
+        primarySize = 0,
         hedgeSize = 0,
         hedgeAction = 'N/A',
         unrealizedTotal = 0,
         time_update_hedge = '-',
-        time_update_entry = '-',
+        time_update_primary = '-',
         netExpose = 0,
         netExposeAction = 'Safe',
-        entrySymbol = 'default',
+        primarySymbol = 'default',
         hedgeSymbol = 'default',
         price_diff_percent = 0.0,
         ask_diff = undefined,
         bid_diff = undefined,
     } = (arbitrageSummary || {}) as IArbitrageSummary;
 
-    return { 
+    return {
         isLoading,
         pausePositionSync,
         gridBotStatus,
         spread,
         pairStatus,
-        entryAction,
-        entryMarkPrice,
+        primaryAction,
+        primaryMarkPrice,
         hedgeMarkPrice,
-        entryPrice,
+        primaryPrice,
         hedgePrice,
-        entrySize,
+        primarySize,
         hedgeSize,
         hedgeAction,
         unrealizedTotal,
         time_update_hedge,
-        time_update_entry,
+        time_update_primary,
         netExpose,
         netExposeAction,
-        entrySymbol,
+        primarySymbol,
         hedgeSymbol,
         price_diff_percent,
         ask_diff,

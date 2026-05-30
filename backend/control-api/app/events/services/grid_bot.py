@@ -12,19 +12,19 @@ load_dotenv()
 PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
 logger = logging.getLogger(__name__)
 
-entry_data_default = {'positionAmt': 0, 'markPrice': 0, 'unRealizedProfit': 0, 'time_update': None, 'updateTime': None}
+primary_data_default = {'positionAmt': 0, 'markPrice': 0, 'unRealizedProfit': 0, 'time_update': None, 'updateTime': None}
 grid_data_default = {'upper_limit': 0.0, 'lower_limit': 0.0, 'max_position_size': 0.0, 'order_size': 0.0}
 
 def get_grid_parameters_data():
         redis_conn = get_redis_connection()
         try:
-                entry_exchange = PAIRS[PAIR_INDEX]['entry']['exchange']
-                entry_symbol = PAIRS[PAIR_INDEX]['entry']['symbol']
+                primary_exchange = PAIRS[PAIR_INDEX]['primary']['exchange']
+                primary_symbol = PAIRS[PAIR_INDEX]['primary']['symbol']
                 hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
 
-                entry_key = f"position:{entry_exchange}:{entry_symbol}"
-                grid_parameters_key = f"setting_grid_channel:{entry_symbol}:{hedge_symbol}"
-                result = prepare_json(redis_conn.get(entry_key), entry_data_default)
+                primary_key = f"position:{primary_exchange}:{primary_symbol}"
+                grid_parameters_key = f"setting_grid_channel:{primary_symbol}:{hedge_symbol}"
+                result = prepare_json(redis_conn.get(primary_key), primary_data_default)
                 raw_grid_data = redis_conn.get(grid_parameters_key)
                 if raw_grid_data is None:
                         return None

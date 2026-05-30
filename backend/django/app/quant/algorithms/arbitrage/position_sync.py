@@ -13,19 +13,19 @@ from app.utils.position_group import update_position_group, resolve_group_id, ma
 logger = logging.getLogger(__name__)
 
 pre_order_volume = None
-_prev_binance_entry_price = None
+_prev_primary_entry_price = None
 
 
-def _log_entry_price_diff(redis_conn, hedge_symbol: str, binance_entry: float, trigger: str):
+def _log_entry_price_diff(redis_conn, hedge_symbol: str, primary_entry: float, trigger: str):
     group = get_position_group(redis_conn, hedge_symbol)
     hedge_entry = float(group["entry_price"]) if group else 0.0
-    if binance_entry == 0 or hedge_entry == 0:
+    if primary_entry == 0 or hedge_entry == 0:
         return
-    diff = binance_entry - hedge_entry
+    diff = primary_entry - hedge_entry
     diff_pct = diff / hedge_entry * 100
     logger.info(
-        "[EntryPriceDiff][%s] binance_entry=%.5f hedge_entry=%.5f diff=%.5f (%.3f%%)",
-        trigger, binance_entry, hedge_entry, diff, diff_pct,
+        "[EntryPriceDiff][%s] primary_entry=%.5f hedge_entry=%.5f diff=%.5f (%.3f%%)",
+        trigger, primary_entry, hedge_entry, diff, diff_pct,
     )
 
 def get_pause_status():
@@ -35,9 +35,9 @@ def get_pause_status():
     return is_paused
 
 def handle_position_update(pubsub):
-    global pre_order_volume, _prev_binance_entry_price
+    global pre_order_volume, _prev_primary_entry_price
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-    entry_exchange = config.PAIRS[PAIR_INDEX]['entry']['exchange']
+    primary_exchange = config.PAIRS[PAIR_INDEX]['primary']['exchange']
     hedge_exchange = config.PAIRS[PAIR_INDEX]['hedge']['exchange']
     contract_size = Decimal(config.PAIRS[PAIR_INDEX]['contract_size'])
     for message in pubsub.listen():
@@ -46,28 +46,28 @@ def handle_position_update(pubsub):
             if message['type'] == 'message' and is_pause is None:
                 position_data = json.loads(message['data'])
                 received_symbol = position_data.get('symbol')
-                entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
-                if received_symbol != entry_symbol:
-                    logger.debug(f"Ignoring position update for symbol {received_symbol}. Expected {entry_symbol}.")
+                primary_symbol = config.PAIRS[PAIR_INDEX]['primary']['symbol']
+                if received_symbol != primary_symbol:
+                    logger.debug(f"Ignoring position update for symbol {received_symbol}. Expected {primary_symbol}.")
                     continue
                 position_amt = Decimal(str(position_data.get('positionAmt', '0')))
                 if os.getenv('MOCK_ENTRY_POSITION_AMT', 'false').lower() == 'true':
                     position_amt *= contract_size
-                entry_price = Decimal(str(position_data.get('entryPrice', '0')))
+                primary_price = Decimal(str(position_data.get('entryPrice', '0')))
                 mark_price = Decimal(str(position_data.get('markPrice', '0')))
                 update_time = position_data.get('updateTime', None)
 
                 logger.debug(
-                    f"Entry Position {entry_exchange}:{entry_symbol} - "
-                    f"Amount: {position_amt}, Entry Price: {entry_price}, Mark Price: {mark_price}, Update Time: {update_time}"
+                    f"Primary Position {primary_exchange}:{primary_symbol} - "
+                    f"Amount: {position_amt}, Entry Price: {primary_price}, Mark Price: {mark_price}, Update Time: {update_time}"
                 )
 
                 hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
 
-                binance_entry_float = float(entry_price)
-                if binance_entry_float != 0 and binance_entry_float != _prev_binance_entry_price:
-                    _log_entry_price_diff(get_redis_connection(), hedge_symbol, binance_entry_float, "binance_fill")
-                    _prev_binance_entry_price = binance_entry_float
+                primary_entry_float = float(primary_price)
+                if primary_entry_float != 0 and primary_entry_float != _prev_primary_entry_price:
+                    _log_entry_price_diff(get_redis_connection(), hedge_symbol, primary_entry_float, "primary_fill")
+                    _prev_primary_entry_price = primary_entry_float
                 hedge_position = get_hedge_position(hedge_symbol)
 
                 hedge_volume = Decimal(str(hedge_position.get('volume', '0')))
@@ -91,17 +91,17 @@ def handle_position_update(pubsub):
                 # Compare actual mark-price spread with the latest ticker-based price_diff
                 if mark_price > 0 and hedge_mark_price > 0:
                     redis_conn = get_redis_connection()
-                    entry_symbol_key = config.PAIRS[PAIR_INDEX]['entry']['symbol']
-                    price_diff_raw = redis_conn.get(f"price_diff:{entry_symbol_key}:{hedge_symbol}")
+                    primary_symbol_key = config.PAIRS[PAIR_INDEX]['primary']['symbol']
+                    price_diff_raw = redis_conn.get(f"price_diff:{primary_symbol_key}:{hedge_symbol}")
                     if price_diff_raw:
                         price_diff_data = json.loads(price_diff_raw)
                         ticker_ask_diff = price_diff_data.get('ask_diff', 0)
                         ticker_bid_diff = price_diff_data.get('bid_diff', 0)
                         mark_diff = float(mark_price - hedge_mark_price)
                         logger.debug(
-                            f"Spread comparison [{entry_symbol_key}/{hedge_symbol}]: "
+                            f"Spread comparison [{primary_symbol_key}/{hedge_symbol}]: "
                             f"mark_diff={mark_diff:.2f} "
-                            f"(entry_mark={float(mark_price):.2f}, hedge_mark={float(hedge_mark_price):.2f}) "
+                            f"(primary_mark={float(mark_price):.2f}, hedge_mark={float(hedge_mark_price):.2f}) "
                             f"| ticker ask_diff={ticker_ask_diff}, bid_diff={ticker_bid_diff} "
                             f"| Δask={mark_diff - ticker_ask_diff:.2f}, Δbid={mark_diff - ticker_bid_diff:.2f}"
                         )
@@ -109,7 +109,7 @@ def handle_position_update(pubsub):
                 discrepancy = position_amt + hedge_volume * contract_size
 
                 logger.debug(
-                    f"Entry Amount: {position_amt}, Hedge Volume: {hedge_volume}. "
+                    f"Primary Amount: {position_amt}, Hedge Volume: {hedge_volume}. "
                     f"Position Size Difference: {discrepancy}."
                 )
 
@@ -162,7 +162,7 @@ def handle_position_update(pubsub):
                                 is_opening=is_opening,
                                 group_id=group_id,
                             )
-                            _log_entry_price_diff(redis_conn, hedge_symbol, float(entry_price), "hedge_fill")
+                            _log_entry_price_diff(redis_conn, hedge_symbol, float(primary_price), "hedge_fill")
 
                         pre_order_volume = hedge_volume
                         redis_conn = get_redis_connection()
@@ -178,17 +178,17 @@ def handle_position_update(pubsub):
 def start_position_sync():
     if os.environ.get('RUN_MAIN') != 'true':
         return
-    
+
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
-    entry_exchange = config.PAIRS[PAIR_INDEX]['entry']['exchange']
-    entry_symbol = config.PAIRS[PAIR_INDEX]['entry']['symbol']
-    logger.info(f"Starting position sync for {entry_symbol}...")
+    primary_exchange = config.PAIRS[PAIR_INDEX]['primary']['exchange']
+    primary_symbol = config.PAIRS[PAIR_INDEX]['primary']['symbol']
+    logger.info(f"Starting position sync for {primary_symbol}...")
 
     try:
         redis_conn = get_redis_connection()
         pubsub = redis_conn.pubsub()
-        pubsub.subscribe(f"position:{entry_exchange}:{entry_symbol}")
-        logger.info(f"Subscribed to Redis channel position:{entry_exchange}:{entry_symbol} for position updates.")
+        pubsub.subscribe(f"position:{primary_exchange}:{primary_symbol}")
+        logger.info(f"Subscribed to Redis channel position:{primary_exchange}:{primary_symbol} for position updates.")
         threading.Thread(target=handle_position_update, args=(pubsub,), daemon=True).start()
     except Exception as e:
-        logger.error(f"Error while syncing position for {entry_symbol}: {e}", exc_info=True)
+        logger.error(f"Error while syncing position for {primary_symbol}: {e}", exc_info=True)
