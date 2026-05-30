@@ -13,7 +13,6 @@ from app.utils.position_group import update_position_group, resolve_group_id, ma
 logger = logging.getLogger(__name__)
 
 pre_order_volume = None
-_prev_primary_entry_price = None
 
 
 def _log_entry_price_diff(redis_conn, hedge_symbol: str, primary_entry: float, trigger: str):
@@ -35,7 +34,7 @@ def get_pause_status():
     return is_paused
 
 def handle_position_update(pubsub):
-    global pre_order_volume, _prev_primary_entry_price
+    global pre_order_volume
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
     primary_exchange = config.PAIRS[PAIR_INDEX]['primary']['exchange']
     hedge_exchange = config.PAIRS[PAIR_INDEX]['hedge']['exchange']
@@ -64,10 +63,6 @@ def handle_position_update(pubsub):
 
                 hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
 
-                if primary_entry_price != 0 and primary_entry_price != _prev_primary_entry_price:
-                    _log_entry_price_diff(get_redis_connection(), hedge_symbol, float(primary_entry_price), "primary_fill")
-                    _prev_primary_entry_price = primary_entry_price
-                    
                 hedge_position = get_hedge_position(hedge_symbol)
                 hedge_volume = Decimal(str(hedge_position.get('volume', '0')))
                 hedge_entry_price = Decimal(str(hedge_position.get('entryPrice', '0')))
@@ -87,24 +82,6 @@ def handle_position_update(pubsub):
                     f"Mark Price: {hedge_mark_price}, Time Update: {hedge_time_update}"
                 )
 
-                # Compare actual mark-price spread with the latest ticker-based price_diff
-                if primary_mark_price > 0 and hedge_mark_price > 0:
-                    redis_conn = get_redis_connection()
-                    primary_symbol_key = config.PAIRS[PAIR_INDEX]['primary']['symbol']
-                    price_diff_raw = redis_conn.get(f"price_diff:{primary_symbol_key}:{hedge_symbol}")
-                    if price_diff_raw:
-                        price_diff_data = json.loads(price_diff_raw)
-                        ticker_ask_diff = price_diff_data.get('ask_diff', 0)
-                        ticker_bid_diff = price_diff_data.get('bid_diff', 0)
-                        mark_diff = float(primary_mark_price - hedge_mark_price)
-                        logger.debug(
-                            f"Spread comparison [{primary_symbol_key}/{hedge_symbol}]: "
-                            f"mark_diff={mark_diff:.2f} "
-                            f"(primary_mark={float(primary_mark_price):.2f}, hedge_mark={float(hedge_mark_price):.2f}) "
-                            f"| ticker ask_diff={ticker_ask_diff}, bid_diff={ticker_bid_diff} "
-                            f"| Δask={mark_diff - ticker_ask_diff:.2f}, Δbid={mark_diff - ticker_bid_diff:.2f}"
-                        )
-
                 discrepancy = position_amt + hedge_volume * contract_size
 
                 logger.debug(
@@ -120,15 +97,10 @@ def handle_position_update(pubsub):
                         f"Placing order to adjust by {order_amt}."
                     )
 
-                    # ── Resolve position group ID before placing the order ──
-                    # is_new_position is True when the hedge has no open volume
-                    # yet — this order starts a brand-new position lifecycle.
-                    expected_hedge_volume = (
-                        float(hedge_volume)
-                        + float(order_amt) / float(contract_size)
-                    )
-                    is_opening = abs(expected_hedge_volume) > abs(float(hedge_volume))
-                    is_new_position = abs(float(hedge_volume)) < 1e-9 and is_opening
+                    order_volume = order_amt / contract_size
+                    expected_hedge_volume = hedge_volume + order_volume
+                    is_opening = abs(expected_hedge_volume) > abs(hedge_volume)
+                    is_new_position = abs(hedge_volume) < 1e-9 and is_opening
 
                     redis_conn = get_redis_connection()
                     group_id = resolve_group_id(
@@ -136,15 +108,12 @@ def handle_position_update(pubsub):
                         symbol=hedge_symbol,
                         is_new_position=is_new_position,
                     )
-                    # ──────────────────────────────────────────────────────
 
                     order = send_market_order(
                         symbol=hedge_symbol,
-                        volume=abs(order_amt / contract_size),
+                        volume=abs(order_volume),
                         order_type='BUY' if order_amt > 0 else 'SELL',
-                        # Embed group_id in MT5 ticket comment for durable
-                        # group membership — survives Redis restarts.
-                        comment=make_comment(group_id),
+                        comment=make_comment(group_id),  # survives Redis restarts
                     )
 
                     if order:
