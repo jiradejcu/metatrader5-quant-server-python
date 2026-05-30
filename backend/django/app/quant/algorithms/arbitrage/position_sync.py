@@ -1,5 +1,5 @@
 import json
-import time
+
 import os
 import logging
 import threading
@@ -27,12 +27,6 @@ def _log_entry_price_diff(redis_conn, hedge_symbol: str, primary_entry: float, t
         trigger, primary_entry, hedge_entry, diff, diff_pct,
     )
 
-def get_pause_status():
-    redis_conn = get_redis_connection()
-    redis_key= "position_sync_paused_flag"
-    is_paused = redis_conn.get(redis_key)
-    return is_paused
-
 def handle_position_update(pubsub):
     global pre_order_volume
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
@@ -41,8 +35,8 @@ def handle_position_update(pubsub):
     contract_size = Decimal(config.PAIRS[PAIR_INDEX]['contract_size'])
     for message in pubsub.listen():
         try:
-            is_pause = get_pause_status()
-            if message['type'] == 'message' and is_pause is None:
+            redis_conn = get_redis_connection()
+            if message['type'] == 'message' and redis_conn.get("position_sync_paused_flag") is None:
                 position_data = json.loads(message['data'])
                 received_symbol = position_data.get('symbol')
                 primary_symbol = config.PAIRS[PAIR_INDEX]['primary']['symbol']
@@ -102,7 +96,6 @@ def handle_position_update(pubsub):
                     is_opening = abs(expected_hedge_volume) > abs(hedge_volume)
                     is_new_position = abs(hedge_volume) < 1e-9 and is_opening
 
-                    redis_conn = get_redis_connection()
                     group_id = resolve_group_id(
                         redis_conn=redis_conn,
                         symbol=hedge_symbol,
@@ -121,7 +114,6 @@ def handle_position_update(pubsub):
                         fill_volume = abs(float(order.get('volume', 0)))
 
                         if fill_price > 0 and fill_volume > 0:
-                            redis_conn = get_redis_connection()
                             update_position_group(
                                 redis_conn=redis_conn,
                                 symbol=hedge_symbol,
@@ -133,12 +125,9 @@ def handle_position_update(pubsub):
                             _log_entry_price_diff(redis_conn, hedge_symbol, float(primary_entry_price), "hedge_fill")
 
                         pre_order_volume = hedge_volume
-                        redis_conn = get_redis_connection()
                         redis_conn.delete(f"position:mt5:{hedge_symbol}")
                 else:
                     logger.debug(f"No significant discrepancy for {received_symbol}. No action taken.")
-
-            time.sleep(0.1)
 
         except Exception as e:
             logger.error(f"Error processing position update: {e}", exc_info=True)
