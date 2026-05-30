@@ -3,13 +3,12 @@ import math
 import time
 import threading
 import os
-from datetime import datetime, timezone, timedelta
 from . import config
 import json
-import websocket
 from app.utils.redis_client import get_redis_connection
-from app.connectors.binance.api.order import get_open_orders, cancel_all_open_orders, chase_order, client as binance_client
+from app.connectors.binance.api.order import get_open_orders, cancel_all_open_orders, chase_order
 from app.connectors.binance.api.position import get_position
+from app.connectors.binance.api.user_data_stream import watch_user_data_stream
 from .price_diff import PRICE_DIFF_MAX_AGE_MS
 from . import state
 
@@ -22,8 +21,6 @@ latest_price_ts = None
 latest_atr = 0.0
 _prev_ask_diff_for_atr = None
 _prev_bid_diff_for_atr = None
-
-_TZ = timezone(timedelta(hours=7))
 
 ATR_PERIOD = int(os.getenv('ATR_PERIOD', '14'))
 _ATR_ALPHA = 2.0 / (ATR_PERIOD + 1)
@@ -195,128 +192,6 @@ def _process_tick(primary_symbol, upper_limit, lower_limit, max_pos, order_size,
     _reconcile(primary_symbol, target, position_amt, open_orders)
 
 
-def watch_user_data_stream(primary_symbol):
-    """Subscribe to Binance user data stream for real-time order status updates."""
-    WS_BASE = os.getenv("WS_STREAM_URL", "wss://fstream.binance.com")
-    TERMINAL_STATUSES = {'FILLED', 'CANCELED', 'EXPIRED', 'REJECTED', 'EXPIRED_IN_MATCH'}
-
-    def _keepalive_loop(stop_event):
-        while not stop_event.wait(timeout=1800):
-            try:
-                binance_client.rest_api.keepalive_user_data_stream()
-                logger.debug("[UserDataStream] listenKey keepalive sent")
-            except Exception as e:
-                logger.error(f"[UserDataStream] keepalive failed: {e}")
-
-    while True:
-        stop_keepalive = threading.Event()
-        try:
-            listen_key = binance_client.rest_api.start_user_data_stream().data().listen_key
-            logger.info(f"[UserDataStream] Got listenKey, connecting to {WS_BASE}")
-
-            threading.Thread(target=_keepalive_loop, args=(stop_keepalive,), daemon=True).start()
-
-            # Track status per order ID so cross-order transitions aren't logged
-            # as a single order's state machine (e.g. the spurious "FILLED → NEW"
-            # that appeared when the first order's FILLED bled into the second
-            # order's first NEW event).
-            order_status: dict[str, str] = {}
-            _redis = get_redis_connection()
-
-            def on_message(ws, message):
-                try:
-                    data = json.loads(message)
-                    event_type = data.get('e')
-
-                    if event_type == 'ACCOUNT_UPDATE':
-                        for p in data.get('a', {}).get('P', []):
-                            if p.get('s') == primary_symbol:
-                                payload = json.dumps({
-                                    'positionAmt': p.get('pa', '0'),
-                                    'entryPrice':  p.get('ep', '0'),
-                                    'markPrice':   None,
-                                    'unRealizedProfit': p.get('up', '0'),
-                                    'updateTime':  datetime.now(_TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
-                                })
-                                redis_key = f"position:binance:{primary_symbol}"
-                                _redis.set(redis_key, payload)
-                                _redis.publish(redis_key, payload)
-                                _redis.expire(redis_key, 10)
-                                logger.debug(
-                                    f"[UserDataStream] ACCOUNT_UPDATE: {primary_symbol} positionAmt={p.get('pa')}"
-                                )
-                                break
-                        return
-
-                    if event_type != 'ORDER_TRADE_UPDATE':
-                        return
-                    o = data.get('o', {})
-                    if o.get('s') != primary_symbol:
-                        return
-                    order_id = o.get('i')
-                    new_status = o.get('X')
-                    orig_qty = float(o.get('q', 0))
-                    executed_qty = float(o.get('z', 0))
-                    fill_pct = (executed_qty / orig_qty * 100) if orig_qty > 0 else 0
-                    last_fill_price = o.get('L')
-                    avg_price = o.get('ap')
-                    with state.state_lock:
-                        state.placing_order_state.update({
-                            "order_id": order_id,
-                            "status": new_status,
-                            "fill_pct": fill_pct,
-                            "side": o.get('S'),
-                            "is_clean": new_status in TERMINAL_STATUSES,
-                            "price": o.get('p'),
-                            "orig_qty": orig_qty,
-                        })
-                        prev_status = order_status.get(order_id)
-                        if new_status != prev_status and new_status is not None:
-                            logger.debug(
-                                f"[UserDataStream] Order {order_id} status {prev_status} → {new_status}"
-                            )
-                            state.force_fetch = True
-
-                    if new_status == 'FILLED':
-                        logger.info(
-                            f"[UserDataStream] Order FILLED: side={o.get('S')} "
-                            f"fill_price={last_fill_price} avg_price={avg_price} "
-                            f"qty={executed_qty}/{orig_qty} order_id={order_id}"
-                        )
-                    order_status[order_id] = new_status
-                    # Evict terminal orders to keep the dict from growing unboundedly
-                    if new_status in TERMINAL_STATUSES:
-                        order_status.pop(order_id, None)
-                except Exception as e:
-                    logger.error(f"[UserDataStream] Error processing message: {e}", exc_info=True)
-
-            def on_error(ws, error):
-                logger.error(f"[UserDataStream] WebSocket error: {error}")
-
-            def on_close(ws, close_status_code, close_msg):
-                logger.warning(f"[UserDataStream] Connection closed: {close_status_code} {close_msg}")
-                stop_keepalive.set()
-
-            def on_open(ws):
-                logger.info("[UserDataStream] WebSocket connected")
-
-            ws = websocket.WebSocketApp(
-                f"{WS_BASE}/private/ws/{listen_key}",
-                on_open=on_open,
-                on_message=on_message,
-                on_error=on_error,
-                on_close=on_close,
-            )
-            ws.run_forever(ping_interval=60, ping_timeout=10)
-
-        except Exception as e:
-            logger.error(f"[UserDataStream] Fatal error: {e}. Reconnecting in 5s...", exc_info=True)
-        finally:
-            stop_keepalive.set()
-
-        time.sleep(5)
-
-
 def get_active_status():
     return get_redis_connection().get("grid_bot_active_flag")
 
@@ -447,9 +322,17 @@ def start_grid_bot_sync():
             target=handle_grid_flow,
             args=(pubsub, price_diff, grid_range), daemon=True
         ).start()
+        def _on_order_update(update):
+            with state.state_lock:
+                state.placing_order_state.update({k: v for k, v in update.items() if k != 'status_changed'})
+                if update['status_changed']:
+                    state.force_fetch = True
+
         threading.Thread(
             target=watch_user_data_stream,
-            args=(primary_symbol,), daemon=True
+            args=(primary_symbol,),
+            kwargs={'on_order_update': _on_order_update},
+            daemon=True,
         ).start()
         logger.info("Grid Bot thread started and running in background.")
     except Exception as e:

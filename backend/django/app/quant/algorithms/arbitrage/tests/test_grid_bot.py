@@ -1011,6 +1011,8 @@ def _capture_on_message(symbol="XAUUSDT"):
     lifetime, accurately modelling a live WebSocket session where multiple
     order events arrive on the same connection.
     """
+    import app.connectors.binance.api.user_data_stream as _uds
+
     captured: dict = {}
 
     class _FakeWSApp:
@@ -1023,12 +1025,20 @@ def _capture_on_message(symbol="XAUUSDT"):
 
     fake_stream = MagicMock()
     fake_stream.data.return_value.listen_key = "test_key"
+    redis_mock = MagicMock()
 
-    with patch.object(_gb.binance_client.rest_api, "start_user_data_stream",
+    def _on_order_update(update):
+        with _state_mod.state_lock:
+            _state_mod.placing_order_state.update({k: v for k, v in update.items() if k != 'status_changed'})
+            if update['status_changed']:
+                _state_mod.force_fetch = True
+
+    with patch.object(_uds.binance_client.rest_api, "start_user_data_stream",
                       return_value=fake_stream), \
-         patch.object(_gb.websocket, "WebSocketApp", _FakeWSApp):
+         patch.object(_uds.websocket, "WebSocketApp", _FakeWSApp), \
+         patch.object(_uds, "get_redis_connection", return_value=redis_mock):
         try:
-            _gb.watch_user_data_stream(symbol)
+            _uds.watch_user_data_stream(symbol, on_order_update=_on_order_update)
         except _StopUserStream:
             pass
 
