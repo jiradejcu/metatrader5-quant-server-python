@@ -39,6 +39,13 @@ _real_config_spec.loader.exec_module(_real_config)
 _config_mod.PAIRS = _real_config.PAIRS
 sys.modules[f"{_PKG}.config"] = _config_mod
 
+# --- price_diff stub ---
+_price_diff_mod = types.ModuleType(f"{_PKG}.price_diff")
+_price_diff_mod.PRICE_DIFF_MAX_AGE_MS = int(
+    __import__("os").getenv("PRICE_DIFF_MAX_AGE_MS", "1600")
+)
+sys.modules[f"{_PKG}.price_diff"] = _price_diff_mod
+
 # --- minimal state stub (mirrors the real state.py) ---
 _state_mod = types.ModuleType(f"{_PKG}.state")
 _state_mod.state_lock = threading.Lock()
@@ -800,7 +807,7 @@ class TestHandleGridFlowStalePriceDiff:
 
     def test_stale_message_is_dropped(self):
         """A price_diff message older than PRICE_DIFF_MAX_AGE_MS must be ignored."""
-        stale_ts = time.time() - 1.0  # 1 second ago — way past any threshold
+        stale_ts = time.time() - 2.0  # 2 seconds ago — way past the 1600 ms threshold
         msg = make_price_message(PRICE_CH, 99.0, -99.0, ts=stale_ts)
         ask, bid = _run_handle_grid_flow_with_messages([msg])
         assert ask is None
@@ -889,7 +896,7 @@ class TestATRComputation:
 
     def test_stale_message_does_not_update_atr(self):
         """Dropped stale messages must not advance ATR state."""
-        stale_ts = time.time() - 1.0
+        stale_ts = time.time() - 2.0  # 2 seconds ago — past the 1600 ms threshold
         msg = make_price_message(PRICE_CH, 5.0, 5.2, ts=stale_ts)
         _run_handle_grid_flow_with_messages([msg])
         assert _gb.latest_atr == 0.0
