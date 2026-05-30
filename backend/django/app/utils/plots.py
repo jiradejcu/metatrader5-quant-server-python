@@ -59,14 +59,14 @@ def plot_price_diff(
 
     fig, ax = plt.subplots(figsize=(18, 6))
 
+    for i, t in enumerate(stale_times):
+        ax.axvline(t, color='orange', linewidth=0.4, alpha=0.25, zorder=0,
+                   label='stale ticker (skipped)' if i == 0 else None)
+
     ax.plot(price_diff_times, price_diff_values, color='steelblue', linewidth=0.8,
             alpha=0.9, label='price_diff module (ask_diff)')
     ax.plot(grid_bot_times, grid_bot_values, color='tomato', linewidth=0.8,
             alpha=0.7, linestyle='--', label='grid_bot consumed (ask_diff)')
-
-    for i, t in enumerate(stale_times):
-        ax.axvline(t, color='orange', linewidth=0.8, alpha=0.6,
-                   label='stale ticker (skipped)' if i == 0 else None)
 
     if time_from and time_to:
         ax.set_xlim(time_from, time_to)
