@@ -3,6 +3,7 @@ import math
 import time
 import threading
 import os
+from datetime import datetime, timezone, timedelta
 from . import config
 import json
 import websocket
@@ -21,6 +22,8 @@ latest_price_ts = None
 latest_atr = 0.0
 _prev_ask_diff_for_atr = None
 _prev_bid_diff_for_atr = None
+
+_TZ = timezone(timedelta(hours=7))
 
 ATR_PERIOD = int(os.getenv('ATR_PERIOD', '14'))
 _ATR_ALPHA = 2.0 / (ATR_PERIOD + 1)
@@ -218,11 +221,34 @@ def watch_user_data_stream(primary_symbol):
             # that appeared when the first order's FILLED bled into the second
             # order's first NEW event).
             order_status: dict[str, str] = {}
+            _redis = get_redis_connection()
 
             def on_message(ws, message):
                 try:
                     data = json.loads(message)
-                    if data.get('e') != 'ORDER_TRADE_UPDATE':
+                    event_type = data.get('e')
+
+                    if event_type == 'ACCOUNT_UPDATE':
+                        for p in data.get('a', {}).get('P', []):
+                            if p.get('s') == primary_symbol:
+                                payload = json.dumps({
+                                    'positionAmt': p.get('pa', '0'),
+                                    'entryPrice':  p.get('ep', '0'),
+                                    'markPrice':   None,
+                                    'unRealizedProfit': p.get('up', '0'),
+                                    'updateTime':  datetime.now(_TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                                })
+                                redis_key = f"position:binance:{primary_symbol}"
+                                _redis.set(redis_key, payload)
+                                _redis.publish(redis_key, payload)
+                                _redis.expire(redis_key, 10)
+                                logger.debug(
+                                    f"[UserDataStream] ACCOUNT_UPDATE: {primary_symbol} positionAmt={p.get('pa')}"
+                                )
+                                break
+                        return
+
+                    if event_type != 'ORDER_TRADE_UPDATE':
                         return
                     o = data.get('o', {})
                     if o.get('s') != primary_symbol:

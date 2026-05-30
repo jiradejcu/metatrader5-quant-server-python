@@ -47,7 +47,7 @@ def handle_position_update(pubsub):
                 if os.getenv('MOCK_ENTRY_POSITION_AMT', 'false').lower() == 'true':
                     position_amt *= contract_size
                 primary_entry_price = Decimal(str(position_data.get('entryPrice', '0')))
-                primary_mark_price = Decimal(str(position_data.get('markPrice', '0')))
+                primary_mark_price = Decimal(str(position_data.get('markPrice') or '0'))
                 primary_time_update = position_data.get('updateTime', None)
 
                 logger.debug(

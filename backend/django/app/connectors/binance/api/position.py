@@ -97,7 +97,9 @@ def fetch_position_from_api(symbol: str):
             return None
         position_data = positions[0].to_dict()
         redis_key = f"position:binance:{symbol}"
-        redis_conn.set(redis_key, json.dumps(position_data))
+        payload = json.dumps(position_data)
+        redis_conn.set(redis_key, payload)
+        redis_conn.publish(redis_key, payload)
         redis_conn.expire(redis_key, 10)
         logger.debug(f"[Position] Force-fetched from API: {symbol} positionAmt={position_data.get('positionAmt')}")
         return position_data
