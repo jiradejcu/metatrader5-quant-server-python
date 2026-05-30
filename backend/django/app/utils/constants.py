@@ -1,7 +1,10 @@
 from enum import Enum
 from typing import List, Dict, Callable, Optional
 from dataclasses import dataclass, field
+from datetime import timezone, timedelta
 import pytz
+
+LOCAL_TZ = timezone(timedelta(hours=7))
 
 from enum import Enum
 

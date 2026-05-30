@@ -4,14 +4,13 @@ import os
 import threading
 import time
 import websocket
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 
 from app.utils.redis_client import get_redis_connection
 from app.connectors.binance.api.order import client as binance_client
+from app.utils.constants import LOCAL_TZ
 
 logger = logging.getLogger(__name__)
-
-_TZ = timezone(timedelta(hours=7))
 TERMINAL_STATUSES = {'FILLED', 'CANCELED', 'EXPIRED', 'REJECTED', 'EXPIRED_IN_MATCH'}
 
 
@@ -55,7 +54,7 @@ def watch_user_data_stream(symbol, on_order_update=None):
                                     'entryPrice':  p.get('ep', '0'),
                                     'markPrice':   None,
                                     'unRealizedProfit': p.get('up', '0'),
-                                    'updateTime':  datetime.now(_TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                                    'updateTime':  datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
                                 })
                                 redis_key = f"position:binance:{symbol}"
                                 _redis.set(redis_key, payload)

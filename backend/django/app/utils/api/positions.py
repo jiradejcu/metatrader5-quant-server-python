@@ -6,7 +6,6 @@ from typing import List, Dict
 from datetime import datetime
 import logging
 import time
-from datetime import datetime, timezone, timedelta
 import requests
 import pandas as pd
 import numpy as np
@@ -15,13 +14,12 @@ from dotenv import load_dotenv
 from app.utils.redis_client import get_redis_connection
 from app.utils.position_group import get_position_group
 
-from app.utils.constants import MT5Timeframe
+from app.utils.constants import MT5Timeframe, LOCAL_TZ
 
 logger = logging.getLogger(__name__)
 load_dotenv()
 
 BASE_URL = os.getenv('MT5_API_URL')
-TZ = timezone(timedelta(hours=7))
 
 empty_df = pd.DataFrame(columns=[
     'ticket', 'time', 'time_msc', 'time_update', 'time_update_msc', 'type',
@@ -76,7 +74,7 @@ def get_position_by_symbol(symbol: str) -> Dict:
 
     positions_df = get_positions()
     symbol_positions = positions_df[positions_df['symbol'] == symbol]
-    latest_update = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    latest_update = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
     if symbol_positions.empty:
         return {
@@ -109,7 +107,7 @@ async def subscribe_hedge_position(symbol: str):
             positions = positions[positions['symbol'] == symbol]
             redis_key = f"position:mt5:{symbol}"
 
-            now = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            now = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
             result = {
                 "time_update": now,
                 "groupId": None,
