@@ -81,8 +81,13 @@ def _compute_target(zone, position_amt, order_size, max_pos, net_pending=0):
     # Order is opposite to current position: it reduces abs(position), so place it
     # regardless of capacity — even when max_pos was lowered below current position.
     # Clamp so the result doesn't overshoot past max_pos on the opposite side.
+    # BUY reduces a short: cap at +max_pos. SELL reduces a long: floor at -max_pos.
     if position_amt * zone_delta < 0:
-        return _trunc(max(-max_pos, position_amt + zone_delta))
+        raw = position_amt + zone_delta
+        if zone_delta > 0:
+            return _trunc(min(raw, max_pos))
+        else:
+            return _trunc(max(raw, -max_pos))
 
     # Same-direction order below: check capacity.
     if remaining_capacity > 0:
