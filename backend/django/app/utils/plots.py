@@ -28,7 +28,7 @@ def plot_price_diff(
     stale_re = re.compile(
         r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) "
         r"app\.quant\.algorithms\.arbitrage\.price_diff.*"
-        r"Stale (?:entry|hedge) ticker for \S+: ([\d.]+)ms old"
+        r"Stale (?:primary|hedge) ticker for \S+: ([\d.]+)ms old"
     )
 
     price_diff_times, price_diff_values = [], []
