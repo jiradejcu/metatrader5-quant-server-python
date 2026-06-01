@@ -377,6 +377,56 @@ class TestComputeTargetContractSize:
 
 
 # ---------------------------------------------------------------------------
+# _compute_target — opposite-direction (closing) branch
+# ---------------------------------------------------------------------------
+
+class TestComputeTargetOppositeDirection:
+    """Covers the branch where the order reduces an existing position (position_amt * zone_delta < 0).
+
+    The fix changed the clamp from the symmetric max(-max_pos, raw) to
+    direction-aware: BUY uses min(raw, +max_pos), SELL uses max(raw, -max_pos).
+    """
+
+    @pytest.fixture(autouse=True)
+    def integer_mode(self):
+        with patch.dict("os.environ", _INTEGER_ENV):
+            yield
+
+    def test_short_buy_max_pos_zero_is_incremental(self):
+        # Bug repro: position=-170, max_pos=0, order_size=10, zone=BUY.
+        # Old: max(-0.0, -170+10) = max(0, -160) = 0  → reconcile places 170-lot BUY.
+        # Fixed: min(-170+10, 0.0) = min(-160, 0) = -160 → incremental 10-lot BUY.
+        assert _gb._compute_target('BUY', -170.0, 10.0, max_pos=0.0) == -160
+
+    def test_long_sell_max_pos_zero_is_incremental(self):
+        # Symmetric: position=+170, max_pos=0, order_size=10, zone=SELL.
+        # max(+170-10, -0.0) = max(+160, 0) = +160 → incremental 10-lot SELL. (was correct)
+        assert _gb._compute_target('SELL', 170.0, 10.0, max_pos=0.0) == 160
+
+    def test_short_buy_clamps_at_positive_max_pos(self):
+        # position=-10, order_size=20, max_pos=5 → raw=+10 overshoots.
+        # min(+10, 5) = 5; diff = 5-(-10) = 15-lot BUY (capped).
+        assert _gb._compute_target('BUY', -10.0, 20.0, max_pos=5.0) == 5
+
+    def test_long_sell_clamps_at_negative_max_pos(self):
+        # position=+10, order_size=20, max_pos=5 → raw=-10 overshoots.
+        # max(-10, -5) = -5; diff = -5-(+10) = 15-lot SELL (capped).
+        assert _gb._compute_target('SELL', 10.0, 20.0, max_pos=5.0) == -5
+
+    def test_short_buy_exactly_crosses_zero_clamps_to_zero(self):
+        # position=-5, order_size=10, max_pos=0 → raw=+5, clamp to min(5, 0)=0.
+        assert _gb._compute_target('BUY', -5.0, 10.0, max_pos=0.0) == 0
+
+    def test_short_buy_does_not_overshoot_when_raw_stays_negative(self):
+        # position=-20, order_size=10, max_pos=15 → raw=-10, no clamping needed.
+        assert _gb._compute_target('BUY', -20.0, 10.0, max_pos=15.0) == -10
+
+    def test_long_sell_does_not_undershoot_when_raw_stays_positive(self):
+        # position=+20, order_size=10, max_pos=15 → raw=+10, no clamping needed.
+        assert _gb._compute_target('SELL', 20.0, 10.0, max_pos=15.0) == 10
+
+
+# ---------------------------------------------------------------------------
 # _process_tick — MOCK_ENTRY_POSITION_AMT integration
 # ---------------------------------------------------------------------------
 
