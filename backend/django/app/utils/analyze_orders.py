@@ -14,7 +14,7 @@ price_diff_pat = re.compile(
 )
 filled_pat = re.compile(
     r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*\[UserDataStream\] Order FILLED: "
-    r"side=(\w+) fill_price=([0-9.]+) avg_price=[0-9.]+ qty=[0-9.]+/[0-9.]+ order_id=(\d+)"
+    r"side=(\w+) fill_price=([0-9.]+) avg_price=[0-9.]+ qty=([0-9.]+)/[0-9.]+ order_id=(\d+)"
 )
 # MT5 new hedge (action=1): price is request[5]
 hedge_new_pat = re.compile(
@@ -27,13 +27,16 @@ hedge_new_pat = re.compile(
 
 def analyze_orders(log_file, out_csv=None):
     import os
+    base = os.path.basename(log_file)
+    dir_ = os.path.dirname(os.path.abspath(log_file))
     if out_csv is None:
-        base = os.path.basename(log_file)
-        out_csv = os.path.join(os.path.dirname(os.path.abspath(log_file)), f"{base}_orders.csv")
+        out_csv = os.path.join(dir_, f"{base}_orders.csv")
+    out_log = os.path.join(dir_, f"{base}_filtered.log")
 
     price_diffs = []
     fills = []
     hedges_new = []
+    filtered_lines = []
 
     with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
         for line in f:
@@ -45,13 +48,15 @@ def analyze_orders(log_file, out_csv=None):
                     'primary_ask': float(m.group(4)), 'hedge_ask': float(m.group(5)),
                     'primary_bid': float(m.group(6)), 'hedge_bid': float(m.group(7)),
                 })
+                filtered_lines.append((price_diffs[-1]['ts_dt'], line))
                 continue
             m = filled_pat.search(line)
             if m:
                 fills.append({
                     'ts_str': m.group(1), 'ts_dt': datetime.strptime(m.group(1), ts_fmt),
-                    'side': m.group(2), 'fill_price': float(m.group(3)), 'order_id': m.group(4)
+                    'side': m.group(2), 'fill_price': float(m.group(3)), 'qty': float(m.group(4)), 'order_id': m.group(5)
                 })
+                filtered_lines.append((fills[-1]['ts_dt'], line))
                 continue
             m = hedge_new_pat.search(line)
             if m:
@@ -60,6 +65,12 @@ def analyze_orders(log_file, out_csv=None):
                     'volume': float(m.group(2)), 'price': float(m.group(3)),
                     'used': False
                 })
+                filtered_lines.append((hedges_new[-1]['ts_dt'], line))
+
+    filtered_lines.sort(key=lambda x: x[0])
+    with open(out_log, 'w', encoding='utf-8') as f:
+        f.writelines(line for _, line in filtered_lines)
+    print(f"Filtered log  : {out_log}")
 
     print(f"Price diffs   : {len(price_diffs)}")
     print(f"Entry fills   : {len(fills)}")
@@ -102,14 +113,19 @@ def analyze_orders(log_file, out_csv=None):
         actual_hedge_price   = hedge['price']
         actual_price_diff    = round(actual_primary_price - actual_hedge_price, 4)
         primary_price_diff   = round(actual_primary_price - pred_primary_price, 4)
-        hedge_price_diff   = round(actual_hedge_price - pred_hedge_price, 4)
-        slippage           = round(actual_price_diff - predicted_price_diff, 4)
+        hedge_price_diff     = round(actual_hedge_price - pred_hedge_price, 4)
+        slippage             = round(actual_price_diff - predicted_price_diff, 4)
+        pred_to_fill_ms      = round((fill['ts_dt'] - pred['ts_dt']).total_seconds() * 1000)
+        pred_to_hedge_ms     = round((hedge['ts_dt'] - pred['ts_dt']).total_seconds() * 1000)
 
         results.append({
             'fill_ts'              : fill['ts_str'],
             'side'                 : fill['side'],
+            'qty'                  : fill['qty'],
             'order_id'             : fill['order_id'],
             'pred_ts'              : pred['ts_str'],
+            'pred_to_fill_ms'      : pred_to_fill_ms,
+            'pred_to_hedge_ms'     : pred_to_hedge_ms,
             'pred_primary_price'   : pred_primary_price,
             'pred_hedge_price'     : pred_hedge_price,
             'predicted_price_diff' : predicted_price_diff,
@@ -128,7 +144,8 @@ def analyze_orders(log_file, out_csv=None):
 
     with open(out_csv, 'w', newline='') as f:
         fieldnames = [
-            'fill_ts', 'side', 'order_id', 'pred_ts',
+            'fill_ts', 'side', 'qty', 'order_id', 'pred_ts',
+            'pred_to_fill_ms', 'pred_to_hedge_ms',
             'pred_primary_price', 'pred_hedge_price', 'predicted_price_diff',
             'hedge_ts', 'actual_primary_price', 'actual_hedge_price', 'actual_price_diff',
             'primary_price_diff', 'hedge_price_diff', 'slippage',
@@ -140,7 +157,8 @@ def analyze_orders(log_file, out_csv=None):
     print()
 
     col = (
-        f"{'#':<3} {'Fill Time':<26} {'S':<5} {'Order ID':<14}"
+        f"{'#':<3} {'Fill Time':<26} {'S':<5} {'Qty':>8} {'Order ID':<14}"
+        f"{'P→Fill':>8} {'P→Hedge':>8}"
         f"{'PredPrimary':>11} {'PredHedge':>10} {'PredDiff':>9}"
         f"{'ActPrimary':>11} {'ActHedge':>10} {'ActDiff':>9}"
         f"{'PrimaryDiff':>12} {'HedgeDiff':>10} {'Slippage':>9}"
@@ -151,7 +169,8 @@ def analyze_orders(log_file, out_csv=None):
     for i, r in enumerate(matched, 1):
         s = f"{r['slippage']:+.4f}"
         print(
-            f"{i:<3} {r['fill_ts']:<26} {r['side']:<5} {r['order_id']:<14}"
+            f"{i:<3} {r['fill_ts']:<26} {r['side']:<5} {r['qty']:>8} {r['order_id']:<14}"
+            f"{r['pred_to_fill_ms']:>7}ms {r['pred_to_hedge_ms']:>7}ms"
             f"{r['pred_primary_price']:>11.2f} {r['pred_hedge_price']:>10.2f} {r['predicted_price_diff']:>9.2f}"
             f"{r['actual_primary_price']:>11.2f} {r['actual_hedge_price']:>10.2f} {r['actual_price_diff']:>9.4f}"
             f"{r['primary_price_diff']:>+12.4f} {r['hedge_price_diff']:>+10.4f} {s:>9}"
