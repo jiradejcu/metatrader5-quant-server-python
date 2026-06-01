@@ -28,7 +28,7 @@ hedge_new_pat = re.compile(
 def analyze_orders(log_file, out_csv=None):
     import os
     if out_csv is None:
-        base = os.path.splitext(os.path.basename(log_file))[0]
+        base = os.path.basename(log_file)
         out_csv = os.path.join(os.path.dirname(os.path.abspath(log_file)), f"{base}_orders.csv")
 
     price_diffs = []
@@ -191,7 +191,7 @@ def analyze_orders(log_file, out_csv=None):
 def analyze_chase_delay(log_file, out_csv=None, symbol='XAUUSDT', threshold=0.10):
     if out_csv is None:
         import os
-        base = os.path.splitext(os.path.basename(log_file))[0]
+        base = os.path.basename(log_file)
         out_csv = os.path.join(os.path.dirname(os.path.abspath(log_file)), f"{base}_chase_delay.csv")
     chase_re = re.compile(
         r'(\d{2}:\d{2}:\d{2},\d{3}).*Chase order placed: order_id=(\d+) side=(\w+) qty=([\d.]+) price=([\d.]+)'
