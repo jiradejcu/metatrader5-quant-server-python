@@ -13,6 +13,9 @@ from app.utils.position_group import update_position_group, resolve_group_id, ma
 logger = logging.getLogger(__name__)
 
 pre_order_volume = None
+_consecutive_errors = 0
+_ERROR_THRESHOLD = 3
+_POSITION_SYNC_OK_FLAG = "position_sync_ok_flag"
 
 
 def _log_entry_price_diff(redis_conn, hedge_symbol: str, primary_entry: float, trigger: str):
@@ -26,6 +29,32 @@ def _log_entry_price_diff(redis_conn, hedge_symbol: str, primary_entry: float, t
         "[EntryPriceDiff][%s] primary_entry=%.5f hedge_entry=%.5f diff=%.5f (%.3f%%)",
         trigger, primary_entry, hedge_entry, diff, diff_pct,
     )
+
+def _mark_sync_healthy(redis_conn):
+    global _consecutive_errors
+    if _consecutive_errors > 0:
+        logger.info("[PositionSync] Recovered — restoring ok flag.")
+        _consecutive_errors = 0
+    redis_conn.set(_POSITION_SYNC_OK_FLAG, "1")
+
+
+def _stop_grid_bot(reason: str):
+    try:
+        redis_conn = get_redis_connection()
+        redis_conn.delete(_POSITION_SYNC_OK_FLAG)
+        redis_conn.delete("grid_bot_active_flag")
+        logger.error("[PositionSync] Stopping grid bot: %s", reason)
+    except Exception:
+        pass
+
+
+def _mark_sync_error():
+    global _consecutive_errors
+    _consecutive_errors += 1
+    logger.warning("[PositionSync] Consecutive errors: %d/%d", _consecutive_errors, _ERROR_THRESHOLD)
+    if _consecutive_errors >= _ERROR_THRESHOLD:
+        _stop_grid_bot(f"{_consecutive_errors} consecutive errors")
+
 
 def handle_position_update(pubsub):
     global pre_order_volume
@@ -109,28 +138,34 @@ def handle_position_update(pubsub):
                         comment=make_comment(group_id),  # survives Redis restarts
                     )
 
-                    if order:
-                        fill_price = float(order.get('price', 0))
-                        fill_volume = abs(float(order.get('volume', 0)))
+                    if not order:
+                        _stop_grid_bot(f"market order failed for {hedge_symbol} (market may be closed or MT5 rejected)")
+                        continue
 
-                        if fill_price > 0 and fill_volume > 0:
-                            update_position_group(
-                                redis_conn=redis_conn,
-                                symbol=hedge_symbol,
-                                fill_price=fill_price,
-                                fill_volume=fill_volume,
-                                is_opening=is_opening,
-                                group_id=group_id,
-                            )
-                            _log_entry_price_diff(redis_conn, hedge_symbol, float(primary_entry_price), "hedge_fill")
+                    fill_price = float(order.get('price', 0))
+                    fill_volume = abs(float(order.get('volume', 0)))
 
-                        pre_order_volume = hedge_volume
-                        redis_conn.delete(f"position:mt5:{hedge_symbol}")
+                    if fill_price > 0 and fill_volume > 0:
+                        update_position_group(
+                            redis_conn=redis_conn,
+                            symbol=hedge_symbol,
+                            fill_price=fill_price,
+                            fill_volume=fill_volume,
+                            is_opening=is_opening,
+                            group_id=group_id,
+                        )
+                        _log_entry_price_diff(redis_conn, hedge_symbol, float(primary_entry_price), "hedge_fill")
+
+                    pre_order_volume = hedge_volume
+                    redis_conn.delete(f"position:mt5:{hedge_symbol}")
                 else:
                     logger.debug(f"No significant discrepancy for {received_symbol}. No action taken.")
 
+                _mark_sync_healthy(redis_conn)
+
         except Exception as e:
             logger.error(f"Error processing position update: {e}", exc_info=True)
+            _mark_sync_error()
 
 def start_position_sync():
     if os.environ.get('RUN_MAIN') != 'true':

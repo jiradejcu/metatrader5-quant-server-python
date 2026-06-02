@@ -201,6 +201,10 @@ def get_active_status():
     return get_redis_connection().get("grid_bot_active_flag")
 
 
+def get_position_sync_ok():
+    return get_redis_connection().get("position_sync_ok_flag")
+
+
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
     global latest_grid_settings, latest_ask_diff, latest_bid_diff, latest_price_ts, latest_atr, _prev_ask_diff_for_atr, _prev_bid_diff_for_atr
 
@@ -233,11 +237,13 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
             _new_price_event.clear()
             try:
                 active = get_active_status()
+                sync_ok = get_position_sync_ok()
                 allow_place_orders = (
                     latest_grid_settings is not None
                     and latest_ask_diff is not None
                     and latest_bid_diff is not None
                     and active
+                    and sync_ok
                 )
 
                 if not allow_place_orders:
@@ -245,6 +251,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key):
                         f"[Grid] Orders blocked: "
                         f"has_settings={latest_grid_settings is not None} "
                         f"has_price_diff={latest_ask_diff is not None and latest_bid_diff is not None} "
+                        f"position_sync_ok={bool(sync_ok)} "
                         f"active={bool(active)}"
                     )
                 elif latest_atr > ATR_HIGH_THRESHOLD:
