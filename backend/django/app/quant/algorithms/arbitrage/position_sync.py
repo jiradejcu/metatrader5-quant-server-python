@@ -125,12 +125,10 @@ def handle_position_update(pubsub):
                     order_volume = order_amt / contract_size
                     expected_hedge_volume = hedge_volume + order_volume
                     is_opening = abs(expected_hedge_volume) > abs(hedge_volume)
-                    is_new_position = abs(hedge_volume) < 1e-9 and is_opening
 
                     group_id = resolve_group_id(
                         redis_conn=redis_conn,
                         symbol=hedge_symbol,
-                        is_new_position=is_new_position,
                     )
 
                     order = send_market_order(

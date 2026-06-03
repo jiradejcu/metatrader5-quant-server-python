@@ -106,40 +106,32 @@ class TestGetPositionGroupId:
 
 class TestResolveGroupId:
 
-    def test_new_position_generates_fresh_id(self):
+    def test_no_existing_group_generates_fresh_id(self):
         r = FakeRedis()
         with patch("app.utils.position_group._new_group_id", return_value="NEW_GRP"):
-            gid = resolve_group_id(r, SYMBOL, is_new_position=True)
+            gid = resolve_group_id(r, SYMBOL)
         assert gid == "NEW_GRP"
 
-    def test_new_position_pre_seeds_redis(self):
+    def test_no_existing_group_pre_seeds_redis(self):
         r = FakeRedis()
         with patch("app.utils.position_group._new_group_id", return_value="SEED"):
-            resolve_group_id(r, SYMBOL, is_new_position=True)
+            resolve_group_id(r, SYMBOL)
         stored = r.load(KEY)
         assert stored["group_id"] == "SEED"
         assert stored["entry_price"] == 0.0
         assert stored["volume"] == 0.0
         assert stored["cost"] == 0.0
 
-    def test_existing_position_returns_existing_id(self):
+    def test_existing_group_returns_existing_id(self):
         r = FakeRedis({KEY: {"group_id": "EXIST", "entry_price": 1800.0, "volume": 2.0, "cost": 3600.0}})
-        gid = resolve_group_id(r, SYMBOL, is_new_position=False)
+        gid = resolve_group_id(r, SYMBOL)
         assert gid == "EXIST"
 
-    def test_recovery_fallback_when_redis_flushed(self):
-        """No Redis data for a non-new position → mint recovery ID and warn."""
-        r = FakeRedis()
-        with patch("app.utils.position_group._new_group_id", return_value="RECOVER"), \
-             patch("app.utils.position_group.logger") as mock_log:
-            gid = resolve_group_id(r, SYMBOL, is_new_position=False)
-        assert gid == "RECOVER"
-        mock_log.warning.assert_called_once()
-
-    def test_recovery_seeds_redis(self):
+    def test_seeds_redis_when_no_group_found(self):
         r = FakeRedis()
         with patch("app.utils.position_group._new_group_id", return_value="RECOVER"):
-            resolve_group_id(r, SYMBOL, is_new_position=False)
+            gid = resolve_group_id(r, SYMBOL)
+        assert gid == "RECOVER"
         stored = r.load(KEY)
         assert stored["group_id"] == "RECOVER"
 

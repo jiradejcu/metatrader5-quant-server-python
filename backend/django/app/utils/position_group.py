@@ -73,39 +73,19 @@ def get_position_group_id(redis_conn, symbol: str) -> Optional[str]:
     return group.get("group_id") if group else None
 
 
-
-def resolve_group_id(redis_conn, symbol: str, is_new_position: bool) -> str:
+def resolve_group_id(redis_conn, symbol: str) -> str:
     """
     Return the group_id to use for the *next* MT5 order on *symbol*.
 
-    - If *is_new_position* is ``True`` (hedge volume was zero before this
-      order), a brand-new group_id is generated and stored in Redis.
-    - Otherwise the existing group_id is returned (or a new one is minted if
-      Redis data is unexpectedly missing).
+    Returns the existing group_id from Redis, or creates and seeds a new one
+    if none exists (new position, Redis flush, or service restart).
     """
-    if is_new_position:
-        group_id = _new_group_id()
-        logger.info("[PositionGroup] %s new group started: group_id=%s", symbol, group_id)
-        # Pre-seed the Redis key so group_id is available even before the fill
-        # comes back.  volume/cost will be populated by update_position_group().
-        seed = {"group_id": group_id, "entry_price": 0.0, "volume": 0.0, "cost": 0.0}
-        redis_conn.set(_key(symbol), json.dumps(seed))
-        return group_id
-
     existing = get_position_group(redis_conn, symbol)
     if existing and existing.get("group_id"):
         return existing["group_id"]
 
-    # Fallback: Redis was flushed or service restarted mid-position.
-    # Mint a new ID and log a warning so the operator knows reconstruction
-    # from MT5 history may be needed.
     group_id = _new_group_id()
-    logger.warning(
-        "[PositionGroup] %s: no existing group in Redis for a non-new position. "
-        "Minting recovery group_id=%s — MT5 history reconstruction may be needed.",
-        symbol,
-        group_id,
-    )
+    logger.info("[PositionGroup] %s new group started: group_id=%s", symbol, group_id)
     seed = {"group_id": group_id, "entry_price": 0.0, "volume": 0.0, "cost": 0.0}
     redis_conn.set(_key(symbol), json.dumps(seed))
     return group_id
