@@ -146,12 +146,12 @@ def handle_position_update(pubsub):
                     fill_volume = abs(float(order.get('volume', 0)))
 
                     if fill_price > 0 and fill_volume > 0:
+                        signed_fill_volume = fill_volume if is_opening else -fill_volume
                         update_position_group(
                             redis_conn=redis_conn,
                             symbol=hedge_symbol,
                             fill_price=fill_price,
-                            fill_volume=fill_volume,
-                            is_opening=is_opening,
+                            fill_volume=signed_fill_volume,
                             group_id=group_id,
                         )
                         _log_entry_price_diff(redis_conn, hedge_symbol, float(primary_entry_price), "hedge_fill")

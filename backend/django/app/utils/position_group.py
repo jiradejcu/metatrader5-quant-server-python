@@ -96,100 +96,48 @@ def update_position_group(
     symbol: str,
     fill_price: float,
     fill_volume: float,
-    is_opening: bool,
-    group_id: Optional[str] = None,
+    group_id: str,
 ) -> float:
     """
     Record a new fill into the position group and return the updated entry price.
 
-    Parameters
-    ----------
-    redis_conn  : Redis client
-    symbol      : MT5 hedge symbol (e.g. ``"XAUUSD"``)
-    fill_price  : Actual fill price returned by MT5 (``order['price']``)
-    fill_volume : Absolute fill volume in lots (``abs(order['volume'])``)
-    is_opening  : ``True`` when the fill *increases* the absolute position size
-                  (opening or adding); ``False`` when it *decreases* it (closing).
-    group_id    : The group_id resolved before the order was placed.  If
-                  ``None``, the value already in Redis is kept.
-
-    Returns
-    -------
-    float
-        The current group entry price after the update (0.0 if the group was
-        reset because the position is now fully closed).
+    fill_volume is signed: positive = opening/adding, negative = closing/reducing.
+    VWAP is updated only on positive fills; preserved on negative fills.
+    Deletes the group when new_volume reaches zero.
     """
     existing = get_position_group(redis_conn, symbol)
-    # Prefer the caller-supplied group_id; fall back to what is in Redis.
-    resolved_id = group_id or (existing.get("group_id") if existing else _new_group_id())
+    prev_volume = float(existing["volume"]) if existing else 0.0
+    prev_cost = float(existing["cost"]) if existing else 0.0
+    prev_entry = float(existing["entry_price"]) if existing else 0.0
 
-    if is_opening:
-        if existing is None or float(existing.get("volume", 0)) == 0.0:
-            # Brand-new or just seeded group
-            group = {
-                "group_id": resolved_id,
-                "entry_price": fill_price,
-                "volume": fill_volume,
-                "cost": fill_price * fill_volume,
-            }
-        else:
-            prev_cost = float(existing["cost"])
-            prev_volume = float(existing["volume"])
-            new_cost = prev_cost + fill_price * fill_volume
-            new_volume = prev_volume + fill_volume
-            group = {
-                "group_id": resolved_id,
-                "entry_price": new_cost / new_volume if new_volume > 0 else 0.0,
-                "volume": new_volume,
-                "cost": new_cost,
-            }
-
-        redis_conn.set(_key(symbol), json.dumps(group))
-        logger.info(
-            "[PositionGroup] %s OPEN fill: group_id=%s price=%.5f vol=%.5f → "
-            "group_entry=%.5f group_vol=%.5f",
-            symbol, resolved_id, fill_price, fill_volume,
-            group["entry_price"], group["volume"],
-        )
-        return group["entry_price"]
-
-    # --- Closing fill ---
-    if existing is None:
-        logger.warning(
-            "[PositionGroup] %s: closing fill received but no group found in Redis.",
-            symbol,
-        )
-        return 0.0
-
-    prev_volume = float(existing["volume"])
-    new_volume = max(prev_volume - fill_volume, 0.0)
+    new_volume = prev_volume + fill_volume
 
     if new_volume <= 1e-9:
-        # Position fully closed — reset
         redis_conn.delete(_key(symbol))
-        logger.info(
-            "[PositionGroup] %s group_id=%s fully closed — group reset.",
-            symbol, resolved_id,
-        )
+        if existing is None and fill_volume < 0:
+            logger.warning("[PositionGroup] %s group_id=%s closing fill but no group in Redis.", symbol, group_id)
+        else:
+            logger.info("[PositionGroup] %s group_id=%s fully closed — group reset.", symbol, group_id)
         return 0.0
 
+    if fill_volume > 0:
+        new_cost = prev_cost + fill_price * fill_volume
+        entry_price = new_cost / new_volume
+    else:
+        new_cost = prev_entry * new_volume
+        entry_price = prev_entry
+
     group = {
-        "group_id": resolved_id,
-        "entry_price": float(existing["entry_price"]),
+        "group_id": group_id,
+        "entry_price": entry_price,
         "volume": new_volume,
-        # Recompute cost from entry price so future opens blend correctly
-        "cost": float(existing["entry_price"]) * new_volume,
+        "cost": new_cost,
     }
     redis_conn.set(_key(symbol), json.dumps(group))
     logger.info(
-        "[PositionGroup] %s CLOSE fill: group_id=%s vol=%.5f remaining=%.5f "
-        "group_entry UNCHANGED=%.5f",
-        symbol, resolved_id, fill_volume, new_volume, group["entry_price"],
+        "[PositionGroup] %s %s fill: group_id=%s price=%.5f vol=%.5f → "
+        "group_entry=%.5f group_vol=%.5f",
+        symbol, "OPEN" if fill_volume > 0 else "CLOSE",
+        group_id, fill_price, fill_volume, entry_price, new_volume,
     )
-    return float(existing["entry_price"])
-
-
-def reset_position_group(redis_conn, symbol: str) -> None:
-    """Forcefully clear the position group for *symbol* (e.g. on manual close)."""
-    redis_conn.delete(_key(symbol))
-    logger.info("[PositionGroup] %s group forcefully reset.", symbol)
+    return entry_price

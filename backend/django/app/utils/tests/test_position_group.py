@@ -14,7 +14,6 @@ from app.utils.position_group import (
     get_position_group_id,
     resolve_group_id,
     update_position_group,
-    reset_position_group,
     make_comment,
     _key,
 )
@@ -144,14 +143,12 @@ class TestUpdatePositionGroupOpeningFills:
 
     def test_first_open_sets_entry_price_to_fill_price(self):
         r = FakeRedis()
-        entry = update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0,
-                                      is_opening=True, group_id="G1")
+        entry = update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0, group_id="G1")
         assert entry == pytest.approx(2000.0)
 
     def test_first_open_stores_correct_group(self):
         r = FakeRedis()
-        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0, group_id="G1")
         stored = r.load(KEY)
         assert stored["group_id"] == "G1"
         assert stored["entry_price"] == pytest.approx(2000.0)
@@ -161,49 +158,34 @@ class TestUpdatePositionGroupOpeningFills:
     def test_second_open_vwap_recalculates(self):
         """Two fills at different prices → VWAP = (p1*v1 + p2*v2) / (v1+v2)."""
         r = FakeRedis()
-        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0, group_id="G1")
         # Second fill: price=2100, vol=1 → VWAP = (2000+2100)/2 = 2050
-        entry = update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=1.0,
-                                      is_opening=True, group_id="G1")
+        entry = update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=1.0, group_id="G1")
         assert entry == pytest.approx(2050.0)
 
     def test_vwap_weights_by_volume(self):
         """Larger second fill should pull VWAP towards its price."""
         r = FakeRedis()
-        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0, group_id="G1")
         # Second fill: price=2200, vol=3 → VWAP = (2000*1 + 2200*3) / 4 = 2150
-        entry = update_position_group(r, SYMBOL, fill_price=2200.0, fill_volume=3.0,
-                                      is_opening=True, group_id="G1")
+        entry = update_position_group(r, SYMBOL, fill_price=2200.0, fill_volume=3.0, group_id="G1")
         assert entry == pytest.approx(2150.0)
 
     def test_three_open_fills_vwap(self):
         r = FakeRedis()
-        update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=2.0,
-                              is_opening=True, group_id="G1")
-        update_position_group(r, SYMBOL, fill_price=1900.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
-        entry = update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0,
-                                      is_opening=True, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=2.0, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=1900.0, fill_volume=1.0, group_id="G1")
+        entry = update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0, group_id="G1")
         # (1800*2 + 1900*1 + 2000*1) / 4 = 7500/4 = 1875
         assert entry == pytest.approx(1875.0)
 
     def test_first_open_on_seeded_empty_group(self):
         """resolve_group_id pre-seeds volume=0; first fill should treat it as brand-new."""
         r = FakeRedis({KEY: {"group_id": "G1", "entry_price": 0.0, "volume": 0.0, "cost": 0.0}})
-        entry = update_position_group(r, SYMBOL, fill_price=1950.0, fill_volume=0.5,
-                                      is_opening=True, group_id="G1")
+        entry = update_position_group(r, SYMBOL, fill_price=1950.0, fill_volume=0.5, group_id="G1")
         assert entry == pytest.approx(1950.0)
         stored = r.load(KEY)
         assert stored["volume"] == pytest.approx(0.5)
-
-    def test_open_without_group_id_uses_redis_id(self):
-        """Caller omits group_id → should use whatever is already in Redis."""
-        r = FakeRedis({KEY: {"group_id": "REDIS_GRP", "entry_price": 0.0, "volume": 0.0, "cost": 0.0}})
-        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0, is_opening=True)
-        stored = r.load(KEY)
-        assert stored["group_id"] == "REDIS_GRP"
 
 
 # ---------------------------------------------------------------------------
@@ -224,31 +206,27 @@ class TestUpdatePositionGroupClosingFills:
     def test_partial_close_preserves_entry_price(self):
         r = FakeRedis()
         self._seed(r, entry_price=2000.0, volume=2.0)
-        entry = update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=1.0,
-                                      is_opening=False, group_id="G1")
+        entry = update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=-1.0, group_id="G1")
         assert entry == pytest.approx(2000.0)
 
     def test_partial_close_reduces_volume(self):
         r = FakeRedis()
         self._seed(r, entry_price=2000.0, volume=2.0)
-        update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=1.0,
-                              is_opening=False, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=-1.0, group_id="G1")
         stored = r.load(KEY)
         assert stored["volume"] == pytest.approx(1.0)
 
     def test_partial_close_keeps_entry_price_in_redis(self):
         r = FakeRedis()
         self._seed(r, entry_price=2000.0, volume=3.0)
-        update_position_group(r, SYMBOL, fill_price=2200.0, fill_volume=1.0,
-                              is_opening=False)
+        update_position_group(r, SYMBOL, fill_price=2200.0, fill_volume=-1.0, group_id="G1")
         stored = r.load(KEY)
         assert stored["entry_price"] == pytest.approx(2000.0)
 
     def test_full_close_resets_group(self):
         r = FakeRedis()
         self._seed(r, entry_price=2000.0, volume=1.0)
-        entry = update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=1.0,
-                                      is_opening=False, group_id="G1")
+        entry = update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=-1.0, group_id="G1")
         assert entry == pytest.approx(0.0)
         assert r.load(KEY) is None  # key deleted
 
@@ -256,24 +234,21 @@ class TestUpdatePositionGroupClosingFills:
         """Floating-point remainder ≤ 1e-9 should still trigger a full reset."""
         r = FakeRedis()
         self._seed(r, entry_price=1800.0, volume=1e-10)
-        entry = update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=1e-10,
-                                      is_opening=False, group_id="G1")
+        entry = update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=-1e-10, group_id="G1")
         assert entry == pytest.approx(0.0)
         assert r.load(KEY) is None
 
-    def test_close_without_group_in_redis_warns_and_returns_zero(self):
+    def test_close_with_no_group_in_redis_returns_zero(self):
         r = FakeRedis()  # empty
-        with patch("app.utils.position_group.logger") as mock_log:
-            entry = update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0,
-                                          is_opening=False, group_id="G1")
+        entry = update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=-1.0, group_id="G1")
         assert entry == pytest.approx(0.0)
-        mock_log.warning.assert_called_once()
+        assert r.load(KEY) is None
 
     def test_multiple_partial_closes_decrement_volume(self):
         r = FakeRedis()
         self._seed(r, entry_price=2000.0, volume=3.0)
-        update_position_group(r, SYMBOL, fill_price=2050.0, fill_volume=1.0, is_opening=False)
-        update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=1.0, is_opening=False)
+        update_position_group(r, SYMBOL, fill_price=2050.0, fill_volume=-1.0, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=-1.0, group_id="G1")
         stored = r.load(KEY)
         assert stored["volume"] == pytest.approx(1.0)
         assert stored["entry_price"] == pytest.approx(2000.0)  # unchanged throughout
@@ -292,24 +267,18 @@ class TestUpdatePositionGroupLifecycle:
         Phase 3: open 1 lot   @ 2200 → VWAP=(2000*1 + 2200*1)/2 = 2100
         """
         r = FakeRedis()
-        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=2.0,
-                              is_opening=True, group_id="G1")
-        update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=1.0,
-                              is_opening=False, group_id="G1")
-        entry = update_position_group(r, SYMBOL, fill_price=2200.0, fill_volume=1.0,
-                                      is_opening=True, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=2.0, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=-1.0, group_id="G1")
+        entry = update_position_group(r, SYMBOL, fill_price=2200.0, fill_volume=1.0, group_id="G1")
         assert entry == pytest.approx(2100.0)
 
     def test_full_close_then_new_open_uses_new_price(self):
         """After full close (group deleted), next open starts fresh."""
         r = FakeRedis()
-        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
-        update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=1.0,
-                              is_opening=False, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=2100.0, fill_volume=-1.0, group_id="G1")
         # Now fully closed — open a new position
-        entry = update_position_group(r, SYMBOL, fill_price=2300.0, fill_volume=1.0,
-                                      is_opening=True, group_id="G2")
+        entry = update_position_group(r, SYMBOL, fill_price=2300.0, fill_volume=1.0, group_id="G2")
         assert entry == pytest.approx(2300.0)
 
     def test_group_vwap_not_affected_by_close_price(self):
@@ -318,29 +287,10 @@ class TestUpdatePositionGroupLifecycle:
         Open @ 1800 and 1900 → VWAP=1850. Close @ 2500 → VWAP still 1850.
         """
         r = FakeRedis()
-        update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
-        update_position_group(r, SYMBOL, fill_price=1900.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
-        entry = update_position_group(r, SYMBOL, fill_price=2500.0, fill_volume=1.0,
-                                      is_opening=False, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=1.0, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=1900.0, fill_volume=1.0, group_id="G1")
+        entry = update_position_group(r, SYMBOL, fill_price=2500.0, fill_volume=-1.0, group_id="G1")
         assert entry == pytest.approx(1850.0)
-
-
-# ---------------------------------------------------------------------------
-# reset_position_group
-# ---------------------------------------------------------------------------
-
-class TestResetPositionGroup:
-
-    def test_deletes_key(self):
-        r = FakeRedis({KEY: {"group_id": "G1", "entry_price": 2000.0, "volume": 1.0, "cost": 2000.0}})
-        reset_position_group(r, SYMBOL)
-        assert r.load(KEY) is None
-
-    def test_no_error_when_key_absent(self):
-        r = FakeRedis()
-        reset_position_group(r, SYMBOL)  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -385,10 +335,8 @@ class TestEntryPriceVsCurrentEntryPrice:
         Both group VWAP and current-entry VWAP reflect the same weighted average.
         """
         r = FakeRedis()
-        update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
-        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=1.0, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0, group_id="G1")
 
         group_entry = r.load(KEY)["entry_price"]                # 1900.0
 
@@ -413,15 +361,12 @@ class TestEntryPriceVsCurrentEntryPrice:
         The two values are now different.
         """
         r = FakeRedis()
-        update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
-        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=1.0, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0, group_id="G1")
 
         # Close lot A — group VWAP must remain unchanged
         group_entry_after_close = update_position_group(
-            r, SYMBOL, fill_price=2100.0, fill_volume=1.0,
-            is_opening=False, group_id="G1",
+            r, SYMBOL, fill_price=2100.0, fill_volume=-1.0, group_id="G1",
         )
 
         # Only lot B is still open
@@ -444,14 +389,11 @@ class TestEntryPriceVsCurrentEntryPrice:
         Gap is now in the opposite direction: group VWAP > current entry.
         """
         r = FakeRedis()
-        update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
-        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=1.0, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0, group_id="G1")
 
         group_entry_after_close = update_position_group(
-            r, SYMBOL, fill_price=2100.0, fill_volume=1.0,
-            is_opening=False, group_id="G1",
+            r, SYMBOL, fill_price=2100.0, fill_volume=-1.0, group_id="G1",
         )
 
         # Only lot A (opened at 1800) remains
@@ -473,16 +415,12 @@ class TestEntryPriceVsCurrentEntryPrice:
         currentEntryPrice = (1900*1 + 2000*1) / 2 = 1950 (remaining 2 lots).
         """
         r = FakeRedis()
-        update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
-        update_position_group(r, SYMBOL, fill_price=1900.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
-        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0,
-                              is_opening=True, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=1800.0, fill_volume=1.0, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=1900.0, fill_volume=1.0, group_id="G1")
+        update_position_group(r, SYMBOL, fill_price=2000.0, fill_volume=1.0, group_id="G1")
 
         group_entry_after_close = update_position_group(
-            r, SYMBOL, fill_price=2200.0, fill_volume=1.0,
-            is_opening=False, group_id="G1",
+            r, SYMBOL, fill_price=2200.0, fill_volume=-1.0, group_id="G1",
         )
 
         # Lots B and C remain
