@@ -98,6 +98,8 @@ def handle_position_update(pubsub):
                         continue
                     logger.debug(f"MT5 position confirmed: {pre_order_volume} → {hedge_volume}.")
                     pre_order_volume = None
+                    redis_conn.delete(f"position:mt5:{hedge_symbol}")
+                    continue
 
                 logger.debug(
                     f"Hedge Position {hedge_exchange}:{hedge_symbol} - "
