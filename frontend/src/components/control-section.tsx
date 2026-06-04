@@ -4,6 +4,7 @@ import { useStreamQuantMaster } from "../hooks/stream-master-data";
 import { useGetSummaryStreamData } from "../hooks/summary";
 import type { ICardSection } from "../interfaces/control-panel.interface";
 import { GridSettingModal } from "./grid-setting-modals";
+import { TradingSessionsModal } from "./trading-sessions-modal";
 import PausePositionBtn from "./pause-btn";
 import RestartBotContainerBtn from "./restart-container-btn";
 // import StopBotContainerBtn from "./stop-container-btn";
@@ -35,6 +36,11 @@ export const ControlSection = (arg: ICardSection) => {
             <h3 className="text-base font-semibold text-[#705A5A] dark:text-[#c49a9a] mb-4">{activeUser?.name}</h3>
             {/* grid parameter settings */}
             <GridSettingModal
+              url={apiUrl}
+            />
+
+            {/* trading session schedule */}
+            <TradingSessionsModal
               url={apiUrl}
             />
 

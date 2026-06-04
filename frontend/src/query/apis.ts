@@ -135,6 +135,36 @@ export async function getArbitrageSummary(API_BASE_URL: string): Promise<Respons
   return response
 }
 
+export type TimeRange = { start: string; end: string };
+export type TradingSessions = Record<string, TimeRange[]>;
+
+export async function getTradingSessions(API_BASE_URL: string): Promise<TradingSessions> {
+  const url = `${API_BASE_URL}/trading-sessions`;
+  const response = await fetch(url, { method: 'GET' });
+  if (!response.ok) throw new Error(`Failed to get trading sessions: ${response.statusText}`);
+  const body = await response.json();
+  return body.data as TradingSessions;
+}
+
+export async function setTradingSessions(API_BASE_URL: string, sessions: TradingSessions): Promise<void> {
+  const url = `${API_BASE_URL}/trading-sessions`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(sessions),
+  });
+  if (!response.ok) {
+    let messages: string[];
+    try {
+      const body = await response.json();
+      messages = typeof body.message === 'string' ? [body.message] : [response.statusText];
+    } catch {
+      messages = [response.statusText];
+    }
+    throw new ApiError(messages);
+  }
+}
+
 export async function getActiveUserInfo(API_BASE_URL: string): Promise<Response> {
   const url =`${API_BASE_URL}/user-info`
   const response = await fetch(url, {
