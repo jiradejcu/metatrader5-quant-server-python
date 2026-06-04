@@ -233,6 +233,83 @@ def plot_sim_comparison(
     print(f"Saved to {out_file}")
 
 
+def plot_stale_ticker(
+    log_file: str,
+    side: str = "both",          # "primary", "hedge", or "both"
+    time_from: datetime = None,
+    time_to: datetime = None,
+    out_file: str = None,
+):
+    """Plot ticker age (ms) over time for stale ticker events.
+
+    side="primary"  — only primary ticker stale events
+    side="hedge"    — only hedge ticker stale events
+    side="both"     — both series on the same axes
+    """
+    if side not in ("primary", "hedge", "both"):
+        raise ValueError(f"side must be 'primary', 'hedge', or 'both', got {side!r}")
+
+    if out_file is None:
+        out_file = f"/app/logs/stale_ticker_{side}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+
+    stale_re = re.compile(
+        r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) "
+        r".*Stale (primary|hedge) ticker for \S+: ([\d.]+)ms old"
+    )
+
+    primary_times, primary_ages = [], []
+    hedge_times,   hedge_ages   = [], []
+
+    with open(log_file) as f:
+        for line in f:
+            m = stale_re.search(line)
+            if not m:
+                continue
+            ts   = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S,%f")
+            which = m.group(2)
+            age  = float(m.group(3))
+            if which == "primary":
+                primary_times.append(ts)
+                primary_ages.append(age)
+            else:
+                hedge_times.append(ts)
+                hedge_ages.append(age)
+
+    print(f"primary stale events: {len(primary_times)}")
+    print(f"hedge   stale events: {len(hedge_times)}")
+
+    fig, ax = plt.subplots(figsize=(18, 6))
+
+    if side in ("primary", "both") and primary_times:
+        ax.scatter(primary_times, primary_ages, color='steelblue', s=4, alpha=0.5,
+                   label=f'primary ticker age ({len(primary_times)} events)')
+    if side in ("hedge", "both") and hedge_times:
+        ax.scatter(hedge_times, hedge_ages, color='tomato', s=4, alpha=0.5,
+                   label=f'hedge ticker age ({len(hedge_times)} events)')
+
+    if time_from and time_to:
+        ax.set_xlim(time_from, time_to)
+
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    fig.autofmt_xdate()
+
+    side_label = {"primary": "primary", "hedge": "hedge", "both": "primary & hedge"}[side]
+    title_range = (
+        f" — {time_from.strftime('%Y-%m-%d')} ({time_from.strftime('%H:%M')}–{time_to.strftime('%H:%M')})"
+        if time_from and time_to else ""
+    )
+    ax.set_title(f'Stale ticker age — {side_label}{title_range}', fontsize=13)
+    ax.set_xlabel('Time')
+    ax.set_ylabel('Ticker age (ms)')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(out_file, dpi=150)
+    print(f"Saved to {out_file}")
+
+
 if __name__ == "__main__":
     if "--sim-log" in sys.argv:
         idx = sys.argv.index("--sim-log")
@@ -250,3 +327,9 @@ if __name__ == "__main__":
         log = sys.argv[idx + 1]
         out = sys.argv[idx + 2] if idx + 2 < len(sys.argv) else None
         plot_price_diff(log_file=log, out_file=out)
+    elif "--stale-ticker" in sys.argv:
+        idx = sys.argv.index("--stale-ticker")
+        log  = sys.argv[idx + 1]
+        side = sys.argv[idx + 2] if idx + 2 < len(sys.argv) and sys.argv[idx + 2] in ("primary", "hedge", "both") else "both"
+        out  = sys.argv[idx + 3] if idx + 3 < len(sys.argv) and sys.argv[idx + 2] in ("primary", "hedge", "both") else (sys.argv[idx + 2] if idx + 2 < len(sys.argv) and sys.argv[idx + 2] not in ("primary", "hedge", "both") else None)
+        plot_stale_ticker(log_file=log, side=side, out_file=out)
