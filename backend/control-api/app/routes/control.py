@@ -273,6 +273,65 @@ def set_grid_setting_values():
         }), 500
 
 
+_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+def _trading_sessions_key():
+    primary_symbol = PAIRS[PAIR_INDEX]['primary']['symbol']
+    hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
+    return f"trading_sessions:{primary_symbol}:{hedge_symbol}"
+
+
+@control_bp.route('/trading-sessions', methods=['GET'])
+def get_trading_sessions():
+    try:
+        redis_conn = get_redis_connection()
+        raw = redis_conn.get(_trading_sessions_key())
+        if not raw:
+            default = {day: [] for day in _DAYS}
+            return jsonify({'status': 'successful', 'data': default}), 200
+        return jsonify({'status': 'successful', 'data': json.loads(raw)}), 200
+    except Exception as e:
+        logger.error(f"Get trading sessions error: {e}")
+        return jsonify({'status': 'error', 'reason': str(e)}), 500
+
+
+@control_bp.route('/trading-sessions', methods=['POST'])
+def set_trading_sessions():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': 'Request body required'}), 400
+
+        # Validate structure
+        for day in _DAYS:
+            if day not in data:
+                return jsonify({'status': 'error', 'message': f'Missing day: {day}'}), 400
+            for r in data[day]:
+                if 'start' not in r or 'end' not in r:
+                    return jsonify({'status': 'error', 'message': f'Each range must have start and end for {day}'}), 400
+                for field in ('start', 'end'):
+                    parts = r[field].split(':')
+                    if len(parts) != 2 or not all(p.isdigit() for p in parts):
+                        return jsonify({'status': 'error', 'message': f'Invalid time format "{r[field]}" for {day}'}), 400
+                    h, m = int(parts[0]), int(parts[1])
+                    if not (0 <= h <= 24 and 0 <= m <= 59):
+                        return jsonify({'status': 'error', 'message': f'Invalid time value "{r[field]}" for {day}'}), 400
+
+        ordered = {
+            day: [{'start': r['start'], 'end': r['end']} for r in data[day]]
+            for day in _DAYS
+        }
+
+        redis_conn = get_redis_connection()
+        redis_conn.set(_trading_sessions_key(), json.dumps(ordered))
+
+        logger.info(f"Trading sessions updated: {ordered}")
+        return jsonify({'status': 'successful', 'data': ordered}), 200
+    except Exception as e:
+        logger.error(f"Set trading sessions error: {e}")
+        return jsonify({'status': 'error', 'reason': str(e)}), 500
+
+
 @control_bp.route('/stream/quants', methods=['GET'])
 def stream_quant_master_data():
     return Response(stream_with_context(event_quants_master_data()), mimetype="text/event-stream")
