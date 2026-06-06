@@ -81,10 +81,11 @@ def fetch_data_range(symbol: str, timeframe: MT5Timeframe, from_date: datetime, 
 STALE_THRESHOLD = 30  # seconds without a tick before logging a warning
 
 
-def subscribe_symbol_ticker(symbol: str):
+def subscribe_symbol_ticker(symbol: str, timezone_offset_hours: int = 0):
     logger.info(f"Starting MT5 ticker subscription for {symbol}.")
     first_message_received = False
     last_success_time = time.time()
+    timezone_offset_ms = timezone_offset_hours * 3600 * 1000
 
     while True:
         tick = symbol_info_tick(symbol)
@@ -97,7 +98,7 @@ def subscribe_symbol_ticker(symbol: str):
             try:
                 ask = float(tick['ask'].iloc[0]) if 'ask' in tick else 0
                 bid = float(tick['bid'].iloc[0]) if 'bid' in tick else 0
-                event_ts = int(tick['time_msc'].iloc[0])
+                event_ts = int(tick['time_msc'].iloc[0]) - timezone_offset_ms
 
                 ticker_key = f"ticker:mt5:{symbol}"
                 payload = json.dumps({"best_ask": ask, "best_bid": bid, "event_ts": event_ts})

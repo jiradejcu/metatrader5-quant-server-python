@@ -46,4 +46,5 @@ class QuantConfig(AppConfig):
 
             if hedge_exchange == 'mt5':
                 from app.utils.api.data import subscribe_symbol_ticker as subscribe_mt5_ticker
-                threading.Thread(target=subscribe_mt5_ticker, args=(hedge_symbol,), daemon=True).start()
+                timezone_offset_hours = pair.get('timezone_offset_hours', 0)
+                threading.Thread(target=subscribe_mt5_ticker, args=(hedge_symbol, timezone_offset_hours), daemon=True).start()
