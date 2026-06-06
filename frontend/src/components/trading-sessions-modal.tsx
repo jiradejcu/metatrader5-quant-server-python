@@ -71,7 +71,7 @@ export const TradingSessionsModal = ({ url }: IDokcerAPIBtnProps) => {
     const sessionStatus: string | null = isFetchError
         ? 'Unknown'
         : isAllEmpty
-        ? 'Grid bot always active'
+        ? 'No trading hours set — grid bot runs without session restrictions'
         : null;
 
     useEffect(() => {
