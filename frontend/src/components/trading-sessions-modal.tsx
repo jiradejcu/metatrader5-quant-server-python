@@ -60,16 +60,28 @@ export const TradingSessionsModal = ({ url }: IDokcerAPIBtnProps) => {
     const [notification, setNotification] = useState<{ type: 'success' | 'error'; messages: string[] } | null>(null);
     const queryClient = useQueryClient();
 
-    const { data: fetched } = useQuery<TradingSessions>({
+    const { data: fetched, isError: isFetchError } = useQuery<TradingSessions>({
         queryKey: ['trading-sessions', url],
         queryFn: () => getTradingSessions(url),
-        enabled: isOpen,
         staleTime: 30 * SECOND,
+        retry: false,
     });
 
+    const isAllEmpty = fetched !== undefined && DAYS.every((d) => (fetched[d] ?? []).length === 0);
+    const sessionStatus: string | null = isFetchError
+        ? 'Unknown'
+        : isAllEmpty
+        ? 'Grid bot always active'
+        : null;
+
     useEffect(() => {
-        if (fetched) setSessions(fetched);
-    }, [fetched]);
+        setSessions(DEFAULT_SESSIONS);
+        setNotification(null);
+    }, [url]);
+
+    useEffect(() => {
+        if (isOpen && fetched != null) setSessions(fetched);
+    }, [isOpen, fetched]);
 
     const saveMutation = useMutation({
         mutationFn: () => setTradingSessions(url, sessions),
@@ -124,6 +136,11 @@ export const TradingSessionsModal = ({ url }: IDokcerAPIBtnProps) => {
             >
                 Trading Sessions
             </button>
+            {sessionStatus && (
+                <p className={`text-xs mt-1 font-medium ${isFetchError ? 'text-red-500' : 'text-green-600'}`}>
+                    {sessionStatus}
+                </p>
+            )}
 
             <div
                 onClick={() => setIsOpen(false)}
@@ -152,36 +169,42 @@ export const TradingSessionsModal = ({ url }: IDokcerAPIBtnProps) => {
                             <p className="text-xs text-slate-500 mt-1">Times are UTC. "24:00" = end of day.</p>
                         </div>
 
-                        <div className="space-y-3">
-                            {DAYS.map((day) => (
-                                <div key={day} className="border border-slate-100 rounded-lg px-3 py-2 bg-slate-50">
-                                    <div className="flex items-center justify-between mb-1.5">
-                                        <span className="text-sm font-bold text-slate-700 w-24">{day}</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => addRange(day)}
-                                            className="text-xs text-blue-600 hover:text-blue-800 font-semibold"
-                                        >
-                                            + Add
-                                        </button>
-                                    </div>
-                                    {(sessions[day] ?? []).length === 0 ? (
-                                        <span className="text-xs text-slate-400 italic">Closed</span>
-                                    ) : (
-                                        <div className="flex flex-col gap-1">
-                                            {(sessions[day] ?? []).map((range, idx) => (
-                                                <TimeRangeInput
-                                                    key={idx}
-                                                    range={range}
-                                                    onChange={(r) => updateRange(day, idx, r)}
-                                                    onRemove={() => removeRange(day, idx)}
-                                                />
-                                            ))}
+                        {isFetchError ? (
+                            <div className="py-6 text-center text-sm font-semibold text-red-500">
+                                {sessionStatus}
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {DAYS.map((day) => (
+                                    <div key={day} className="border border-slate-100 rounded-lg px-3 py-2 bg-slate-50">
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <span className="text-sm font-bold text-slate-700 w-24">{day}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => addRange(day)}
+                                                className="text-xs text-blue-600 hover:text-blue-800 font-semibold"
+                                            >
+                                                + Add
+                                            </button>
                                         </div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
+                                        {(sessions[day] ?? []).length === 0 ? (
+                                            <span className="text-xs text-slate-400 italic">Closed</span>
+                                        ) : (
+                                            <div className="flex flex-col gap-1">
+                                                {(sessions[day] ?? []).map((range, idx) => (
+                                                    <TimeRangeInput
+                                                        key={idx}
+                                                        range={range}
+                                                        onChange={(r) => updateRange(day, idx, r)}
+                                                        onRemove={() => removeRange(day, idx)}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
 
                         {notification && (
                             <div className={`mt-4 px-4 py-3 rounded-lg border text-sm font-semibold ${
