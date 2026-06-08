@@ -170,6 +170,13 @@ def _process_tick(primary_symbol, upper_limit, lower_limit, max_pos, order_size,
         ask_diff = latest_ask_diff
         bid_diff = latest_bid_diff
 
+    if latest_atr > ATR_HIGH_THRESHOLD:
+        logger.warning(
+            f"[Grid] High volatility — skipping tick: "
+            f"ATR={latest_atr:.3f} > threshold={ATR_HIGH_THRESHOLD}"
+        )
+        return
+
     logger.debug(
         f"position={position_amt} open_orders={len(open_orders or [])} "
         f"net_pending={net_pending} max_pos={max_pos} ask_diff={ask_diff:.2f} bid_diff={bid_diff:.2f}"
@@ -293,11 +300,6 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key, hedge_symbol):
                     )
                 elif not _is_within_trading_session(primary_symbol, hedge_symbol):
                     logger.debug("[Grid] Outside trading session — skipping tick")
-                elif latest_atr > ATR_HIGH_THRESHOLD:
-                    logger.warning(
-                        f"[Grid] High volatility — skipping tick: "
-                        f"ATR={latest_atr:.3f} > threshold={ATR_HIGH_THRESHOLD}"
-                    )
                 else:
                     upper = latest_grid_settings['upper']
                     lower = latest_grid_settings['lower']
