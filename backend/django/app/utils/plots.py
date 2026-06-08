@@ -35,12 +35,12 @@ def plot_price_diff(
     stale_re = re.compile(
         r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) "
         r"app\.quant\.algorithms\.arbitrage\.price_diff.*"
-        r"Stale (?:primary|hedge) ticker for \S+: ([\d.]+)ms old"
+        r"Stale (primary|hedge) ticker for \S+: ([\d.]+)ms old"
     )
 
     price_diff_times, price_diff_values = [], []
     grid_bot_times, grid_bot_values = [], []
-    stale_times = []
+    primary_stale_times, hedge_stale_times = [], []
 
     with open(log_file) as f:
         for line in f:
@@ -58,17 +58,25 @@ def plot_price_diff(
                 continue
             m = stale_re.search(line)
             if m:
-                stale_times.append(datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S,%f"))
+                ts = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S,%f")
+                if m.group(2) == "primary":
+                    primary_stale_times.append(ts)
+                else:
+                    hedge_stale_times.append(ts)
 
-    print(f"price_diff points: {len(price_diff_times)}")
-    print(f"grid_bot points:   {len(grid_bot_times)}")
-    print(f"stale events:      {len(stale_times)}")
+    print(f"price_diff points:    {len(price_diff_times)}")
+    print(f"grid_bot points:      {len(grid_bot_times)}")
+    print(f"primary stale events: {len(primary_stale_times)}")
+    print(f"hedge stale events:   {len(hedge_stale_times)}")
 
     fig, ax = plt.subplots(figsize=(18, 6))
 
-    for i, t in enumerate(stale_times):
+    for i, t in enumerate(primary_stale_times):
         ax.axvline(t, color='orange', linewidth=0.4, alpha=0.25, zorder=0,
-                   label='stale ticker (skipped)' if i == 0 else None)
+                   label='primary stale' if i == 0 else None)
+    for i, t in enumerate(hedge_stale_times):
+        ax.axvline(t, color='mediumpurple', linewidth=0.4, alpha=0.25, zorder=0,
+                   label='hedge stale' if i == 0 else None)
 
     ax.plot(price_diff_times, price_diff_values, color='steelblue', linewidth=0.8,
             alpha=0.9, label='price_diff module (ask_diff)')
