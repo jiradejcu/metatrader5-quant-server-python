@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 import matplotlib
@@ -6,6 +7,12 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from datetime import datetime
 
+
+def _log_stem(log_file: str) -> str:
+    """Filename of a log file without its directory, for use in plot output names."""
+    return os.path.basename(log_file)
+
+
 def plot_price_diff(
     log_file: str,
     time_from: datetime = None,
@@ -13,7 +20,7 @@ def plot_price_diff(
     out_file: str = None,
 ):
     if out_file is None:
-        out_file = f"/app/logs/price_diff_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        out_file = f"/app/logs/price_diff_comparison_{_log_stem(log_file)}.png"
 
     price_diff_re = re.compile(
         r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) "
@@ -102,7 +109,7 @@ def plot_sim_price_diff(
       - dropped    : ticks rejected as stale (marked with red X)
     """
     if out_file is None:
-        out_file = f"/app/logs/sim_price_diff_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        out_file = f"/app/logs/sim_price_diff_{_log_stem(log_file)}.png"
 
     ts_pat = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})"
     published_re = re.compile(
@@ -171,7 +178,7 @@ def plot_sim_comparison(
     """Side-by-side comparison: before fix (all stale accepted) vs after fix (stale dropped)."""
 
     if out_file is None:
-        out_file = f"/app/logs/sim_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        out_file = f"/app/logs/sim_comparison_{_log_stem(before_log)}_vs_{_log_stem(after_log)}.png"
 
     def _parse(log_file):
         ts_pat = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})"
@@ -250,7 +257,7 @@ def plot_stale_ticker(
         raise ValueError(f"side must be 'primary', 'hedge', or 'both', got {side!r}")
 
     if out_file is None:
-        out_file = f"/app/logs/stale_ticker_{side}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        out_file = f"/app/logs/stale_ticker_{side}_{_log_stem(log_file)}.png"
 
     stale_re = re.compile(
         r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) "
