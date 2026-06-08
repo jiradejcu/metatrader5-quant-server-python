@@ -23,7 +23,7 @@ latest_atr = 0.0
 _prev_ask_diff_for_atr = None
 _prev_bid_diff_for_atr = None
 
-ATR_PERIOD = int(os.getenv('ATR_PERIOD', '14'))
+ATR_PERIOD = int(os.getenv('ATR_PERIOD', '7'))
 _ATR_ALPHA = 2.0 / (ATR_PERIOD + 1)
 ATR_HIGH_THRESHOLD = float(os.getenv('ATR_HIGH_THRESHOLD', '0.3'))
 
