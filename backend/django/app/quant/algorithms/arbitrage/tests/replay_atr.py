@@ -11,6 +11,9 @@ Usage:
   # Test specific params
   python replay_atr.py path/to/quant.log --period 5 --threshold 0.25
 
+  # Mark ticks where the grid would signal SHORT/LONG (mirrors _determine_zone)
+  python replay_atr.py path/to/quant.log --upper-limit 4.20 --lower-limit 0.00
+
   # Grid scan: show a table of blocked-tick % for every period × threshold combo
   python replay_atr.py path/to/quant.log --scan
 
@@ -64,11 +67,15 @@ def parse_logs(paths):
     return events
 
 
-def simulate_atr(events, period, threshold):
+def simulate_atr(events, period, threshold, upper_limit=None, lower_limit=None):
     """
     Mirror the exact ATR logic from grid_bot.py:
       tr  = max(|new_ask - prev_ask|, |new_bid - prev_bid|)
       atr = alpha * tr + (1 - alpha) * atr      (EMA, starts at 0)
+
+    Also mirrors grid_bot.py's _determine_zone():
+      ask_diff >= upper_limit -> SHORT
+      bid_diff <= lower_limit -> LONG
     Returns a list of per-tick result dicts.
     """
     alpha = 2.0 / (period + 1)
@@ -81,6 +88,13 @@ def simulate_atr(events, period, threshold):
         if prev_ask is not None:
             tr = max(abs(ask - prev_ask), abs(bid - prev_bid))
             atr = alpha * tr + (1 - alpha) * atr
+
+        zone = None
+        if upper_limit is not None and ask >= upper_limit:
+            zone = "SHORT"
+        elif lower_limit is not None and bid <= lower_limit:
+            zone = "LONG"
+
         results.append({
             "wall_ts": ev["wall_ts"],
             "event_ts": ev["event_ts"],
@@ -89,14 +103,16 @@ def simulate_atr(events, period, threshold):
             "tr": tr,
             "atr": atr,
             "blocked": atr > threshold,
+            "zone": zone,
         })
         prev_ask, prev_bid = ask, bid
     return results
 
 
-def print_trace(results, threshold, p=print):
-    p(f"\n{'Time':12s}  {'ask_diff':>9s}  {'bid_diff':>9s}  {'TR':>7s}  {'ATR':>7s}  Status")
-    p("-" * 66)
+def print_trace(results, threshold, show_zone=False, p=print):
+    zone_hdr = f"  {'Zone':>5s}" if show_zone else ""
+    p(f"\n{'Time':12s}  {'ask_diff':>9s}  {'bid_diff':>9s}  {'TR':>7s}  {'ATR':>7s}{zone_hdr}  Status")
+    p("-" * (66 + len(zone_hdr)))
     prev_blocked = False
     for r in results:
         ts_str = r["wall_ts"].strftime("%H:%M:%S.%f")[:-3]
@@ -105,7 +121,8 @@ def print_trace(results, threshold, p=print):
             status = "BLOCKED" + (" <-- first" if not prev_blocked else "")
         else:
             status = "ok" + (" (resumed)" if prev_blocked else "")
-        p(f"{ts_str:12s}  {r['ask_diff']:9.2f}  {r['bid_diff']:9.2f}  {tr_str:>7s}  {r['atr']:7.3f}  {status}")
+        zone_str = f"  {r['zone'] or '':>5s}" if show_zone else ""
+        p(f"{ts_str:12s}  {r['ask_diff']:9.2f}  {r['bid_diff']:9.2f}  {tr_str:>7s}  {r['atr']:7.3f}{zone_str}  {status}")
         prev_blocked = r["blocked"]
 
 
@@ -145,10 +162,14 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument("logs", nargs="+", help="Log file(s) or glob pattern")
-    parser.add_argument("--period", type=int, default=14,
-                        help="ATR EMA period (default: 14, matches ATR_PERIOD env)")
+    parser.add_argument("--period", type=int, default=7,
+                        help="ATR EMA period (default: 7, matches ATR_PERIOD env)")
     parser.add_argument("--threshold", type=float, default=0.3,
                         help="ATR block threshold (default: 0.3, matches ATR_HIGH_THRESHOLD env)")
+    parser.add_argument("--upper-limit", type=float, default=None,
+                        help="Grid upper_limit; ticks with ask_diff >= this are marked SHORT")
+    parser.add_argument("--lower-limit", type=float, default=None,
+                        help="Grid lower_limit; ticks with bid_diff <= this are marked LONG")
     parser.add_argument("--scan", action="store_true",
                         help="Grid scan: print summary table for multiple period × threshold combos")
     parser.add_argument("--scan-periods", default="3,5,7,10,14,20",
@@ -181,7 +202,12 @@ def main():
         elif args.scan:
             out_path = paths[0] + ".atr.txt"
         else:
-            out_path = f"{paths[0]}.atr.p{args.period}_t{args.threshold}.txt"
+            suffix = f".atr.p{args.period}_t{args.threshold}"
+            if args.upper_limit is not None:
+                suffix += f"_u{args.upper_limit}"
+            if args.lower_limit is not None:
+                suffix += f"_l{args.lower_limit}"
+            out_path = f"{paths[0]}{suffix}.txt"
 
     out = open(out_path, "w", encoding="utf-8") if out_path else sys.stdout
 
@@ -208,14 +234,24 @@ def _run(args, events, paths, p):
             sys.exit(1)
         print_scan(events, periods, thresholds, args.period, args.threshold, p)
 
-    results = simulate_atr(events, args.period, args.threshold)
+    show_zone = args.upper_limit is not None or args.lower_limit is not None
+    results = simulate_atr(events, args.period, args.threshold, args.upper_limit, args.lower_limit)
     s = _summary(results, args.period, args.threshold)
     p(f"\nSimulation  period={args.period}  threshold={args.threshold}")
     p(f"  Ticks: {s['n']}  Blocked: {s['blocked']} ({s['pct']:.1f}%)  "
       f"Peak ATR: {s['peak_atr']:.3f}  Crossings: {s['crossings']}")
 
+    if show_zone:
+        shorts = sum(1 for r in results if r["zone"] == "SHORT")
+        longs = sum(1 for r in results if r["zone"] == "LONG")
+        shorts_blocked = sum(1 for r in results if r["zone"] == "SHORT" and r["blocked"])
+        longs_blocked = sum(1 for r in results if r["zone"] == "LONG" and r["blocked"])
+        p(f"  Zones (upper={args.upper_limit}, lower={args.lower_limit}): "
+          f"SHORT={shorts} ({100 * shorts / s['n']:.1f}%, {shorts_blocked} blocked)  "
+          f"LONG={longs} ({100 * longs / s['n']:.1f}%, {longs_blocked} blocked)")
+
     if not args.no_trace:
-        print_trace(results, args.threshold, p)
+        print_trace(results, args.threshold, show_zone, p)
 
 
 if __name__ == "__main__":
