@@ -16,6 +16,11 @@ filled_pat = re.compile(
     r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*\[UserDataStream\] Order FILLED: "
     r"side=(\w+) fill_price=([0-9.]+) avg_price=[0-9.]+ qty=([0-9.]+)/[0-9.]+ order_id=(\d+)"
 )
+# Order placement (the moment the order_id was first opened on the book)
+placed_pat = re.compile(
+    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*Chase order placed: "
+    r"order_id=(\d+) side=(\w+) qty=([0-9.]+) price=([0-9.]+)"
+)
 # MT5 new hedge (action=1): price is request[5]
 hedge_new_pat = re.compile(
     r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*Order successful:.*?"
@@ -36,6 +41,7 @@ def analyze_orders(log_file, out_csv=None):
     price_diffs = []
     fills = []
     hedges_new = []
+    placements = {}
     filtered_lines = []
 
     with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
@@ -43,7 +49,7 @@ def analyze_orders(log_file, out_csv=None):
             m = price_diff_pat.search(line)
             if m:
                 price_diffs.append({
-                    'ts_str': m.group(1), 'ts_dt': datetime.strptime(m.group(1), ts_fmt),
+                    'ts_str': m.group(1).replace(',', '.'), 'ts_dt': datetime.strptime(m.group(1), ts_fmt),
                     'ask_diff': float(m.group(2)), 'bid_diff': float(m.group(3)),
                     'primary_ask': float(m.group(4)), 'hedge_ask': float(m.group(5)),
                     'primary_bid': float(m.group(6)), 'hedge_bid': float(m.group(7)),
@@ -53,7 +59,7 @@ def analyze_orders(log_file, out_csv=None):
             m = filled_pat.search(line)
             if m:
                 fills.append({
-                    'ts_str': m.group(1), 'ts_dt': datetime.strptime(m.group(1), ts_fmt),
+                    'ts_str': m.group(1).replace(',', '.'), 'ts_dt': datetime.strptime(m.group(1), ts_fmt),
                     'side': m.group(2), 'fill_price': float(m.group(3)), 'qty': float(m.group(4)), 'order_id': m.group(5)
                 })
                 filtered_lines.append((fills[-1]['ts_dt'], line))
@@ -61,11 +67,22 @@ def analyze_orders(log_file, out_csv=None):
             m = hedge_new_pat.search(line)
             if m:
                 hedges_new.append({
-                    'ts_str': m.group(1), 'ts_dt': datetime.strptime(m.group(1), ts_fmt),
+                    'ts_str': m.group(1).replace(',', '.'), 'ts_dt': datetime.strptime(m.group(1), ts_fmt),
                     'volume': float(m.group(2)), 'price': float(m.group(3)),
                     'used': False
                 })
                 filtered_lines.append((hedges_new[-1]['ts_dt'], line))
+                continue
+            m = placed_pat.search(line)
+            if m:
+                order_id = m.group(2)
+                # Keep the first placement seen for this order_id.
+                if order_id not in placements:
+                    placements[order_id] = {
+                        'ts_str': m.group(1).replace(',', '.'), 'ts_dt': datetime.strptime(m.group(1), ts_fmt),
+                        'side': m.group(3), 'qty': float(m.group(4)), 'price': float(m.group(5)),
+                    }
+                filtered_lines.append((datetime.strptime(m.group(1), ts_fmt), line))
 
     filtered_lines.sort(key=lambda x: x[0])
     with open(out_log, 'w', encoding='utf-8') as f:
@@ -75,6 +92,7 @@ def analyze_orders(log_file, out_csv=None):
     print(f"Price diffs   : {len(price_diffs)}")
     print(f"Entry fills   : {len(fills)}")
     print(f"MT5 new hedges: {len(hedges_new)}")
+    print(f"Order placed  : {len(placements)}")
     print()
 
     results = []
@@ -82,10 +100,18 @@ def analyze_orders(log_file, out_csv=None):
     for fill in fills:
         ft = fill['ts_dt']
 
-        # Last price diff strictly before fill
+        # The fill is reported asynchronously via the user data stream, so the
+        # price diff logged just before the FILLED line is unrelated to this
+        # order. Track back via order_id to when the order was first placed,
+        # and use the price diff that was current at that moment instead.
+        placed = placements.get(fill['order_id'])
+        ref_ts = placed['ts_dt'] if placed else ft
+
+        # Last price diff strictly before the order was placed (or before the
+        # fill if no placement was found, e.g. order placed outside this log).
         pred = None
         for pd in reversed(price_diffs):
-            if pd['ts_dt'] <= ft:
+            if pd['ts_dt'] <= ref_ts:
                 pred = pd
                 break
 
@@ -115,16 +141,29 @@ def analyze_orders(log_file, out_csv=None):
         primary_price_diff   = round(actual_primary_price - pred_primary_price, 4)
         hedge_price_diff     = round(actual_hedge_price - pred_hedge_price, 4)
         slippage             = round(actual_price_diff - predicted_price_diff, 4)
+
+        # Re-sign vs. the order side so positive always means "better than
+        # predicted" and negative always means "worse than predicted":
+        #   SELL: higher primary fill / lower hedge fill is better
+        #   BUY:  lower primary fill / higher hedge fill is better
+        sign         = 1 if fill['side'] == 'SELL' else -1
+        primary_edge = round(sign * primary_price_diff, 4)
+        hedge_edge   = round(-sign * hedge_price_diff, 4)
+        net_edge     = round(sign * slippage, 4)
+
         pred_to_fill_ms      = round((fill['ts_dt'] - pred['ts_dt']).total_seconds() * 1000)
         pred_to_hedge_ms     = round((hedge['ts_dt'] - pred['ts_dt']).total_seconds() * 1000)
+        order_age_ms         = round((fill['ts_dt'] - placed['ts_dt']).total_seconds() * 1000) if placed else ''
 
         results.append({
             'fill_ts'              : fill['ts_str'],
             'side'                 : fill['side'],
             'qty'                  : fill['qty'],
             'order_id'             : fill['order_id'],
+            'placed_ts'            : placed['ts_str'] if placed else '',
             'pred_ts'              : pred['ts_str'],
             'pred_to_fill_ms'      : pred_to_fill_ms,
+            'order_age_ms'         : order_age_ms,
             'pred_to_hedge_ms'     : pred_to_hedge_ms,
             'pred_primary_price'   : pred_primary_price,
             'pred_hedge_price'     : pred_hedge_price,
@@ -136,6 +175,9 @@ def analyze_orders(log_file, out_csv=None):
             'primary_price_diff'   : primary_price_diff,
             'hedge_price_diff'     : hedge_price_diff,
             'slippage'             : slippage,
+            'primary_edge'         : primary_edge,
+            'hedge_edge'           : hedge_edge,
+            'net_edge'             : net_edge,
             'match'                : True
         })
 
@@ -144,11 +186,12 @@ def analyze_orders(log_file, out_csv=None):
 
     with open(out_csv, 'w', newline='') as f:
         fieldnames = [
-            'fill_ts', 'side', 'qty', 'order_id', 'pred_ts',
-            'pred_to_fill_ms', 'pred_to_hedge_ms',
+            'fill_ts', 'side', 'qty', 'order_id', 'placed_ts', 'pred_ts',
+            'pred_to_fill_ms', 'order_age_ms', 'pred_to_hedge_ms',
             'pred_primary_price', 'pred_hedge_price', 'predicted_price_diff',
             'hedge_ts', 'actual_primary_price', 'actual_hedge_price', 'actual_price_diff',
             'primary_price_diff', 'hedge_price_diff', 'slippage',
+            'primary_edge', 'hedge_edge', 'net_edge',
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
         writer.writeheader()
@@ -158,22 +201,25 @@ def analyze_orders(log_file, out_csv=None):
 
     col = (
         f"{'#':<3} {'Fill Time':<26} {'S':<5} {'Qty':>8} {'Order ID':<14}"
-        f"{'P→Fill':>8} {'P→Hedge':>8}"
+        f"{'P→Fill':>8} {'OrderAge':>10} {'P→Hedge':>8} "
         f"{'PredPrimary':>11} {'PredHedge':>10} {'PredDiff':>9}"
         f"{'ActPrimary':>11} {'ActHedge':>10} {'ActDiff':>9}"
         f"{'PrimaryDiff':>12} {'HedgeDiff':>10} {'Slippage':>9}"
+        f"{'PrimaryEdge':>12} {'HedgeEdge':>10} {'NetEdge':>9}"
     )
     print(col)
     print("-" * len(col))
 
     for i, r in enumerate(matched, 1):
         s = f"{r['slippage']:+.4f}"
+        age = f"{r['order_age_ms']}ms" if r['order_age_ms'] != '' else '-'
         print(
             f"{i:<3} {r['fill_ts']:<26} {r['side']:<5} {r['qty']:>8} {r['order_id']:<14}"
-            f"{r['pred_to_fill_ms']:>7}ms {r['pred_to_hedge_ms']:>7}ms"
+            f"{r['pred_to_fill_ms']:>7}ms {age:>10} {r['pred_to_hedge_ms']:>7}ms"
             f"{r['pred_primary_price']:>11.2f} {r['pred_hedge_price']:>10.2f} {r['predicted_price_diff']:>9.2f}"
             f"{r['actual_primary_price']:>11.2f} {r['actual_hedge_price']:>10.2f} {r['actual_price_diff']:>9.4f}"
             f"{r['primary_price_diff']:>+12.4f} {r['hedge_price_diff']:>+10.4f} {s:>9}"
+            f"{r['primary_edge']:>+12.4f} {r['hedge_edge']:>+10.4f} {r['net_edge']:>+9.4f}"
         )
 
     print()
@@ -194,8 +240,8 @@ def analyze_orders(log_file, out_csv=None):
         if buy_slip:
             print(f"  BUY  avg slip  : {sum(buy_slip)/len(buy_slip):+.4f}  "
                   f"(n={len(buy_slip)}, range [{min(buy_slip):+.4f} to {max(buy_slip):+.4f}])")
-        worse  = sum(1 for r in matched if (r['side'] == 'SELL' and r['slippage'] < 0) or (r['side'] == 'BUY' and r['slippage'] > 0))
-        better = sum(1 for r in matched if (r['side'] == 'SELL' and r['slippage'] > 0) or (r['side'] == 'BUY' and r['slippage'] < 0))
+        worse  = sum(1 for r in matched if r['net_edge'] < 0)
+        better = sum(1 for r in matched if r['net_edge'] > 0)
         print(f"  Worse than pred: {worse}  |  Better: {better}")
         print(sep)
 
