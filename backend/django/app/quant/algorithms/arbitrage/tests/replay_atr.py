@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """
 Parse price_diff log lines and replay them through the ATR guard so you can
-tune ATR_PERIOD and ATR_HIGH_THRESHOLD without running the live bot.
+tune ATR_PERIOD, ATR_PERIOD_DOWN and ATR_HIGH_THRESHOLD without running the
+live bot.
+
+ATR uses an asymmetric EMA: --period (fast) while ATR is rising, and
+--period-down (slow, default 28) once it starts falling -- so the guard trips
+quickly on a spike but stays blocked for a while as it decays back down.
 
 Usage:
 
-  # Trace with current defaults (period=14, threshold=0.3)
+  # Trace with current defaults (period=7, period_down=28, threshold=0.3)
   python replay_atr.py path/to/quant.log
 
   # Test specific params
-  python replay_atr.py path/to/quant.log --period 5 --threshold 0.25
+  python replay_atr.py path/to/quant.log --period 5 --period-down 20 --threshold 0.25
 
   # Mark ticks where the grid would signal SHORT/LONG (mirrors _determine_zone)
   python replay_atr.py path/to/quant.log --upper-limit 4.20 --lower-limit 0.00
@@ -67,18 +72,24 @@ def parse_logs(paths):
     return events
 
 
-def simulate_atr(events, period, threshold, upper_limit=None, lower_limit=None):
+def simulate_atr(events, period, threshold, upper_limit=None, lower_limit=None, period_down=None):
     """
     Mirror the exact ATR logic from grid_bot.py:
       tr  = max(|new_ask - prev_ask|, |new_bid - prev_bid|)
       atr = alpha * tr + (1 - alpha) * atr      (EMA, starts at 0)
+
+    Asymmetric EMA: `period` (alpha_up) is used while TR pushes ATR up (fast
+    reaction to a spike), and `period_down` (alpha_down) once ATR is falling
+    back down (slow release). If period_down is None, the EMA is symmetric
+    (alpha_down == alpha_up), matching the old single-period behavior.
 
     Also mirrors grid_bot.py's _determine_zone():
       ask_diff >= upper_limit -> SHORT
       bid_diff <= lower_limit -> LONG
     Returns a list of per-tick result dicts.
     """
-    alpha = 2.0 / (period + 1)
+    alpha_up = 2.0 / (period + 1)
+    alpha_down = 2.0 / (period_down + 1) if period_down is not None else alpha_up
     atr = 0.0
     prev_ask = prev_bid = None
     results = []
@@ -87,6 +98,7 @@ def simulate_atr(events, period, threshold, upper_limit=None, lower_limit=None):
         tr = None
         if prev_ask is not None:
             tr = max(abs(ask - prev_ask), abs(bid - prev_bid))
+            alpha = alpha_up if tr > atr else alpha_down
             atr = alpha * tr + (1 - alpha) * atr
 
         zone = None
@@ -141,12 +153,12 @@ def _summary(results, period, threshold):
     }
 
 
-def print_scan(events, periods, thresholds, current_period, current_threshold, p=print):
+def print_scan(events, periods, thresholds, current_period, current_threshold, period_down=None, p=print):
     p(f"\n{'Period':>8s}  {'Threshold':>10s}  {'Blocked':>8s}  {'%Blocked':>9s}  {'PeakATR':>9s}  {'Crossings':>10s}")
     p("-" * 68)
     for period in periods:
         for t in thresholds:
-            r = simulate_atr(events, period, t)
+            r = simulate_atr(events, period, t, period_down=period_down)
             s = _summary(r, period, t)
             marker = "  <-- current" if period == current_period and t == current_threshold else ""
             p(
@@ -163,7 +175,10 @@ def main():
     )
     parser.add_argument("logs", nargs="+", help="Log file(s) or glob pattern")
     parser.add_argument("--period", type=int, default=7,
-                        help="ATR EMA period (default: 7, matches ATR_PERIOD env)")
+                        help="ATR EMA period while ATR is rising (default: 7, matches ATR_PERIOD env)")
+    parser.add_argument("--period-down", type=int, default=28,
+                        help="ATR EMA period while ATR is falling back down (default: 28, "
+                             "matches ATR_PERIOD_DOWN env). Larger = slower release.")
     parser.add_argument("--threshold", type=float, default=0.3,
                         help="ATR block threshold (default: 0.3, matches ATR_HIGH_THRESHOLD env)")
     parser.add_argument("--upper-limit", type=float, default=None,
@@ -202,7 +217,7 @@ def main():
         elif args.scan:
             out_path = paths[0] + ".atr.txt"
         else:
-            suffix = f".atr.p{args.period}_t{args.threshold}"
+            suffix = f".atr.p{args.period}_d{args.period_down}_t{args.threshold}"
             if args.upper_limit is not None:
                 suffix += f"_u{args.upper_limit}"
             if args.lower_limit is not None:
@@ -232,12 +247,12 @@ def _run(args, events, paths, p):
         except ValueError as e:
             print(f"Bad --scan-periods or --scan-thresholds: {e}", file=sys.stderr)
             sys.exit(1)
-        print_scan(events, periods, thresholds, args.period, args.threshold, p)
+        print_scan(events, periods, thresholds, args.period, args.threshold, args.period_down, p)
 
     show_zone = args.upper_limit is not None or args.lower_limit is not None
-    results = simulate_atr(events, args.period, args.threshold, args.upper_limit, args.lower_limit)
+    results = simulate_atr(events, args.period, args.threshold, args.upper_limit, args.lower_limit, args.period_down)
     s = _summary(results, args.period, args.threshold)
-    p(f"\nSimulation  period={args.period}  threshold={args.threshold}")
+    p(f"\nSimulation  period={args.period}  period_down={args.period_down}  threshold={args.threshold}")
     p(f"  Ticks: {s['n']}  Blocked: {s['blocked']} ({s['pct']:.1f}%)  "
       f"Peak ATR: {s['peak_atr']:.3f}  Crossings: {s['crossings']}")
 

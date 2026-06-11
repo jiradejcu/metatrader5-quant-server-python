@@ -23,8 +23,13 @@ latest_atr = 0.0
 _prev_ask_diff_for_atr = None
 _prev_bid_diff_for_atr = None
 
-ATR_PERIOD = int(os.getenv('ATR_PERIOD', '7'))
-_ATR_ALPHA = 2.0 / (ATR_PERIOD + 1)
+# Asymmetric EMA: a short period reacts fast when volatility rises (TR > ATR),
+# a long period lets ATR decay slowly back down once it falls (TR < ATR), so
+# the guard trips quickly but stays blocked for a while after a spike.
+ATR_PERIOD = int(os.getenv('ATR_PERIOD', '2'))
+ATR_PERIOD_DOWN = int(os.getenv('ATR_PERIOD_DOWN', '7'))
+_ATR_ALPHA_UP = 2.0 / (ATR_PERIOD + 1)
+_ATR_ALPHA_DOWN = 2.0 / (ATR_PERIOD_DOWN + 1)
 ATR_HIGH_THRESHOLD = float(os.getenv('ATR_HIGH_THRESHOLD', '0.3'))
 
 
@@ -333,7 +338,8 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key, hedge_symbol):
                     new_bid_diff = round(float(price_dict.get('bid_diff', "0")), 2)
                     if _prev_ask_diff_for_atr is not None and _prev_bid_diff_for_atr is not None:
                         tr = max(abs(new_ask_diff - _prev_ask_diff_for_atr), abs(new_bid_diff - _prev_bid_diff_for_atr))
-                        latest_atr = _ATR_ALPHA * tr + (1 - _ATR_ALPHA) * latest_atr
+                        alpha = _ATR_ALPHA_UP if tr > latest_atr else _ATR_ALPHA_DOWN
+                        latest_atr = alpha * tr + (1 - alpha) * latest_atr
                     _prev_ask_diff_for_atr = new_ask_diff
                     _prev_bid_diff_for_atr = new_bid_diff
                     latest_ask_diff = new_ask_diff

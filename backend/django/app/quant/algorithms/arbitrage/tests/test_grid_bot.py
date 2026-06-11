@@ -877,9 +877,6 @@ class TestHandleGridFlowPriceDiff:
 # ATR computation
 # ---------------------------------------------------------------------------
 
-_ATR_ALPHA = 2.0 / (14 + 1)  # mirrors module default (ATR_PERIOD=14)
-
-
 class TestATRComputation:
 
     def test_first_message_atr_stays_zero(self):
@@ -889,11 +886,11 @@ class TestATRComputation:
         assert _gb.latest_atr == 0.0
 
     def test_second_message_computes_atr_from_ask_delta(self):
-        """When ask delta dominates, TR = |Δask|."""
+        """When ask delta dominates, TR = |Δask|. TR > ATR(=0) → fast (up) alpha."""
         msg1 = make_price_message(PRICE_CH, 1.5, 1.6, ts=time.time())
         msg2 = make_price_message(PRICE_CH, 3.0, 1.7, ts=time.time())  # ask Δ=1.5, bid Δ=0.1
         _run_handle_grid_flow_with_messages([msg1, msg2])
-        expected = _ATR_ALPHA * 1.5  # prev ATR was 0
+        expected = _gb._ATR_ALPHA_UP * 1.5  # prev ATR was 0
         assert abs(_gb.latest_atr - expected) < 1e-9
 
     def test_second_message_uses_max_of_ask_and_bid_delta(self):
@@ -901,22 +898,24 @@ class TestATRComputation:
         msg1 = make_price_message(PRICE_CH, 3.0, 1.0, ts=time.time())
         msg2 = make_price_message(PRICE_CH, 3.5, 3.0, ts=time.time())  # ask Δ=0.5, bid Δ=2.0
         _run_handle_grid_flow_with_messages([msg1, msg2])
-        expected = _ATR_ALPHA * 2.0
+        expected = _gb._ATR_ALPHA_UP * 2.0
         assert abs(_gb.latest_atr - expected) < 1e-9
 
-    def test_atr_decays_after_spike(self):
-        """After a large spike, calm ticks reduce ATR each step."""
+    def test_atr_decays_slowly_after_spike(self):
+        """After a large spike, calm ticks reduce ATR using the slow-release alpha."""
         msg1 = make_price_message(PRICE_CH, 1.56, 1.69, ts=time.time())
         msg2 = make_price_message(PRICE_CH, 4.29, 4.41, ts=time.time())  # spike: ask Δ=2.73
         msg3 = make_price_message(PRICE_CH, 4.30, 4.42, ts=time.time())  # calm: Δ=0.01
         msg4 = make_price_message(PRICE_CH, 4.31, 4.43, ts=time.time())  # calm: Δ=0.01
         _run_handle_grid_flow_with_messages([msg1, msg2, msg3, msg4])
 
-        atr_spike  = _ATR_ALPHA * 2.73
-        atr_calm1  = _ATR_ALPHA * 0.01 + (1 - _ATR_ALPHA) * atr_spike
-        atr_calm2  = _ATR_ALPHA * 0.01 + (1 - _ATR_ALPHA) * atr_calm1
+        atr_spike  = _gb._ATR_ALPHA_UP * 2.73
+        atr_calm1  = _gb._ATR_ALPHA_DOWN * 0.01 + (1 - _gb._ATR_ALPHA_DOWN) * atr_spike
+        atr_calm2  = _gb._ATR_ALPHA_DOWN * 0.01 + (1 - _gb._ATR_ALPHA_DOWN) * atr_calm1
         assert abs(_gb.latest_atr - atr_calm2) < 1e-6
         assert _gb.latest_atr < atr_spike
+        # Slow release: decay alpha is much smaller than the rise alpha.
+        assert _gb._ATR_ALPHA_DOWN < _gb._ATR_ALPHA_UP
 
     def test_real_glitch_spike_exceeds_threshold(self):
         """The 1.56→4.29 glitch seen in prod logs must push ATR above the default threshold."""
@@ -978,39 +977,41 @@ class TestATRVolatilityGate:
     def test_process_tick_allowed_when_atr_normal(self):
         """Small consecutive deltas keep ATR low → _process_tick is called."""
         msg1 = make_price_message(PRICE_CH, 3.0, 3.1, ts=time.time())
-        msg2 = make_price_message(PRICE_CH, 3.1, 3.2, ts=time.time())  # Δ=0.1 → ATR ≈ 0.013
+        msg2 = make_price_message(PRICE_CH, 3.1, 3.2, ts=time.time())  # Δ=0.1 → ATR ≈ 0.025
         assert _run_handle_grid_flow_active([msg1, msg2]) is True
 
     def test_process_tick_blocked_when_atr_high(self):
         """1.56→4.29 spike raises ATR above threshold → _process_tick is NOT called."""
         msg1 = make_price_message(PRICE_CH, 1.56, 1.69, ts=time.time())
-        msg2 = make_price_message(PRICE_CH, 4.29, 4.41, ts=time.time())  # ATR ≈ 0.364
+        msg2 = make_price_message(PRICE_CH, 4.29, 4.41, ts=time.time())  # ATR ≈ 0.6825
         assert _run_handle_grid_flow_active([msg1, msg2]) is False
 
-    def test_atr_rise_and_decay_unblocks_after_two_calm_ticks(self):
+    def test_atr_decay_is_slow_after_spike(self):
         """
-        ATR lifecycle after a spike (threshold=0.3):
-          spike        → ATR=0.364  blocked
-          spike+calm×1 → ATR=0.317  still blocked
-          spike+calm×2 → ATR=0.276  unblocked
+        Asymmetric EMA (period=7 up, period_down=28 down): ATR rises fast on a
+        spike but decays slowly afterward, so the guard stays blocked well
+        beyond the first calm tick.
+          spike        → ATR≈0.683  blocked
+          spike+calm×1 → ATR≈0.636  still blocked
+          spike+calm×2 → ATR≈0.593  still blocked
         Each call replays from scratch so ATR is built fresh from the message sequence.
-        Messages omit ts to avoid the stale-price-diff filter across the three sequential calls.
+        Messages omit ts to avoid the stale-price-diff filter across the sequential calls.
         """
         def msgs(*price_pairs):
             return [make_price_message(PRICE_CH, ask, bid) for ask, bid in price_pairs]
 
         # (ask, bid) sequence: baseline → spike → calm ticks
         baseline = (1.56, 1.69)
-        spike    = (4.29, 4.41)  # Δ=2.73 → ATR=0.364
-        calm1    = (4.30, 4.42)  # Δ=0.01 → ATR≈0.317
-        calm2    = (4.31, 4.43)  # Δ=0.01 → ATR≈0.276
+        spike    = (4.29, 4.41)  # Δ=2.73 → ATR≈0.683
+        calm1    = (4.30, 4.42)  # Δ=0.01 → ATR≈0.636
+        calm2    = (4.31, 4.43)  # Δ=0.01 → ATR≈0.593
 
         assert _run_handle_grid_flow_active(msgs(baseline, spike)) is False, \
             "spike should block immediately"
         assert _run_handle_grid_flow_active(msgs(baseline, spike, calm1)) is False, \
-            "one calm tick is not enough to recover"
-        assert _run_handle_grid_flow_active(msgs(baseline, spike, calm1, calm2)) is True, \
-            "two calm ticks should bring ATR below threshold and unblock"
+            "slow-release alpha means one calm tick barely reduces ATR"
+        assert _run_handle_grid_flow_active(msgs(baseline, spike, calm1, calm2)) is False, \
+            "two calm ticks still aren't enough to drop ATR below threshold"
 
 
 # ---------------------------------------------------------------------------
