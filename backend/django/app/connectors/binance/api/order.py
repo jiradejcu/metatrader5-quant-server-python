@@ -82,7 +82,11 @@ def fetch_open_orders_from_api(symbol):
         response = client.rest_api.current_all_open_orders(symbol=symbol)
         open_order_data = response.data() or []
         redis_key = f"open_orders:binance:{symbol}"
-        redis_conn.set(redis_key, json.dumps([o.to_dict() for o in open_order_data]))
+        # Use field names (order_id, orig_qty, ...), not to_dict()'s camelCase
+        # aliases (orderId, origQty, ...), so cached SimpleNamespace objects
+        # expose the same snake_case attributes as the live SDK objects
+        # returned on the force-fetch path (see _reconcile).
+        redis_conn.set(redis_key, json.dumps([o.model_dump(mode="json") for o in open_order_data]))
         redis_conn.expire(redis_key, 60)
         logger.debug(f"[OpenOrders] Force-fetched from API: {symbol} count={len(open_order_data)}")
         return open_order_data
