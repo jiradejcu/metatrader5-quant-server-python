@@ -107,7 +107,7 @@ def _compute_target(zone, position_amt, order_size, max_pos, net_pending=0):
     return _trunc(position_amt)
 
 
-def _reconcile(primary_symbol, target, position_amt, open_orders):
+def _reconcile(primary_symbol, target, position_amt, open_orders, sync_pending=False):
     """Take the minimal action to reach the target position."""
     if target is None:
         logger.debug("[Reconcile] do nothing")
@@ -127,6 +127,9 @@ def _reconcile(primary_symbol, target, position_amt, open_orders):
     size = abs(diff)
 
     if not open_orders:
+        if sync_pending:
+            logger.info(f"[Reconcile] Sync pending — holding off on new {side} order")
+            return
         logger.info(f"[Reconcile] No open order → placing {side}, size={size}")
         chase_order(primary_symbol, float(size), side, order_id=None)
         return
@@ -207,7 +210,8 @@ def _process_tick(primary_symbol, upper_limit, lower_limit, max_pos, order_size,
             logger.warning(f"Price diff is stale ({price_age_ms:.0f}ms > {PRICE_DIFF_MAX_AGE_MS}ms) — skipping reconcile")
             return
 
-    _reconcile(primary_symbol, target, position_amt, open_orders)
+    sync_pending = get_sync_pending()
+    _reconcile(primary_symbol, target, position_amt, open_orders, sync_pending=bool(sync_pending))
 
 
 _DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -252,6 +256,10 @@ def get_active_status():
 
 def get_position_sync_ok():
     return get_redis_connection().get("position_sync_ok_flag")
+
+
+def get_sync_pending():
+    return get_redis_connection().get("sync_pending_flag")
 
 
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key, hedge_symbol):

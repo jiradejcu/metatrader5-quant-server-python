@@ -16,6 +16,7 @@ pre_order_volume = None
 _consecutive_errors = 0
 _ERROR_THRESHOLD = 3
 _POSITION_SYNC_OK_FLAG = "position_sync_ok_flag"
+_SYNC_PENDING_FLAG = "sync_pending_flag"
 
 
 def _log_entry_price_diff(redis_conn, hedge_symbol: str, primary_entry: float, trigger: str):
@@ -99,6 +100,7 @@ def handle_position_update(pubsub):
                     logger.debug(f"MT5 position confirmed: {pre_order_volume} → {hedge_volume}.")
                     pre_order_volume = None
                     redis_conn.delete(f"position:mt5:{hedge_symbol}")
+                    redis_conn.delete(_SYNC_PENDING_FLAG)
                     continue
 
                 logger.debug(
@@ -158,6 +160,7 @@ def handle_position_update(pubsub):
 
                     pre_order_volume = hedge_volume
                     redis_conn.delete(f"position:mt5:{hedge_symbol}")
+                    redis_conn.set(_SYNC_PENDING_FLAG, "1", ex=5)
                 else:
                     logger.debug(f"No significant discrepancy for {received_symbol}. No action taken.")
 

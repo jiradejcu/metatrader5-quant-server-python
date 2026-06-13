@@ -438,6 +438,7 @@ class TestProcessTickMockEntryPosition:
         mock_resp = SimpleNamespace(order_id="B1")
         with patch.object(_gb, "get_open_orders", return_value=[]), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase, \
              patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "true", "PAIR_INDEX": "0"}):
             _gb._process_tick(
@@ -453,6 +454,7 @@ class TestProcessTickMockEntryPosition:
         mock_resp = SimpleNamespace(order_id="B1")
         with patch.object(_gb, "get_open_orders", return_value=[]), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase, \
              patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "true", "PAIR_INDEX": "0"}):
             _gb._process_tick(
@@ -468,6 +470,7 @@ class TestProcessTickMockEntryPosition:
         mock_resp = SimpleNamespace(order_id="S1")
         with patch.object(_gb, "get_open_orders", return_value=[]), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase, \
              patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "true", "PAIR_INDEX": "0"}):
             _gb._process_tick(
@@ -483,6 +486,7 @@ class TestProcessTickMockEntryPosition:
         mock_resp = SimpleNamespace(order_id="B1")
         with patch.object(_gb, "get_open_orders", return_value=[]), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase, \
              patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "false", "PAIR_INDEX": "0"}):
             _gb._process_tick(
@@ -545,6 +549,28 @@ class TestReconcile:
             _gb._reconcile(SYMBOL, -1.0, 0.0, [sell_order])
         mock_chase.assert_called_once_with(SYMBOL, 1.0, 'SELL', order_id=42)
 
+    def test_sync_pending_blocks_new_order(self):
+        """No open order, but a hedge sync is pending → hold off, don't place."""
+        with patch.object(_gb, "chase_order") as mock_chase:
+            _gb._reconcile(SYMBOL, 1.0, 0.0, [], sync_pending=True)
+        mock_chase.assert_not_called()
+
+    def test_sync_pending_does_not_block_chase(self):
+        """Sync pending only gates new entries — chasing an existing order is unaffected."""
+        sell_order = _open_order(side='SELL', orig_qty=1.0, order_id=42)
+        with patch.object(_gb, "chase_order") as mock_chase:
+            _gb._reconcile(SYMBOL, -1.0, 0.0, [sell_order], sync_pending=True)
+        mock_chase.assert_called_once_with(SYMBOL, 1.0, 'SELL', order_id=42)
+
+    def test_sync_pending_does_not_block_cancel(self):
+        """Sync pending only gates new entries — cancelling a wrong-side order is unaffected."""
+        buy_order = _open_order(side='BUY')
+        with patch.object(_gb, "cancel_all_open_orders") as mock_cancel, \
+             patch.object(_gb, "chase_order") as mock_chase:
+            _gb._reconcile(SYMBOL, -1.0, 0.0, [buy_order], sync_pending=True)
+        mock_cancel.assert_called_once_with(SYMBOL)
+        mock_chase.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # _process_tick
@@ -570,6 +596,7 @@ class TestProcessTick:
         mock_resp = SimpleNamespace(order_id="S1")
         with patch.object(_gb, "get_open_orders", return_value=[]), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(
                 SYMBOL,
@@ -583,6 +610,7 @@ class TestProcessTick:
         mock_resp = SimpleNamespace(order_id="B1")
         with patch.object(_gb, "get_open_orders", return_value=[]), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(
                 SYMBOL,
@@ -591,6 +619,20 @@ class TestProcessTick:
                 ask_diff=0.0, bid_diff=-6.0,
             )
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "BUY", order_id=None)
+
+    def test_sync_pending_blocks_new_order_placement(self):
+        """get_sync_pending() truthy → _process_tick must not place a new entry order."""
+        with patch.object(_gb, "get_open_orders", return_value=[]), \
+             patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "get_sync_pending", return_value="1"), \
+             patch.object(_gb, "chase_order") as mock_chase:
+            _gb._process_tick(
+                SYMBOL,
+                upper_limit=5.0, lower_limit=-5.0,
+                max_pos=5.0, order_size=1.0,
+                ask_diff=6.0, bid_diff=0.0,  # SELL zone, no open order
+            )
+        mock_chase.assert_not_called()
 
     def test_sell_zone_chases_existing_order(self):
         sell_order = _open_order(side="SELL", price=1800.0, orig_qty=1.0, order_id=77)
@@ -717,6 +759,7 @@ class TestProcessTick:
         # Step 1: pos=0 → target=-1 → place SELL 1 (no open order → order_id=None)
         with patch.object(_gb, "get_open_orders", return_value=[]), \
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(SYMBOL, 5.0, -5.0, 3.0, 1.0, 6.0, 0.0)
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
@@ -724,6 +767,7 @@ class TestProcessTick:
         # Step 2: pos=-1 → target=-2 → place SELL 1
         with patch.object(_gb, "get_open_orders", return_value=[]), \
              patch.object(_gb, "get_position", return_value=_position(-1.0)), \
+             patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(SYMBOL, 5.0, -5.0, 3.0, 1.0, 6.0, 0.0)
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
@@ -731,6 +775,7 @@ class TestProcessTick:
         # Step 3: pos=-2 → target=-3 → place SELL 1
         with patch.object(_gb, "get_open_orders", return_value=[]), \
              patch.object(_gb, "get_position", return_value=_position(-2.0)), \
+             patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(SYMBOL, 5.0, -5.0, 3.0, 1.0, 6.0, 0.0)
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
