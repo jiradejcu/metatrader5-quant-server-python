@@ -194,7 +194,6 @@ services:
       traefik.http.services.control-api-service.loadbalancer.server.port: ${CONTROL_API_PORT}
     logging: *default-logging
 
-
   django:
     build:
       context: backend/django
@@ -548,7 +547,7 @@ services:
     depends_on:
       - postgres
     profiles:
-      - monitor
+      - automation
 
 volumes:
   traefik-public-certificates:
