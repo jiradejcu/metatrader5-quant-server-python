@@ -7,6 +7,8 @@ import { PriceWatchSection } from "./components/price-watch-section";
 import { CurrentPositionSection } from "./components/current-position-section";
 import { ExposureSection } from "./components/exposure-section";
 import { useAllBots } from "./hooks/all-bot";
+import { useAuth } from "./hooks/useAuth";
+import Login from "./pages/Login";
 
 const BOT_LABELS = ["Bot 1", "Bot 2", "Bot 3", "Dev"];
 
@@ -54,13 +56,29 @@ function App() {
   const [activeTab, setActiveTab] = useState(0);
   const { botUrl1, botUrl2, botUrl3, botUrlDev } = useAllBots();
   const botUrls = [botUrl1, botUrl2, botUrl3, botUrlDev];
+  const { isAuthenticated, user, logout } = useAuth();
+
+  if (!isAuthenticated) {
+    return <Login />;
+  }
 
   return (
     <div className="px-3 py-3 sm:px-5 sm:py-5 bg-[#f3f4f6] dark:bg-gray-900 min-h-screen">
       <div className="max-w-xl mx-auto">
-        <h1 className="text-base font-bold text-gray-700 dark:text-gray-200 mb-3">
-          Arbitrage Bot Health Status
-        </h1>
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-base font-bold text-gray-700 dark:text-gray-200">
+            Arbitrage Bot Health Status
+          </h1>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 dark:text-gray-400">{user?.username}</span>
+            <button
+              onClick={() => logout()}
+              className="text-xs font-semibold py-1 px-3 rounded-lg bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 transition-all duration-200 cursor-pointer"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
 
         {/* Tab Navigation */}
         <div className="flex bg-white dark:bg-gray-800 rounded-xl shadow p-1 mb-4 gap-1 sticky top-3 z-10">

@@ -1,4 +1,43 @@
 import type { SettingGridProps } from "../interfaces/setting-grid.interface";
+import type { LoginCredentials, LoginResponse } from "../interfaces/auth.interface";
+import { authHeaders } from "../utils/authUtils";
+
+const DJANGO_API_URL = import.meta.env.VITE_DJANGO_API_URL;
+
+export async function login(credentials: LoginCredentials): Promise<LoginResponse> {
+  const url = `${DJANGO_API_URL}/auth/login/`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(credentials),
+  });
+
+  if (!response.ok) {
+    let message = 'Invalid username or password';
+    try {
+      const body = await response.json();
+      if (typeof body.error === 'string') message = body.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
+export async function logout(): Promise<void> {
+  const url = `${DJANGO_API_URL}/auth/logout/`;
+  await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+  });
+}
 
 export async function pauseDisplay(API_BASE_URL: string): Promise<Response> {
   const url = `${API_BASE_URL}/pause-position-sync`;
@@ -6,6 +45,7 @@ export async function pauseDisplay(API_BASE_URL: string): Promise<Response> {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...authHeaders(),
     },
   });
 
@@ -22,6 +62,7 @@ export async function toggleGridBot(API_BASE_URL: string): Promise<Response> {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...authHeaders(),
     },
   });
 
@@ -46,6 +87,7 @@ export async function setupGridParameters(API_BASE_URL: string, parameters: Sett
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...authHeaders(),
     },
     body: JSON.stringify(parameters),
   });
@@ -79,7 +121,8 @@ export async function stopBotService(API_BASE_URL: string): Promise<Response> {
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...authHeaders(),
     }
   })
 
@@ -95,7 +138,8 @@ export async function restartBotService(API_BASE_URL: string): Promise<Response>
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...authHeaders(),
     },
     body: JSON.stringify({
     "container": "django"
@@ -112,7 +156,10 @@ export async function restartBotService(API_BASE_URL: string): Promise<Response>
 export async function getBotContainerStatus(API_BASE_URL: string): Promise<Response> {
   const url = `${API_BASE_URL}/get-django-status`
   const response = await fetch(url, {
-    method: 'GET'
+    method: 'GET',
+    headers: {
+      ...authHeaders(),
+    },
   })
 
   if (!response.ok) {
@@ -126,6 +173,9 @@ export async function getArbitrageSummary(API_BASE_URL: string): Promise<Respons
   const url = `${API_BASE_URL}/get-arbitrage-summary`
   const response = await fetch(url, {
     method: 'GET',
+    headers: {
+      ...authHeaders(),
+    },
   })
 
   if (!response.ok) {
@@ -140,7 +190,7 @@ export type TradingSessions = Record<string, TimeRange[]>;
 
 export async function getTradingSessions(API_BASE_URL: string): Promise<TradingSessions> {
   const url = `${API_BASE_URL}/trading-sessions`;
-  const response = await fetch(url, { method: 'GET' });
+  const response = await fetch(url, { method: 'GET', headers: { ...authHeaders() } });
   if (!response.ok) throw new Error(`Failed to get trading sessions: ${response.statusText}`);
   const body = await response.json();
   return body.data as TradingSessions;
@@ -150,7 +200,7 @@ export async function setTradingSessions(API_BASE_URL: string, sessions: Trading
   const url = `${API_BASE_URL}/trading-sessions`;
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(sessions),
   });
   if (!response.ok) {
@@ -168,7 +218,10 @@ export async function setTradingSessions(API_BASE_URL: string, sessions: Trading
 export async function getActiveUserInfo(API_BASE_URL: string): Promise<Response> {
   const url =`${API_BASE_URL}/user-info`
   const response = await fetch(url, {
-    method: 'GET'
+    method: 'GET',
+    headers: {
+      ...authHeaders(),
+    },
   })
 
   if (!response.ok) {

@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request, Response, stream_with_context
 from utils.redis_client import get_redis_connection
+from utils.authentication import token_required
 import logging
 import docker
 import json
@@ -22,6 +23,7 @@ TARGET_CONTAINER = "django"
 
 
 @control_bp.route('/stop-quant', methods=['POST'])
+@token_required(staff_only=True)
 def stop_quant_container():
     try:
         client = docker.from_env()
@@ -51,6 +53,7 @@ def stop_quant_container():
         }), 500
 
 @control_bp.route('/get-django-status', methods=['GET'])
+@token_required()
 def get_django_status():
     try:
         client = docker.from_env()
@@ -76,6 +79,7 @@ def get_django_status():
         }), 500
 
 @control_bp.route('/get-arbitrage-summary', methods=['GET'])
+@token_required()
 def get_arbitrage_summary():
     try:
         data = _get_arbitrage_summary()
@@ -85,6 +89,7 @@ def get_arbitrage_summary():
         return jsonify({"message": f"Server error: {str(e)}", "data": None}), 500
 
 @control_bp.route('/pause-position-sync', methods=['POST'])
+@token_required(staff_only=True)
 def handle_pause_position_sync():
     try:
         redis_key = "position_sync_paused_flag"
@@ -110,6 +115,7 @@ def handle_pause_position_sync():
         return jsonify({"message": f"Server error: {str(e)}", "is_paused": None}), 500
 
 @control_bp.route('/toggle-grid-bot', methods=['POST'])
+@token_required(staff_only=True)
 def handle_toggle_grid_bot():
     try:
         redis_key = "grid_bot_active_flag"
@@ -134,6 +140,7 @@ def handle_toggle_grid_bot():
         return jsonify({"message": f"Server error: {str(e)}", "is_active": None}), 500
 
 @control_bp.route('/user-info', methods=['GET'])
+@token_required()
 def get_active_user_info():
     try:
         api_url = 'https://' + MT5_URL + '/account_info'
@@ -157,6 +164,7 @@ def get_active_user_info():
         }), 500
 
 @control_bp.route('/restart', methods=['POST'])
+@token_required(staff_only=True)
 def restart_container():
     try:
         data = request.get_json()
@@ -188,6 +196,7 @@ def restart_container():
         }), 500
 
 @control_bp.route('/set-grid-channel', methods=['POST'])
+@token_required(staff_only=True)
 def set_grid_setting_values():
     try:
         data = request.get_json()
@@ -282,6 +291,7 @@ def _trading_sessions_key():
 
 
 @control_bp.route('/trading-sessions', methods=['GET'])
+@token_required()
 def get_trading_sessions():
     try:
         redis_conn = get_redis_connection()
@@ -296,6 +306,7 @@ def get_trading_sessions():
 
 
 @control_bp.route('/trading-sessions', methods=['POST'])
+@token_required(staff_only=True)
 def set_trading_sessions():
     try:
         data = request.get_json()

@@ -5,3 +5,4 @@ redis
 docker
 python-dotenv
 gevent
+psycopg2-binary
