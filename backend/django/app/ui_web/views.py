@@ -1,6 +1,8 @@
 from django.shortcuts import render
 import json
+import os
 from app.utils.redis_client import get_redis_connection
+from app.quant.algorithms.arbitrage import config
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
@@ -14,9 +16,9 @@ def prepare_json(json_str):
     return json.loads(json_str)
 
 def health_check_page(request):
-    # todo dynamic value
-    primary_symbol = 'PAXGUSDT'
-    hedge_symbol = 'XAUUSD'
+    pair = config.PAIRS[int(os.getenv('PAIR_INDEX'))]
+    primary_symbol = pair['primary']['symbol']
+    hedge_symbol = pair['hedge']['symbol']
     ratio = 1 # edit to 100 after changing contract_size in position_sync
 
     redis_conn = get_redis_connection()
@@ -36,9 +38,9 @@ def health_check_page(request):
     hedge_action  = 'SHORT'
     pairStatus = 'Warning'
 
-    primary_size = float(result['positionAmt'])
-    hedge_size = float(hedge_result['positionAmt'])
-    unrealizes = [float(result['unRealizedProfit']), float(hedge_result['unRealizedProfit'])]
+    primary_size = float(result.get('positionAmt', 0))
+    hedge_size = float(hedge_result.get('positionAmt', 0))
+    unrealizes = [float(result.get('unRealizedProfit', 0)), float(hedge_result.get('unRealizedProfit', 0))]
     netExpose = (primary_size * ratio) + hedge_size
     netExposeAction = 'Safe'
 
@@ -59,11 +61,13 @@ def health_check_page(request):
     if redis_conn.get(pause_position_key):
         pause_position = 'Pause'
 
+    primary_mark_price = float(result.get('markPrice', 0) or 0)
+    hedge_mark_price = float(hedge_result.get('markPrice', 0) or 0)
 
     context = {
-        'primaryMarkPrice': result['markPrice'],
-        'hedgeMarkPrice': hedge_result['markPrice'],
-        'spread': float(result['markPrice']) - float(hedge_result['markPrice']),
+        'primaryMarkPrice': primary_mark_price,
+        'hedgeMarkPrice': hedge_mark_price,
+        'spread': primary_mark_price - hedge_mark_price,
         'pairStatus': pairStatus,
         'primarySize': primary_size,
         'primaryAction': primary_action,
@@ -73,16 +77,17 @@ def health_check_page(request):
         'hedgeAction': hedge_action,
         'unrealizedTotal': sum(unrealizes),
         'pausePositionSync': pause_position,
-        'time_update_hedge': hedge_result['time_update'],
-        'time_update_primary': result['updateTime']
+        'time_update_hedge': hedge_result.get('time_update'),
+        'time_update_primary': result.get('updateTime')
     }
     return render(request, 'health-check.html', context)
 
 @api_view(['GET'])
 def get_arbitrage_summary(request):
     try:
-        primary_symbol = 'PAXGUSDT'
-        hedge_symbol = 'XAUUSD'
+        pair = config.PAIRS[int(os.getenv('PAIR_INDEX'))]
+        primary_symbol = pair['primary']['symbol']
+        hedge_symbol = pair['hedge']['symbol']
         ratio = 1 # edit to 100 after changing contract_size in position_sync
 
         redis_conn = get_redis_connection()
@@ -102,9 +107,9 @@ def get_arbitrage_summary(request):
         hedge_action  = 'SHORT'
         pairStatus = 'Warning'
 
-        primary_size = float(result['positionAmt'])
-        hedge_size = float(hedge_result['positionAmt'])
-        unrealizes = [float(result['unRealizedProfit']), float(hedge_result['unRealizedProfit'])]
+        primary_size = float(result.get('positionAmt', 0))
+        hedge_size = float(hedge_result.get('positionAmt', 0))
+        unrealizes = [float(result.get('unRealizedProfit', 0)), float(hedge_result.get('unRealizedProfit', 0))]
         netExpose = (primary_size * ratio) + hedge_size
         netExposeAction = 'Safe'
 
@@ -125,11 +130,13 @@ def get_arbitrage_summary(request):
         if redis_conn.get(pause_position_key):
             pause_position = 'Pause'
 
+        primary_mark_price = float(result.get('markPrice', 0) or 0)
+        hedge_mark_price = float(hedge_result.get('markPrice', 0) or 0)
 
-        data = {
-            'primaryMarkPrice': result['markPrice'],
-            'hedgeMarkPrice': hedge_result['markPrice'],
-            'spread': float(result['markPrice']) - float(hedge_result['markPrice']),
+        summary = {
+            'primaryMarkPrice': primary_mark_price,
+            'hedgeMarkPrice': hedge_mark_price,
+            'spread': primary_mark_price - hedge_mark_price,
             'pairStatus': pairStatus,
             'primarySize': primary_size,
             'primaryAction': primary_action,
@@ -139,11 +146,11 @@ def get_arbitrage_summary(request):
             'hedgeAction': hedge_action,
             'unrealizedTotal': sum(unrealizes),
             'pausePositionSync': pause_position,
-            'time_update_hedge': hedge_result['time_update'],
-            'time_update_primary': result['updateTime']
+            'time_update_hedge': hedge_result.get('time_update'),
+            'time_update_primary': result.get('updateTime')
         }
 
-        return Response({ message: "Successful retrieved summary data", data: data }, status=status.HTTP_200_OK)
+        return Response({ "message": "Successful retrieved summary data", "data": summary }, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Pausing bot error: {e}")
         return Response({"message": f"Server error: {e}", "is_paused": None}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

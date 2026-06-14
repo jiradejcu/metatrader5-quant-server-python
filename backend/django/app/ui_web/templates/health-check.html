@@ -49,8 +49,8 @@
                 <p class="text-lg">Binance (PAXG): 
                     <span class="font-mono text-blue-600 font-bold ml-2">{{ primaryMarkPrice|floatformat:2 }}</span> 
                 </p>
-                <p class="text-lg">MT5 (XAU): 
-                    <span class="font-mono text-green-600 font-bold ml-2">{{ mt5MarkPrice|floatformat:2 }}</span> 
+                <p class="text-lg">MT5 (XAU):
+                    <span class="font-mono text-green-600 font-bold ml-2">{{ hedgeMarkPrice|floatformat:2 }}</span>
                 </p>
                 <p class="text-xl font-bold mt-4">Mark Price Diff: 
                     <span class="font-mono ml-2 
@@ -84,26 +84,26 @@
                     {% endif %}">{{ primarySize|default:0 }}</span> 
                     PAXG @ <span class="font-mono">{{ primaryMarkPrice|floatformat:2 }}  ({{ time_update_primary }})</span>
                 </p>
-                <p>Mt5: 
-                    <span class="font-mono font-medium 
-                    {% if mt5Action == 'LONG' %} text-green-600 
-                    {% elif mt5Action == 'SHORT' %} text-red-600 
-                    {% else %} text-gray-500 
+                <p>Mt5:
+                    <span class="font-mono font-medium
+                    {% if hedgeAction == 'LONG' %} text-green-600
+                    {% elif hedgeAction == 'SHORT' %} text-red-600
+                    {% else %} text-gray-500
                     {% endif %}">
-                        '{{ mt5Action|default:'N/A' }}'
-                    </span> 
+                        '{{ hedgeAction|default:'N/A' }}'
+                    </span>
                     <span class="font-mono font-bold
-                    {% if mt5Size > 0 %} text-green-600
+                    {% if hedgeSize > 0 %} text-green-600
                     {% else %} text-red-600
-                    {% endif %}">{{ mt5Size|default:0 }}</span> 
-                    XAU @ <span class="font-mono">{{ mt5MarkPrice|floatformat:2 }}  ({{ time_update_mt5 }})</span>
+                    {% endif %}">{{ hedgeSize|default:0 }}</span>
+                    XAU @ <span class="font-mono">{{ hedgeMarkPrice|floatformat:2 }}  ({{ time_update_hedge }})</span>
                 </p>
-                <p>PNL (Unrealized): 
-                    <span class="font-mono text-lg font-bold 
-                    {% if unrealizedBinance >= 0 %} text-green-500 
+                <p>PNL (Unrealized):
+                    <span class="font-mono text-lg font-bold
+                    {% if unrealizedTotal >= 0 %} text-green-500
                         {% else %} text-red-500
                         {% endif %}">
-                        {{ unrealizedBinance|default:0.00|floatformat:2 }} USD
+                        {{ unrealizedTotal|default:0.00|floatformat:2 }} USD
                     </span>
                 </p>
             </div>
@@ -117,10 +117,10 @@
                     {% if primarySize > 0 %} text-green-600 
                     {% else %} text-red-600 
                     {% endif %}">{{ primarySize|default:0 }}</span></p>
-                <p>Total XAU Lots: <span class="font-mono font-medium 
-                    {% if mt5Size > 0 %} text-green-600 
-                    {% else %} text-red-600 
-                    {% endif %}">{{ mt5Size|default:0 }}</span></p> 
+                <p>Total XAU Lots: <span class="font-mono font-medium
+                    {% if hedgeSize > 0 %} text-green-600
+                    {% else %} text-red-600
+                    {% endif %}">{{ hedgeSize|default:0 }}</span></p>
                 <p>Net Expose: <span class="font-mono font-medium text-gray-500">{{ netExpose|default:0 }} ({{ netExposeAction }})</span></p>
             </div>
         </div>
