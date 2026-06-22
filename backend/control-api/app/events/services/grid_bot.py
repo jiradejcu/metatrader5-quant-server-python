@@ -13,7 +13,7 @@ PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
 logger = logging.getLogger(__name__)
 
 primary_data_default = {'positionAmt': 0, 'markPrice': 0, 'unRealizedProfit': 0, 'time_update': None, 'updateTime': None}
-grid_data_default = {'upper_limit': 0.0, 'lower_limit': 0.0, 'max_position_size': 0.0, 'order_size': 0.0}
+grid_data_default = {'long_upper_limit': 0.0, 'long_lower_limit': 0.0, 'short_upper_limit': 0.0, 'short_lower_limit': 0.0, 'max_position_size': 0.0, 'order_size': 0.0}
 
 def get_grid_parameters_data():
         redis_conn = get_redis_connection()
@@ -35,8 +35,10 @@ def get_grid_parameters_data():
                 now = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S") # use UTC(+7) Thailand time zone
 
                 data = {
-                "upper_limit": float(grid_data.get('upper_limit', 0.0)),
-                "lower_limit": float(grid_data.get('lower_limit', 0.0)),
+                "long_upper_limit": float(grid_data.get('long_upper_limit', 0.0)),
+                "long_lower_limit": float(grid_data.get('long_lower_limit', 0.0)),
+                "short_upper_limit": float(grid_data.get('short_upper_limit', 0.0)),
+                "short_lower_limit": float(grid_data.get('short_lower_limit', 0.0)),
                 "max_position_size": float(grid_data.get('max_position_size', 0.0)),
                 "order_size": float(grid_data.get('order_size', 0.0)),
                 "mark_price": float(result.get('markPrice', 0.0)),

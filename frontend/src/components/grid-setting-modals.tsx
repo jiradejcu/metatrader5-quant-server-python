@@ -16,8 +16,10 @@ export const GridSettingModal = (
     const hasInitialized = useRef(false);
     const [notification, setNotification] = useState<{ type: 'success' | 'error'; messages: string[] } | null>(null);
     const [formData, setFormData] = useState({
-        upper_limit: 0,
-        lower_limit: 0,
+        long_upper_limit: 0,
+        long_lower_limit: 0,
+        short_upper_limit: 0,
+        short_lower_limit: 0,
         max_position_size: 0,
         order_size: 0,
     });
@@ -78,8 +80,10 @@ export const GridSettingModal = (
     useEffect(() => {
         if (data && !hasInitialized.current) {
             setFormData({
-                upper_limit: data.upper_limit,
-                lower_limit: data.lower_limit,
+                long_upper_limit: data.long_upper_limit,
+                long_lower_limit: data.long_lower_limit,
+                short_upper_limit: data.short_upper_limit,
+                short_lower_limit: data.short_lower_limit,
                 max_position_size: data.max_position_size,
                 order_size: data.order_size,
             });
@@ -161,12 +165,26 @@ export const GridSettingModal = (
                             </p>
                         )}
 
-                        <form onSubmit={handleSubmit} className="space-y-1">
-                            <div className="grid grid-cols-2 gap-4">
-                                <FloatingLabelInput label="Upper Limit ($)" name="upper_limit" value={formData.upper_limit} onChange={handleChange} />
-                                <FloatingLabelInput label="Lower Limit ($)" name="lower_limit" value={formData.lower_limit} onChange={handleChange} />
+                        <form onSubmit={handleSubmit} className="space-y-3">
+                            {/* Long position thresholds */}
+                            <div>
+                                <p className="text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-1">Long Position</p>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <FloatingLabelInput label="Open Long (bid_diff ≤)" name="long_lower_limit" value={formData.long_lower_limit} onChange={handleChange} step="0.01" />
+                                    <FloatingLabelInput label="Close Long (ask_diff ≥)" name="long_upper_limit" value={formData.long_upper_limit} onChange={handleChange} step="0.01" />
+                                </div>
                             </div>
 
+                            {/* Short position thresholds */}
+                            <div>
+                                <p className="text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-1">Short Position</p>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <FloatingLabelInput label="Open Short (ask_diff ≥)" name="short_upper_limit" value={formData.short_upper_limit} onChange={handleChange} step="0.01" />
+                                    <FloatingLabelInput label="Close Short (bid_diff ≤)" name="short_lower_limit" value={formData.short_lower_limit} onChange={handleChange} step="0.01" />
+                                </div>
+                            </div>
+
+                            {/* Shared settings */}
                             <div className="grid grid-cols-2 gap-4">
                                 <FloatingLabelInput label="Max Pos Size" name="max_position_size" value={formData.max_position_size} onChange={handleChange} />
                                 <FloatingLabelInput label="Order Size" name="order_size" value={formData.order_size} onChange={handleChange} />

@@ -36,17 +36,21 @@ ATR_HIGH_THRESHOLD = float(os.getenv('ATR_HIGH_THRESHOLD', '0.3'))
 
 def _parse_grid_settings(grid_dict):
     return {
-        "upper": float(grid_dict.get('upper_limit', 0.0)),
-        "lower": float(grid_dict.get('lower_limit', 0.0)),
+        "long_upper": float(grid_dict.get('long_upper_limit', 0.0)),
+        "long_lower": float(grid_dict.get('long_lower_limit', 0.0)),
+        "short_upper": float(grid_dict.get('short_upper_limit', 0.0)),
+        "short_lower": float(grid_dict.get('short_lower_limit', 0.0)),
         "max_position_size": float(grid_dict.get('max_position_size', 0.0)),
         "order_size": float(grid_dict.get('order_size', 0.0)),
     }
 
 
-def _determine_zone(ask_diff, bid_diff, upper_limit, lower_limit):
-    if ask_diff >= upper_limit:
+def _determine_zone(ask_diff, bid_diff, short_upper, short_lower, long_upper, long_lower, position_amt=0):
+    # SELL: open short unconditionally, OR close long only when long position exists
+    if ask_diff >= short_upper or (ask_diff >= long_upper and position_amt > 0):
         return 'SELL'
-    if bid_diff <= lower_limit:
+    # BUY: open long unconditionally, OR close short only when short position exists
+    if bid_diff <= long_lower or (bid_diff <= short_lower and position_amt < 0):
         return 'BUY'
     return 'NEUTRAL'
 
@@ -150,8 +154,8 @@ def _reconcile(primary_symbol, target, position_amt, open_orders, sync_pending=F
     chase_order(primary_symbol, current_size, side, order_id=current_order_id)
 
 
-def _process_tick(primary_symbol, upper_limit, lower_limit, max_pos, order_size,
-                  ask_diff, bid_diff):
+def _process_tick(primary_symbol, short_upper, short_lower, long_upper, long_lower,
+                  max_pos, order_size, ask_diff, bid_diff):
     """Execute one trading decision from a pubsub tick."""
     with state.state_lock:
         force = state.force_fetch
@@ -195,10 +199,10 @@ def _process_tick(primary_symbol, upper_limit, lower_limit, max_pos, order_size,
         cancel_all_open_orders(primary_symbol)
         return
 
-    zone = _determine_zone(ask_diff, bid_diff, upper_limit, lower_limit)
+    zone = _determine_zone(ask_diff, bid_diff, short_upper, short_lower, long_upper, long_lower, position_amt)
     logger.debug(
-        f"Zone={zone}: ask_diff={ask_diff:.2f} (limit={upper_limit:.2f}), "
-        f"bid_diff={bid_diff:.2f} (limit={lower_limit:.2f})"
+        f"Zone={zone}: ask_diff={ask_diff:.2f} (long_exit>={long_upper:.2f}, short_entry>={short_upper:.2f}), "
+        f"bid_diff={bid_diff:.2f} (short_exit<={short_lower:.2f}, long_entry<={long_lower:.2f})"
     )
 
     target = _compute_target(zone, position_amt, order_size, max_pos, net_pending=net_pending)
@@ -314,14 +318,17 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key, hedge_symbol):
                 elif not _is_within_trading_session(primary_symbol, hedge_symbol):
                     logger.debug("[Grid] Outside trading session — skipping tick")
                 else:
-                    upper = latest_grid_settings['upper']
-                    lower = latest_grid_settings['lower']
+                    short_upper = latest_grid_settings['short_upper']
+                    short_lower = latest_grid_settings['short_lower']
+                    long_upper = latest_grid_settings['long_upper']
+                    long_lower = latest_grid_settings['long_lower']
                     max_pos = latest_grid_settings['max_position_size']
                     order_size = latest_grid_settings['order_size']
 
                     _process_tick(
                         primary_symbol,
-                        upper, lower, max_pos, order_size,
+                        short_upper, short_lower, long_upper, long_lower,
+                        max_pos, order_size,
                         latest_ask_diff, latest_bid_diff,
                     )
 
