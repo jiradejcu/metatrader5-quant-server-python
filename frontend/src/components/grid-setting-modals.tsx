@@ -167,21 +167,15 @@ export const GridSettingModal = (
 
                         <form onSubmit={handleSubmit} className="space-y-3">
                             {/* Long position thresholds */}
-                            <div>
-                                <p className="text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-1">Long Position</p>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <FloatingLabelInput label="Open Long (bid_diff ≤)" name="long_lower_limit" value={formData.long_lower_limit} onChange={handleChange} step="0.01" />
-                                    <FloatingLabelInput label="Close Long (ask_diff ≥)" name="long_upper_limit" value={formData.long_upper_limit} onChange={handleChange} step="0.01" />
-                                </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <FloatingLabelInput label="Open Short (ask_diff ≥)" name="short_upper_limit" value={formData.short_upper_limit} onChange={handleChange} step="0.01" />
+                                <FloatingLabelInput label="Close Long (ask_diff ≥)" name="long_upper_limit" value={formData.long_upper_limit} onChange={handleChange} step="0.01" />
                             </div>
 
                             {/* Short position thresholds */}
-                            <div>
-                                <p className="text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-1">Short Position</p>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <FloatingLabelInput label="Open Short (ask_diff ≥)" name="short_upper_limit" value={formData.short_upper_limit} onChange={handleChange} step="0.01" />
-                                    <FloatingLabelInput label="Close Short (bid_diff ≤)" name="short_lower_limit" value={formData.short_lower_limit} onChange={handleChange} step="0.01" />
-                                </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <FloatingLabelInput label="Open Long (bid_diff ≤)" name="long_lower_limit" value={formData.long_lower_limit} onChange={handleChange} step="0.01" />
+                                <FloatingLabelInput label="Close Short (bid_diff ≤)" name="short_lower_limit" value={formData.short_lower_limit} onChange={handleChange} step="0.01" />
                             </div>
 
                             {/* Shared settings */}
