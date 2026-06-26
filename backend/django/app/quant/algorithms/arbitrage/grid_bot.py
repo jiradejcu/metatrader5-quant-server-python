@@ -92,10 +92,7 @@ def _compute_target(zone, position_amt, order_size, max_pos, net_pending=0):
         raw = position_amt + zone_delta
         if raw * position_amt < 0:
             return 0
-        if zone_delta > 0:
-            return _trunc(min(raw, max_pos))
-        else:
-            return _trunc(max(raw, -max_pos))
+        return _trunc(raw)
 
     # Same-direction order below: check capacity.
     if remaining_capacity > 0:
