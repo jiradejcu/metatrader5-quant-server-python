@@ -90,15 +90,18 @@ def make_price_message(channel: str, upper_limit: float, lower_limit: float,
     }
 
 
-def make_grid_message(channel: str, upper_limit: float, lower_limit: float,
+def make_grid_message(channel: str, short_upper: float, short_lower: float,
+                      long_upper: float, long_lower: float,
                       max_position_size: float, order_size: float) -> dict:
     """Return a dict shaped like a Redis pubsub grid-settings message."""
     return {
         "type": "message",
         "channel": channel.encode(),
         "data": json.dumps({
-            "upper_limit": upper_limit,
-            "lower_limit": lower_limit,
+            "short_upper_limit": short_upper,
+            "short_lower_limit": short_lower,
+            "long_upper_limit": long_upper,
+            "long_lower_limit": long_lower,
             "max_position_size": max_position_size,
             "order_size": order_size,
         }).encode(),
@@ -133,19 +136,26 @@ class TestParseGridSettings:
 
     def test_parses_all_fields(self):
         result = _gb._parse_grid_settings({
-            "upper_limit": "10.5",
-            "lower_limit": "-10.5",
+            "long_upper_limit": "10.5",
+            "long_lower_limit": "-10.5",
+            "short_upper_limit": "8.0",
+            "short_lower_limit": "5.0",
             "max_position_size": "5.0",
             "order_size": "1.0",
         })
         assert result == {
-            "upper": 10.5, "lower": -10.5,
+            "long_upper": 10.5, "long_lower": -10.5,
+            "short_upper": 8.0, "short_lower": 5.0,
             "max_position_size": 5.0, "order_size": 1.0,
         }
 
     def test_defaults_to_zero_on_missing_keys(self):
         result = _gb._parse_grid_settings({})
-        assert result == {"upper": 0.0, "lower": 0.0, "max_position_size": 0.0, "order_size": 0.0}
+        assert result == {
+            "long_upper": 0.0, "long_lower": 0.0,
+            "short_upper": 0.0, "short_lower": 0.0,
+            "max_position_size": 0.0, "order_size": 0.0,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -153,24 +163,67 @@ class TestParseGridSettings:
 # ---------------------------------------------------------------------------
 
 class TestDetermineZone:
+    # short_upper=8: open short when ask_diff >= 8  (position-independent)
+    # long_upper=5:  close long when ask_diff >= 5  (only when position_amt > 0)
+    # short_lower=-5: close short when bid_diff <= -5 (only when position_amt < 0)
+    # long_lower=-8:  open long when bid_diff <= -8  (position-independent)
 
-    def test_sell_zone(self):
-        assert _gb._determine_zone(6.0, -2.0, 5.0, -5.0) == 'SELL'
+    # --- SELL zone ---
 
-    def test_buy_zone(self):
-        assert _gb._determine_zone(2.0, -6.0, 5.0, -5.0) == 'BUY'
+    def test_sell_via_short_upper_flat(self):
+        # ask_diff=9 >= short_upper=8, flat position → open short
+        assert _gb._determine_zone(9.0, -2.0, 8.0, -5.0, 5.0, -8.0, position_amt=0) == 'SELL'
 
-    def test_neutral_zone(self):
-        assert _gb._determine_zone(2.0, -2.0, 5.0, -5.0) == 'NEUTRAL'
+    def test_sell_via_long_upper_with_long_position(self):
+        # ask_diff=6 >= long_upper=5, long position → close long
+        assert _gb._determine_zone(6.0, -2.0, 8.0, -5.0, 5.0, -8.0, position_amt=3.0) == 'SELL'
 
-    def test_sell_zone_at_exact_limit(self):
-        assert _gb._determine_zone(5.0, -2.0, 5.0, -5.0) == 'SELL'
+    def test_long_upper_does_not_trigger_sell_when_flat(self):
+        # ask_diff=6 >= long_upper=5 but no long to close → NEUTRAL
+        assert _gb._determine_zone(6.0, -2.0, 8.0, -5.0, 5.0, -8.0, position_amt=0) == 'NEUTRAL'
 
-    def test_buy_zone_at_exact_limit(self):
-        assert _gb._determine_zone(2.0, -5.0, 5.0, -5.0) == 'BUY'
+    def test_long_upper_does_not_trigger_sell_when_short(self):
+        # ask_diff=6 >= long_upper=5 but position is already short → NEUTRAL
+        assert _gb._determine_zone(6.0, -2.0, 8.0, -5.0, 5.0, -8.0, position_amt=-2.0) == 'NEUTRAL'
 
-    def test_sell_takes_priority_when_both_breached(self):
-        assert _gb._determine_zone(6.0, -6.0, 5.0, -5.0) == 'SELL'
+    def test_sell_via_short_upper_exact(self):
+        assert _gb._determine_zone(8.0, -2.0, 8.0, -5.0, 5.0, -8.0, position_amt=0) == 'SELL'
+
+    def test_sell_via_long_upper_exact_with_long(self):
+        assert _gb._determine_zone(5.0, -2.0, 8.0, -5.0, 5.0, -8.0, position_amt=1.0) == 'SELL'
+
+    # --- BUY zone ---
+
+    def test_buy_via_long_lower_flat(self):
+        # bid_diff=-9 <= long_lower=-8, flat position → open long
+        assert _gb._determine_zone(2.0, -9.0, 8.0, -5.0, 5.0, -8.0, position_amt=0) == 'BUY'
+
+    def test_buy_via_short_lower_with_short_position(self):
+        # bid_diff=-6 <= short_lower=-5, short position → close short
+        assert _gb._determine_zone(2.0, -6.0, 8.0, -5.0, 5.0, -8.0, position_amt=-3.0) == 'BUY'
+
+    def test_short_lower_does_not_trigger_buy_when_flat(self):
+        # bid_diff=-6 <= short_lower=-5 but no short to close → NEUTRAL
+        assert _gb._determine_zone(2.0, -6.0, 8.0, -5.0, 5.0, -8.0, position_amt=0) == 'NEUTRAL'
+
+    def test_short_lower_does_not_trigger_buy_when_long(self):
+        # bid_diff=-6 <= short_lower=-5 but position is already long → NEUTRAL
+        assert _gb._determine_zone(2.0, -6.0, 8.0, -5.0, 5.0, -8.0, position_amt=2.0) == 'NEUTRAL'
+
+    def test_buy_via_long_lower_exact(self):
+        assert _gb._determine_zone(2.0, -8.0, 8.0, -5.0, 5.0, -8.0, position_amt=0) == 'BUY'
+
+    def test_buy_via_short_lower_exact_with_short(self):
+        assert _gb._determine_zone(2.0, -5.0, 8.0, -5.0, 5.0, -8.0, position_amt=-1.0) == 'BUY'
+
+    # --- neutral / priority ---
+
+    def test_neutral_inside_all_thresholds(self):
+        assert _gb._determine_zone(3.0, -3.0, 8.0, -5.0, 5.0, -8.0, position_amt=0) == 'NEUTRAL'
+
+    def test_sell_takes_priority_when_both_triggered(self):
+        # short_upper triggered (position-independent) beats BUY side
+        assert _gb._determine_zone(9.0, -9.0, 8.0, -5.0, 5.0, -8.0, position_amt=0) == 'SELL'
 
 
 # ---------------------------------------------------------------------------
@@ -443,7 +496,7 @@ class TestProcessTickMockEntryPosition:
              patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "true", "PAIR_INDEX": "0"}):
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=0.01,
                 ask_diff=0.0, bid_diff=-6.0,  # BUY zone
             )
@@ -459,7 +512,7 @@ class TestProcessTickMockEntryPosition:
              patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "true", "PAIR_INDEX": "0"}):
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=0.012,
                 ask_diff=0.0, bid_diff=-6.0,  # BUY zone
             )
@@ -475,7 +528,7 @@ class TestProcessTickMockEntryPosition:
              patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "true", "PAIR_INDEX": "0"}):
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=0.012,
                 ask_diff=6.0, bid_diff=0.0,  # SELL zone
             )
@@ -491,7 +544,7 @@ class TestProcessTickMockEntryPosition:
              patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "false", "PAIR_INDEX": "0"}):
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
                 ask_diff=0.0, bid_diff=-6.0,  # BUY zone
             )
@@ -579,14 +632,15 @@ class TestReconcile:
 class TestProcessTick:
 
     def _run(self, open_orders, position_amt,
-             upper_limit=10.0, lower_limit=-10.0,
+             short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
              max_pos=5.0, order_size=1.0,
              ask_diff=0.0, bid_diff=0.0):
         with patch.object(_gb, "get_open_orders", return_value=open_orders), \
              patch.object(_gb, "get_position", return_value=_position(position_amt)):
             _gb._process_tick(
                 SYMBOL,
-                upper_limit, lower_limit, max_pos, order_size,
+                short_upper, short_lower, long_upper, long_lower,
+                max_pos, order_size,
                 ask_diff, bid_diff,
             )
 
@@ -600,7 +654,7 @@ class TestProcessTick:
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
                 ask_diff=6.0, bid_diff=0.0,
             )
@@ -614,7 +668,7 @@ class TestProcessTick:
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
                 ask_diff=0.0, bid_diff=-6.0,
             )
@@ -628,7 +682,7 @@ class TestProcessTick:
              patch.object(_gb, "chase_order") as mock_chase:
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
                 ask_diff=6.0, bid_diff=0.0,  # SELL zone, no open order
             )
@@ -641,7 +695,7 @@ class TestProcessTick:
              patch.object(_gb, "chase_order") as mock_chase:
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
                 ask_diff=6.0, bid_diff=0.0,
             )
@@ -654,7 +708,7 @@ class TestProcessTick:
              patch.object(_gb, "chase_order") as mock_chase:
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
                 ask_diff=0.0, bid_diff=-6.0,
             )
@@ -668,7 +722,7 @@ class TestProcessTick:
              patch.object(_gb, "chase_order") as mock_chase:
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
                 ask_diff=6.0, bid_diff=0.0,
             )
@@ -683,7 +737,7 @@ class TestProcessTick:
              patch.object(_gb, "cancel_all_open_orders") as mock_cancel:
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
                 ask_diff=6.0, bid_diff=0.0,
             )
@@ -698,7 +752,7 @@ class TestProcessTick:
              patch.object(_gb, "chase_order") as mock_chase:
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
                 ask_diff=6.0, bid_diff=0.0,
             )
@@ -715,7 +769,7 @@ class TestProcessTick:
              patch.object(_gb, "cancel_all_open_orders") as mock_cancel:
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
                 ask_diff=3.0, bid_diff=-3.0,
             )
@@ -730,7 +784,7 @@ class TestProcessTick:
              patch.object(_gb, "cancel_all_open_orders") as mock_cancel:
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
                 ask_diff=2.0, bid_diff=-2.0,
             )
@@ -744,7 +798,7 @@ class TestProcessTick:
              patch.object(_gb, "cancel_all_open_orders") as mock_cancel:
             _gb._process_tick(
                 SYMBOL,
-                upper_limit=5.0, lower_limit=-5.0,
+                short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
                 ask_diff=2.0, bid_diff=-2.0,
             )
@@ -761,7 +815,7 @@ class TestProcessTick:
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
              patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
-            _gb._process_tick(SYMBOL, 5.0, -5.0, 3.0, 1.0, 6.0, 0.0)
+            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 3.0, 1.0, 6.0, 0.0)
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
 
         # Step 2: pos=-1 → target=-2 → place SELL 1
@@ -769,7 +823,7 @@ class TestProcessTick:
              patch.object(_gb, "get_position", return_value=_position(-1.0)), \
              patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
-            _gb._process_tick(SYMBOL, 5.0, -5.0, 3.0, 1.0, 6.0, 0.0)
+            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 3.0, 1.0, 6.0, 0.0)
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
 
         # Step 3: pos=-2 → target=-3 → place SELL 1
@@ -777,7 +831,7 @@ class TestProcessTick:
              patch.object(_gb, "get_position", return_value=_position(-2.0)), \
              patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
-            _gb._process_tick(SYMBOL, 5.0, -5.0, 3.0, 1.0, 6.0, 0.0)
+            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 3.0, 1.0, 6.0, 0.0)
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
 
         # Step 4: pos=-3 → capacity=0 → target=pos → no open order → nothing
@@ -785,7 +839,7 @@ class TestProcessTick:
              patch.object(_gb, "get_position", return_value=_position(-3.0)), \
              patch.object(_gb, "chase_order") as mock_chase, \
              patch.object(_gb, "cancel_all_open_orders") as mock_cancel:
-            _gb._process_tick(SYMBOL, 5.0, -5.0, 3.0, 1.0, 6.0, 0.0)
+            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 3.0, 1.0, 6.0, 0.0)
         mock_chase.assert_not_called()
         mock_cancel.assert_not_called()
 
@@ -806,9 +860,9 @@ class TestMessageHelpers:
 
     def test_grid_message_roundtrips(self):
         msg = make_grid_message("setting_grid_channel:XAUUSDT:XAUUSD",
-                                5.0, -5.0, 10.0, 1.0)
+                                10.0, 5.0, -5.0, -10.0, 10.0, 1.0)
         payload = json.loads(msg["data"])
-        assert payload["upper_limit"] == 5.0
+        assert payload["short_upper_limit"] == 10.0
         assert payload["order_size"] == 1.0
 
     def test_price_message_feeds_into_parse(self):
@@ -821,10 +875,11 @@ class TestMessageHelpers:
         assert lower == -4.0
 
     def test_grid_message_feeds_into_parse_settings(self):
-        msg = make_grid_message("ch", 5.0, -5.0, 10.0, 2.0)
+        msg = make_grid_message("ch", 10.0, 5.0, -5.0, -10.0, 10.0, 2.0)
         payload = json.loads(msg["data"])
         settings = _gb._parse_grid_settings(payload)
-        assert settings["upper"] == 5.0
+        assert settings["short_upper"] == 10.0
+        assert settings["long_upper"] == -5.0
         assert settings["order_size"] == 2.0
 
     def test_price_message_includes_ts_when_provided(self):
@@ -996,14 +1051,15 @@ def _run_handle_grid_flow_active(messages):
 
     redis_mock = MagicMock()
     grid_data = json.dumps({
-        "upper_limit": 5.0, "lower_limit": -5.0,
+        "short_upper_limit": 10.0, "short_lower_limit": 5.0,
+        "long_upper_limit": -5.0, "long_lower_limit": -10.0,
         "max_position_size": 5.0, "order_size": 1.0,
     })
     redis_mock.get.return_value = grid_data.encode()
 
     def mock_process_tick(*args, **kwargs):
         process_tick_called[0] = True
-        logger.info(f"[TickWorker] _process_tick reached: ask_diff={args[5] if len(args) > 5 else '?'} bid_diff={args[6] if len(args) > 6 else '?'}")
+        logger.info(f"[TickWorker] _process_tick reached: ask_diff={args[7] if len(args) > 7 else '?'} bid_diff={args[8] if len(args) > 8 else '?'}")
 
     with patch.dict("os.environ", {"PAIR_INDEX": "0"}), \
          patch.object(_gb, "get_redis_connection", return_value=redis_mock), \

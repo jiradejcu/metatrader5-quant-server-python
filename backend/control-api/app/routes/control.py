@@ -198,7 +198,9 @@ def set_grid_setting_values():
 
         # 1. Validate required fields and types
         required_fields = [
-            'upper_limit', 'lower_limit', 'max_position_size', 'order_size'
+            'long_upper_limit', 'long_lower_limit',
+            'short_upper_limit', 'short_lower_limit',
+            'max_position_size', 'order_size',
         ]
 
         for field in required_fields:
@@ -215,8 +217,10 @@ def set_grid_setting_values():
                     'message': f'Attribute "{field}" must be numeric!'
                 }), 400
 
-        upper = float(data['upper_limit'])
-        lower = float(data['lower_limit'])
+        long_upper = float(data['long_upper_limit'])
+        long_lower = float(data['long_lower_limit'])
+        short_upper = float(data['short_upper_limit'])
+        short_lower = float(data['short_lower_limit'])
         max_pos = float(data['max_position_size'])
         ord_size = float(data['order_size'])
         # Validation Logic
@@ -226,8 +230,10 @@ def set_grid_setting_values():
         if max_pos < 0:
             errors.append("max_position_size must be greater than 0")
 
-        if not (upper > lower):
-            errors.append("upper_limit must be greater than lower_limit")
+        if not (long_upper > long_lower):
+            errors.append("long_upper_limit must be greater than long_lower_limit")
+        if not (short_upper > short_lower):
+            errors.append("short_upper_limit must be greater than short_lower_limit")
 
         if errors:
             logger.warning(f"Grid setting update rejected — validation errors: {errors}")
@@ -246,8 +252,10 @@ def set_grid_setting_values():
         redis_key = f"setting_grid_channel:{primary_symbol}:{hedge_symbol}"
 
         grid_channel = {
-            "upper_limit": upper,
-            "lower_limit": lower,
+            "long_upper_limit": long_upper,
+            "long_lower_limit": long_lower,
+            "short_upper_limit": short_upper,
+            "short_lower_limit": short_lower,
             "max_position_size": max_pos,
             "order_size": ord_size,
         }

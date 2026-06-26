@@ -22,7 +22,7 @@ export const FloatingLabelInput = (arg: IFloatingLabelInputProps) => {
           placeholder=" "
           required
         />
-        <label className="absolute cursor-text bg-white px-1 left-2 top-2.5 text-slate-500 text-sm transition-all transform origin-left peer-focus:-top-2.5 peer-focus:left-2 peer-focus:text-xs peer-focus:text-blue-600 peer-focus:font-bold peer-placeholder-shown:top-2.5 peer-placeholder-shown:scale-100 peer-not-placeholder-shown:-top-2.5 peer-not-placeholder-shown:scale-90">
+        <label className="absolute cursor-text bg-white px-1 left-2 top-2.5 text-slate-500 text-xs transition-all transform origin-left peer-focus:-top-2.5 peer-focus:left-2 peer-focus:text-[10px] peer-focus:text-blue-600 peer-focus:font-bold peer-placeholder-shown:top-2.5 peer-placeholder-shown:scale-100 peer-not-placeholder-shown:-top-2.5 peer-not-placeholder-shown:scale-90">
           {label}
         </label>
       </div>

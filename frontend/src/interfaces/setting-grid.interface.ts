@@ -1,9 +1,10 @@
 export interface SettingGridProps {
-    upper_limit: number
-    lower_limit: number
+    long_upper_limit: number
+    long_lower_limit: number
+    short_upper_limit: number
+    short_lower_limit: number
     max_position_size: number
     order_size: number
-
 }
 
 export interface IFloatingLabelInputProps {
