@@ -26,6 +26,10 @@ hedge_new_pat = re.compile(
     r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*Order successful:.*?"
     r"'request': \[1, \d+, \d+, '\S+', ([0-9.]+), ([0-9.]+),"
 )
+# Ground-truth primary position from the exchange (signed amount; + long, - short).
+primary_pos_pat = re.compile(
+    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*Primary Position \S+ - Amount: (-?[0-9.]+)"
+)
 
 
 # ── Functions ─────────────────────────────────────────────────────────────────
@@ -37,7 +41,7 @@ DATE_FMT  = 'hh:mm:ss.000'
 PRICE_COLS = (
     'pred_primary_price', 'pred_hedge_price', 'predicted_price_diff',
     'actual_primary_price', 'actual_hedge_price', 'actual_price_diff',
-    'primary_price_diff', 'hedge_price_diff',
+    'primary_price_diff', 'hedge_price_diff', 'vwap',
 )
 PRICE_FMT = '0.00'
 # Columns that get a zero-axis data-bar conditional format.
@@ -50,6 +54,7 @@ HEADERS = {
     'side'                 : 'Side',
     'vol'                  : 'Vol',
     'cumvol'               : 'Cum\nVol',
+    'primary_pos'          : 'Primary\nPos',
     'order_id'            : 'Order ID',
     'placed_ts'           : 'Placed\nTime',
     'pred_ts'             : 'Pred\nTime',
@@ -69,6 +74,7 @@ HEADERS = {
     'primary_edge'        : 'Primary\nEdge',
     'hedge_edge'          : 'Hedge\nEdge',
     'net_edge'            : 'Net\nEdge',
+    'vwap'                : 'VWAP\nSpread',
     'pnl'                 : 'PnL',
     'cumpnl'              : 'Cum\nPnL',
 }
@@ -231,10 +237,14 @@ def _inject_databars(path, ranges,
     os.replace(tmp, path)
 
 
-def _book_realized_pnl(rows):
+def _book_realized_pnl(rows, initial_pos=0.0):
     """Assign per-fill ``pnl`` / running ``cumpnl`` / ``cumvol`` to ``rows``.
 
     ``rows`` are all fills (matched and unmatched) in chronological order.
+    ``initial_pos`` is the signed primary position the book already carried
+    before the first fill (from the exchange's Primary Position log), so cumvol
+    tracks the real position rather than assuming it starts flat. Its spread
+    basis is unknown, so it is seeded at the first observed spread.
 
     The primary position is tracked in signed lots (BUY = long +, SELL = short -).
     Each fill carries a spread basis ``d = actual_price_diff`` (primary - hedge),
@@ -255,13 +265,38 @@ def _book_realized_pnl(rows):
 
     Returns the final ``(pos, vwap, mark)`` so the caller can mark open inventory.
     """
-    pos = 0.0     # signed primary lots; + = net long primary
-    vwap = 0.0    # volume-weighted average spread basis of the open position
-    mark = 0.0    # last observed actual spread (proxy for hedge-less fills)
+    pos = float(initial_pos)   # signed primary lots; + = net long primary
+    # Seed the basis of any inherited position and the mark at the first spread
+    # we observe, so closing inherited inventory books sane (near-zero) PnL.
+    first_spread = next((r['actual_price_diff'] for r in rows
+                         if r.get('actual_price_diff') is not None), 0.0)
+    vwap = first_spread if pos else 0.0   # avg spread basis of the open position
+    mark = first_spread                   # last observed spread (hedge-less proxy)
     cum = 0.0
     for r in rows:
         vol = r['vol']
         signed = vol if r['side'] == 'BUY' else -vol
+
+        if r.get('correction'):
+            # Synthetic resync to the exchange's logged position: adjust the
+            # volume only. The missing trades' basis is unknown so book no
+            # realized PnL; blend the open basis at the last mark when growing,
+            # leave it unchanged when shrinking, reset it on a sign flip.
+            new_pos = pos + signed
+            if new_pos == 0:
+                vwap = 0.0
+            elif pos == 0 or (pos > 0) == (new_pos > 0):
+                if abs(new_pos) > abs(pos):
+                    vwap = (vwap * abs(pos) + mark * (abs(new_pos) - abs(pos))) / abs(new_pos)
+            else:
+                vwap = mark
+            pos = new_pos
+            r['pnl'] = 0.0
+            r['cumpnl'] = cum
+            r['cumvol'] = round(pos, 4)
+            r['vwap'] = round(vwap, 4)
+            continue
+
         d = r.get('actual_price_diff')
         eff = d if d is not None else mark   # hedge-less fill -> mark at last spread
 
@@ -290,7 +325,57 @@ def _book_realized_pnl(rows):
         cum = round(cum + realized, 4)
         r['cumpnl'] = cum
         r['cumvol'] = round(pos, 4)   # signed net primary position after this fill
+        r['vwap'] = round(vwap, 4)    # avg spread basis of the open position
     return pos, vwap, mark
+
+
+def _sync_positions(fill_rows, primary_positions, initial_pos):
+    """Interleave correction rows so cumvol stays in sync with the exchange.
+
+    ``fill_rows`` must be in chronological order. For each fill the actual
+    primary position is taken from the last ``Primary Position`` log that falls
+    after that fill and before the next one, and stored on the row as
+    ``primary_pos``. Whenever the running position (seeded from ``initial_pos``)
+    drifts from that logged amount -- e.g. fills that never reached this log --
+    a synthetic ``correction`` row carrying the difference is inserted so the
+    position re-syncs to reality.
+
+    Returns the augmented row list (fills + correction rows, in order).
+    """
+    for r in fill_rows:
+        r.setdefault('primary_pos', None)
+    if not fill_rows or not primary_positions:
+        return list(fill_rows)
+
+    ts = [datetime.strptime(r['fill_ts'], '%Y-%m-%d %H:%M:%S.%f') for r in fill_rows]
+    n = len(fill_rows)
+    augmented = []
+    running = float(initial_pos)
+    for i, r in enumerate(fill_rows):
+        t0 = ts[i]
+        t1 = ts[i + 1] if i + 1 < n else datetime.max
+        # Last logged position in this fill's post-fill window.
+        snaps = [p['amount'] for p in primary_positions if t0 <= p['ts_dt'] < t1]
+        snap = snaps[-1] if snaps else None
+        r['primary_pos'] = snap
+
+        running += r['vol'] if r['side'] == 'BUY' else -r['vol']
+        augmented.append(r)
+
+        if snap is not None:
+            disc = round(snap - running, 4)
+            if abs(disc) > 1e-6:
+                augmented.append({
+                    'fill_ts'     : r['fill_ts'],
+                    'side'        : 'BUY' if disc > 0 else 'SELL',
+                    'vol'         : round(abs(disc), 4),
+                    'order_id'    : 'SYNC',
+                    'primary_pos' : snap,
+                    'correction'  : True,
+                    'match'       : False,
+                })
+                running = snap
+    return augmented
 
 
 def analyze_orders(log_file, out_xlsx=None):
@@ -308,6 +393,7 @@ def analyze_orders(log_file, out_xlsx=None):
     fills = []
     hedges_new = []
     placements = {}
+    primary_positions = []
     filtered_lines = []
 
     with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
@@ -349,6 +435,14 @@ def analyze_orders(log_file, out_xlsx=None):
                         'side': m.group(3), 'vol': float(m.group(4)), 'price': float(m.group(5)),
                     }
                 filtered_lines.append((datetime.strptime(m.group(1), ts_fmt), line))
+                continue
+            m = primary_pos_pat.search(line)
+            if m:
+                primary_positions.append({
+                    'ts_dt': datetime.strptime(m.group(1), ts_fmt),
+                    'amount': float(m.group(2)),
+                })
+                filtered_lines.append((primary_positions[-1]['ts_dt'], line))
 
     filtered_lines.sort(key=lambda x: x[0])
     with open(out_log, 'w', encoding='utf-8') as f:
@@ -359,6 +453,19 @@ def analyze_orders(log_file, out_xlsx=None):
     print(f"Entry fills   : {len(fills)}")
     print(f"MT5 new hedges: {len(hedges_new)}")
     print(f"Order placed  : {len(placements)}")
+    print(f"Primary pos   : {len(primary_positions)}")
+
+    # Ground-truth starting position: the last logged primary position at or
+    # before the first fill. cumvol is seeded with this so it tracks the real
+    # exchange position instead of assuming the book starts flat.
+    initial_pos = 0.0
+    if fills and primary_positions:
+        first_fill_ts = min(f['ts_dt'] for f in fills)
+        prior = [p for p in primary_positions if p['ts_dt'] <= first_fill_ts]
+        if prior:
+            initial_pos = prior[-1]['amount']
+    if initial_pos:
+        print(f"Initial pos   : {initial_pos:+g}  (cumvol start, from Primary Position log)")
     print()
 
     results = []
@@ -469,22 +576,26 @@ def analyze_orders(log_file, out_xlsx=None):
             'match'                : True
         })
 
-    # Every fill (matched or not) moves the real position, so run the
-    # position-tracking pass over all rows in chronological order. It books
-    # realized PnL and the running cumvol/cumpnl onto each row in place.
-    sheet_rows = sorted(results, key=lambda x: x['fill_ts'])
-    pos, vwap, mark = _book_realized_pnl(sheet_rows)
+    # Every fill (matched or not) moves the real position. Sync the running
+    # position to the exchange's logged Primary Position (interleaving any
+    # correction rows), then run the position-tracking pass over all rows in
+    # chronological order. It books realized PnL and the running
+    # cumvol/cumpnl/vwap onto each row in place.
+    fill_rows = sorted(results, key=lambda x: x['fill_ts'])
+    sheet_rows = _sync_positions(fill_rows, primary_positions, initial_pos)
+    pos, vwap, mark = _book_realized_pnl(sheet_rows, initial_pos)
 
-    matched   = [r for r in sheet_rows if r['match']]
-    unmatched = [r for r in sheet_rows if not r['match']]
+    matched     = [r for r in sheet_rows if r.get('match')]
+    corrections = [r for r in sheet_rows if r.get('correction')]
+    unmatched   = [r for r in sheet_rows if not r.get('match') and not r.get('correction')]
 
     fieldnames = [
-        'fill_ts', 'side', 'vol', 'cumvol', 'order_id', 'placed_ts', 'pred_ts',
+        'fill_ts', 'side', 'vol', 'cumvol', 'primary_pos', 'order_id', 'placed_ts', 'pred_ts',
         'pred_to_fill_ms', 'order_age_ms', 'pred_to_hedge_ms',
         'pred_primary_price', 'pred_hedge_price', 'predicted_price_diff',
         'hedge_ts', 'actual_primary_price', 'actual_hedge_price', 'actual_price_diff',
         'primary_price_diff', 'hedge_price_diff', 'slippage',
-        'primary_edge', 'hedge_edge', 'net_edge', 'pnl', 'cumpnl',
+        'primary_edge', 'hedge_edge', 'net_edge', 'vwap', 'pnl', 'cumpnl',
     ]
     _write_xlsx(out_xlsx, fieldnames, sheet_rows)
     print(f"Written to {out_xlsx}")
@@ -555,12 +666,15 @@ def analyze_orders(log_file, out_xlsx=None):
         else:
             unrealized, open_desc = 0.0, "flat"
 
-        print("  PnL (price-points x lots; x point value = money)")
-        print(f"  Realized       : {realized:+.4f}  (closed against opposite side)")
+        print("  PnL")
+        print(f"  Realized       : {realized:+.4f}")
         print(f"  Open inventory : {open_desc}")
         print(f"  Unrealized     : {unrealized:+.4f}  (marked @ last spread {mark:+.4f})")
         print(f"  MTM total      : {realized + unrealized:+.4f}")
         print(f"  Unmatched fills: {len(unmatched)}")
+        if corrections:
+            net_corr = sum(c['vol'] if c['side'] == 'BUY' else -c['vol'] for c in corrections)
+            print(f"  Sync corrections: {len(corrections)}  (net {net_corr:+g} lots to match logged position)")
         print(sep)
 
 
