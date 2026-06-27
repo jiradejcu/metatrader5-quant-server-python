@@ -101,30 +101,41 @@ def update_position_group(
     """
     Record a new fill into the position group and return the updated entry price.
 
-    fill_volume is signed: positive = opening/adding, negative = closing/reducing.
-    VWAP is updated only on positive fills; preserved on negative fills.
-    Deletes the group when new_volume reaches zero.
+    fill_volume is signed by order direction: positive = BUY (LONG), negative = SELL (SHORT).
+    VWAP is updated when the absolute position size grows; preserved when it shrinks.
+    Resets the group when the position reaches zero or flips direction.
     """
     existing = get_position_group(redis_conn, symbol)
     prev_volume = float(existing["volume"]) if existing else 0.0
-    prev_cost = float(existing["cost"]) if existing else 0.0
-    prev_entry = float(existing["entry_price"]) if existing else 0.0
+    prev_cost   = float(existing["cost"])   if existing else 0.0
+    prev_entry  = float(existing["entry_price"]) if existing else 0.0
 
     new_volume = prev_volume + fill_volume
 
-    if new_volume <= 1e-9:
+    # Zero crossing: the fill closes the existing position and possibly opens in the opposite direction.
+    # This covers both exactly-zero (open_vol = 0) and flip-through-zero (open_vol > 0).
+    if prev_volume != 0.0 and (abs(new_volume) <= 1e-9 or (prev_volume > 0) != (new_volume > 0)):
+        open_vol = abs(fill_volume) - abs(prev_volume)
+
         redis_conn.delete(_key(symbol))
-        if existing is None and fill_volume < 0:
+        if existing is None:
             logger.warning("[PositionGroup] %s group_id=%s closing fill but no group in Redis.", symbol, group_id)
         else:
             logger.info("[PositionGroup] %s group_id=%s fully closed — group reset.", symbol, group_id)
-        return 0.0
 
-    if fill_volume > 0:
-        new_cost = prev_cost + fill_price * fill_volume
-        entry_price = new_cost / new_volume
-    else:
-        new_cost = prev_entry * new_volume
+        if open_vol <= 1e-9:
+            return 0.0
+
+        # Open a new group for the remaining portion in the new direction
+        group_id = resolve_group_id(redis_conn, symbol)
+        new_volume = (1 if fill_volume > 0 else -1) * open_vol
+        new_cost = fill_price * open_vol
+        entry_price = fill_price
+    elif abs(new_volume) > abs(prev_volume):  # adding to the position
+        new_cost = prev_cost + fill_price * abs(fill_volume)
+        entry_price = new_cost / abs(new_volume)
+    else:  # reducing the position — VWAP preserved
+        new_cost = prev_entry * abs(new_volume)
         entry_price = prev_entry
 
     group = {
@@ -137,7 +148,7 @@ def update_position_group(
     logger.info(
         "[PositionGroup] %s %s fill: group_id=%s price=%.5f vol=%.5f → "
         "group_entry=%.5f group_vol=%.5f",
-        symbol, "OPEN" if fill_volume > 0 else "CLOSE",
-        group_id, fill_price, fill_volume, entry_price, new_volume,
+        symbol, "LONG" if fill_volume > 0 else "SHORT",
+        group_id, fill_price, fill_volume, entry_price, abs(new_volume),
     )
     return entry_price

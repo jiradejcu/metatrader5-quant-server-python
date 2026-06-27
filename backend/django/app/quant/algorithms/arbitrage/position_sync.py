@@ -125,8 +125,6 @@ def handle_position_update(pubsub):
                     )
 
                     order_volume = order_amt / contract_size
-                    expected_hedge_volume = hedge_volume + order_volume
-                    is_opening = abs(expected_hedge_volume) > abs(hedge_volume)
 
                     group_id = resolve_group_id(
                         redis_conn=redis_conn,
@@ -148,7 +146,7 @@ def handle_position_update(pubsub):
                     fill_volume = abs(float(order.get('volume', 0)))
 
                     if fill_price > 0 and fill_volume > 0:
-                        signed_fill_volume = fill_volume if is_opening else -fill_volume
+                        signed_fill_volume = fill_volume if order_amt > 0 else -fill_volume
                         update_position_group(
                             redis_conn=redis_conn,
                             symbol=hedge_symbol,
