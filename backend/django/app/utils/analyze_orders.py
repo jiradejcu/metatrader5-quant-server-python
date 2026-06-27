@@ -30,12 +30,123 @@ hedge_new_pat = re.compile(
 
 # ── Functions ─────────────────────────────────────────────────────────────────
 
-def analyze_orders(log_file, out_csv=None):
+# Timestamp columns rendered as Excel times (hh:mm:ss.000).
+DATE_COLS = ('fill_ts', 'placed_ts', 'pred_ts', 'hedge_ts')
+DATE_FMT  = 'hh:mm:ss.000'
+# Columns that get a red data-bar conditional format.
+DATA_BAR_COLS = ('slippage', 'primary_edge', 'hedge_edge', 'net_edge')
+
+# Human-readable, multi-line column headers (newlines wrap in the cell so the
+# column can stay narrow). Falls back to the raw field name if not listed.
+HEADERS = {
+    'fill_ts'              : 'Fill\nTime',
+    'side'                 : 'Side',
+    'qty'                  : 'Qty',
+    'order_id'            : 'Order ID',
+    'placed_ts'           : 'Placed\nTime',
+    'pred_ts'             : 'Pred\nTime',
+    'pred_to_fill_ms'     : 'Pred→Fill\n(ms)',
+    'order_age_ms'        : 'Order Age\n(ms)',
+    'pred_to_hedge_ms'    : 'Pred→Hedge\n(ms)',
+    'pred_primary_price'  : 'Pred\nPrimary',
+    'pred_hedge_price'    : 'Pred\nHedge',
+    'predicted_price_diff': 'Pred\nDiff',
+    'hedge_ts'            : 'Hedge\nTime',
+    'actual_primary_price': 'Actual\nPrimary',
+    'actual_hedge_price'  : 'Actual\nHedge',
+    'actual_price_diff'   : 'Actual\nDiff',
+    'primary_price_diff'  : 'Primary\nDiff',
+    'hedge_price_diff'    : 'Hedge\nDiff',
+    'slippage'            : 'Slippage',
+    'primary_edge'        : 'Primary\nEdge',
+    'hedge_edge'          : 'Hedge\nEdge',
+    'net_edge'            : 'Net\nEdge',
+    'pnl'                 : 'PnL',
+    'cumpnl'              : 'Cum\nPnL',
+}
+
+
+def _write_xlsx(out_xlsx, fieldnames, rows):
+    """Write matched orders to a styled .xlsx workbook.
+
+    - first row frozen, human-readable multi-line headers
+    - timestamp columns formatted as hh:mm:ss.000
+    - column widths fit their content
+    - red data bars on slippage / primary_edge / hedge_edge / net_edge
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment
+    from openpyxl.utils import get_column_letter
+    from openpyxl.formatting.rule import DataBarRule
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'orders'
+
+    headers = [HEADERS.get(fn, fn) for fn in fieldnames]
+    ws.append(headers)
+    header_align = Alignment(wrap_text=True, horizontal='center', vertical='center')
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.alignment = header_align
+    # Two lines tall so wrapped headers are fully visible.
+    ws.row_dimensions[1].height = 30
+
+    for r in rows:
+        out_row = []
+        for fn in fieldnames:
+            v = r.get(fn, '')
+            if v == '' or v is None:
+                out_row.append(None)
+            elif fn in DATE_COLS:
+                out_row.append(datetime.strptime(v, '%Y-%m-%d %H:%M:%S.%f'))
+            else:
+                out_row.append(v)
+        ws.append(out_row)
+
+    ws.freeze_panes = 'A2'
+    last_row = ws.max_row
+
+    for idx, fn in enumerate(fieldnames, 1):
+        col = get_column_letter(idx)
+
+        if fn in DATE_COLS:
+            for row_i in range(2, last_row + 1):
+                ws[f'{col}{row_i}'].number_format = DATE_FMT
+
+        # Width to fit content. Header contributes only its longest line, so a
+        # wrapped multi-line header lets the column stay narrow.
+        width = max(len(line) for line in HEADERS.get(fn, fn).split('\n'))
+        for row_i in range(2, last_row + 1):
+            cell = ws[f'{col}{row_i}']
+            if cell.value is None:
+                disp = ''
+            elif fn in DATE_COLS:
+                disp = '00:00:00.000'
+            else:
+                disp = str(cell.value)
+            width = max(width, len(disp))
+        ws.column_dimensions[col].width = width + 2
+
+        if fn in DATA_BAR_COLS and last_row >= 2:
+            ws.conditional_formatting.add(
+                f'{col}2:{col}{last_row}',
+                DataBarRule(start_type='min', end_type='max',
+                            color='FF0000', showValue=True),
+            )
+
+    wb.save(out_xlsx)
+
+
+def analyze_orders(log_file, out_xlsx=None):
     import os
     base = os.path.basename(log_file)
     dir_ = os.path.dirname(os.path.abspath(log_file))
-    if out_csv is None:
-        out_csv = os.path.join(dir_, f"{base}_orders.csv")
+    if out_xlsx is None:
+        out_xlsx = os.path.join(dir_, f"{base}_orders.xlsx")
+    else:
+        # Always emit a real .xlsx regardless of the extension passed in.
+        out_xlsx = os.path.splitext(out_xlsx)[0] + ".xlsx"
     out_log = os.path.join(dir_, f"{base}_filtered.log")
 
     price_diffs = []
@@ -151,6 +262,11 @@ def analyze_orders(log_file, out_csv=None):
         hedge_edge   = round(-sign * hedge_price_diff, 4)
         net_edge     = round(sign * slippage, 4)
 
+        # Spread cash-flow locked in by this pair, in price-points x lots.
+        # SELL primary collects the spread (+), BUY primary pays it (-).
+        # Multiply by the instrument point value to get money.
+        pnl          = round(sign * actual_price_diff * fill['qty'], 4)
+
         pred_to_fill_ms      = round((fill['ts_dt'] - pred['ts_dt']).total_seconds() * 1000)
         pred_to_hedge_ms     = round((hedge['ts_dt'] - pred['ts_dt']).total_seconds() * 1000)
         order_age_ms         = round((fill['ts_dt'] - placed['ts_dt']).total_seconds() * 1000) if placed else ''
@@ -178,25 +294,29 @@ def analyze_orders(log_file, out_csv=None):
             'primary_edge'         : primary_edge,
             'hedge_edge'           : hedge_edge,
             'net_edge'             : net_edge,
+            'pnl'                  : pnl,
             'match'                : True
         })
 
     matched   = [r for r in results if r['match']]
     unmatched = [r for r in results if not r['match']]
 
-    with open(out_csv, 'w', newline='') as f:
-        fieldnames = [
-            'fill_ts', 'side', 'qty', 'order_id', 'placed_ts', 'pred_ts',
-            'pred_to_fill_ms', 'order_age_ms', 'pred_to_hedge_ms',
-            'pred_primary_price', 'pred_hedge_price', 'predicted_price_diff',
-            'hedge_ts', 'actual_primary_price', 'actual_hedge_price', 'actual_price_diff',
-            'primary_price_diff', 'hedge_price_diff', 'slippage',
-            'primary_edge', 'hedge_edge', 'net_edge',
-        ]
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
-        writer.writeheader()
-        writer.writerows(matched)
-    print(f"Written to {out_csv}")
+    # Running cumulative PnL in fill order.
+    _cum = 0.0
+    for r in matched:
+        _cum = round(_cum + r['pnl'], 4)
+        r['cumpnl'] = _cum
+
+    fieldnames = [
+        'fill_ts', 'side', 'qty', 'order_id', 'placed_ts', 'pred_ts',
+        'pred_to_fill_ms', 'order_age_ms', 'pred_to_hedge_ms',
+        'pred_primary_price', 'pred_hedge_price', 'predicted_price_diff',
+        'hedge_ts', 'actual_primary_price', 'actual_hedge_price', 'actual_price_diff',
+        'primary_price_diff', 'hedge_price_diff', 'slippage',
+        'primary_edge', 'hedge_edge', 'net_edge', 'pnl', 'cumpnl',
+    ]
+    _write_xlsx(out_xlsx, fieldnames, matched)
+    print(f"Written to {out_xlsx}")
     print()
 
     col = (
@@ -206,6 +326,7 @@ def analyze_orders(log_file, out_csv=None):
         f"{'ActPrimary':>11} {'ActHedge':>10} {'ActDiff':>9}"
         f"{'PrimaryDiff':>12} {'HedgeDiff':>10} {'Slippage':>9}"
         f"{'PrimaryEdge':>12} {'HedgeEdge':>10} {'NetEdge':>9}"
+        f"{'Pnl':>10} {'CumPnl':>10}"
     )
     print(col)
     print("-" * len(col))
@@ -220,6 +341,7 @@ def analyze_orders(log_file, out_csv=None):
             f"{r['actual_primary_price']:>11.2f} {r['actual_hedge_price']:>10.2f} {r['actual_price_diff']:>9.4f}"
             f"{r['primary_price_diff']:>+12.4f} {r['hedge_price_diff']:>+10.4f} {s:>9}"
             f"{r['primary_edge']:>+12.4f} {r['hedge_edge']:>+10.4f} {r['net_edge']:>+9.4f}"
+            f"{r['pnl']:>+10.4f} {r['cumpnl']:>+10.4f}"
         )
 
     print()
@@ -245,11 +367,49 @@ def analyze_orders(log_file, out_csv=None):
         print(f"  Worse than pred: {worse}  |  Better: {better}")
         print(sep)
 
+        # ── PnL (in price-points x lots; multiply by point value for money) ──
+        # Each pair locks in a spread: SELL primary collects it, BUY pays it.
+        # Realized = the flat (matched) volume, valued at the average spread
+        # collected vs paid. The leftover inventory is still open and is
+        # marked at the last observed spread (actual_price_diff).
+        sell_qty  = sum(r['qty'] for r in matched if r['side'] == 'SELL')
+        buy_qty   = sum(r['qty'] for r in matched if r['side'] == 'BUY')
+        sell_val  = sum(r['actual_price_diff'] * r['qty'] for r in matched if r['side'] == 'SELL')
+        buy_cost  = sum(r['actual_price_diff'] * r['qty'] for r in matched if r['side'] == 'BUY')
+        avg_sell  = sell_val / sell_qty if sell_qty else 0.0
+        avg_buy   = buy_cost / buy_qty if buy_qty else 0.0
+        matched_qty = min(sell_qty, buy_qty)
+        realized  = (avg_sell - avg_buy) * matched_qty
+
+        mark      = matched[-1]['actual_price_diff']          # last observed spread
+        net_qty   = buy_qty - sell_qty                        # +ve = net long primary
+        if net_qty > 0:        # excess BUYs -> long primary, close by selling at mark
+            open_qty, open_basis = net_qty, avg_buy
+            unrealized = (mark - avg_buy) * net_qty
+            open_desc  = f"long primary {net_qty:.3f} @ spread {avg_buy:+.4f}"
+        elif net_qty < 0:      # excess SELLs -> short primary, close by buying at mark
+            open_qty, open_basis = -net_qty, avg_sell
+            unrealized = (avg_sell - mark) * (-net_qty)
+            open_desc  = f"short primary {-net_qty:.3f} @ spread {avg_sell:+.4f}"
+        else:
+            open_qty, unrealized, open_desc = 0.0, 0.0, "flat"
+
+        total_pnl = sum(r['pnl'] for r in matched)
+        print("  PnL (price-points x lots; x point value = money)")
+        print(f"  Avg spread SELL: {avg_sell:+.4f}  (collected, n_qty={sell_qty:g})")
+        print(f"  Avg spread BUY : {avg_buy:+.4f}  (paid,      n_qty={buy_qty:g})")
+        print(f"  Realized       : {realized:+.4f}  (matched {matched_qty:g} lots)")
+        print(f"  Open inventory : {open_desc}")
+        print(f"  Unrealized     : {unrealized:+.4f}  (marked @ last spread {mark:+.4f})")
+        print(f"  MTM total      : {realized + unrealized:+.4f}")
+        print(f"  Cash-flow sum  : {total_pnl:+.4f}  (= realized + open cost basis)")
+        print(sep)
+
     if unmatched:
         print(f"\nUnmatched fills ({len(unmatched)}):")
         for r in unmatched:
             f_ = r['fill']
-            print(f"  {f_['ts_str']} side={f_['side']} fill={f_['fill_price']}"
+            print(f"  {f_['ts_str']} side={f_['side']} qty={f_['qty']} fill={f_['fill_price']}"
                   f"  pred={'YES' if r['pred'] else 'NO'} hedge={'YES' if r['hedge'] else 'NO'}")
 
 
