@@ -33,7 +33,14 @@ hedge_new_pat = re.compile(
 # Timestamp columns rendered as Excel times (hh:mm:ss.000).
 DATE_COLS = ('fill_ts', 'placed_ts', 'pred_ts', 'hedge_ts')
 DATE_FMT  = 'hh:mm:ss.000'
-# Columns that get a red data-bar conditional format.
+# Price/price-diff columns rendered to 2 decimal places.
+PRICE_COLS = (
+    'pred_primary_price', 'pred_hedge_price', 'predicted_price_diff',
+    'actual_primary_price', 'actual_hedge_price', 'actual_price_diff',
+    'primary_price_diff', 'hedge_price_diff',
+)
+PRICE_FMT = '0.00'
+# Columns that get a zero-axis data-bar conditional format.
 DATA_BAR_COLS = ('slippage', 'primary_edge', 'hedge_edge', 'net_edge')
 
 # Human-readable, multi-line column headers (newlines wrap in the cell so the
@@ -41,7 +48,8 @@ DATA_BAR_COLS = ('slippage', 'primary_edge', 'hedge_edge', 'net_edge')
 HEADERS = {
     'fill_ts'              : 'Fill\nTime',
     'side'                 : 'Side',
-    'qty'                  : 'Qty',
+    'vol'                  : 'Vol',
+    'cumvol'               : 'Cum\nVol',
     'order_id'            : 'Order ID',
     'placed_ts'           : 'Placed\nTime',
     'pred_ts'             : 'Pred\nTime',
@@ -72,12 +80,12 @@ def _write_xlsx(out_xlsx, fieldnames, rows):
     - first row frozen, human-readable multi-line headers
     - timestamp columns formatted as hh:mm:ss.000
     - column widths fit their content
-    - red data bars on slippage / primary_edge / hedge_edge / net_edge
+    - zero-axis data bars on slippage / primary_edge / hedge_edge / net_edge
+      (positive values to the right in green, negative to the left in red)
     """
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment
     from openpyxl.utils import get_column_letter
-    from openpyxl.formatting.rule import DataBarRule
 
     wb = Workbook()
     ws = wb.active
@@ -107,12 +115,16 @@ def _write_xlsx(out_xlsx, fieldnames, rows):
     ws.freeze_panes = 'A2'
     last_row = ws.max_row
 
+    databar_ranges = []
     for idx, fn in enumerate(fieldnames, 1):
         col = get_column_letter(idx)
 
         if fn in DATE_COLS:
             for row_i in range(2, last_row + 1):
                 ws[f'{col}{row_i}'].number_format = DATE_FMT
+        elif fn in PRICE_COLS:
+            for row_i in range(2, last_row + 1):
+                ws[f'{col}{row_i}'].number_format = PRICE_FMT
 
         # Width to fit content. Header contributes only its longest line, so a
         # wrapped multi-line header lets the column stay narrow.
@@ -123,19 +135,162 @@ def _write_xlsx(out_xlsx, fieldnames, rows):
                 disp = ''
             elif fn in DATE_COLS:
                 disp = '00:00:00.000'
+            elif fn in PRICE_COLS:
+                disp = f'{cell.value:.2f}'
             else:
                 disp = str(cell.value)
             width = max(width, len(disp))
-        ws.column_dimensions[col].width = width + 2
+        # Data-bar columns get extra width so the bars on both sides of the
+        # centred zero axis have room to read.
+        pad = 8 if fn in DATA_BAR_COLS else 2
+        ws.column_dimensions[col].width = width + pad
 
         if fn in DATA_BAR_COLS and last_row >= 2:
-            ws.conditional_formatting.add(
-                f'{col}2:{col}{last_row}',
-                DataBarRule(start_type='min', end_type='max',
-                            color='FF0000', showValue=True),
-            )
+            # Centre every bar so the zero axis sits in the middle of the
+            # column, with positive bars to the right and negative to the left.
+            databar_ranges.append((f'{col}2:{col}{last_row}', 'middle'))
 
     wb.save(out_xlsx)
+    if databar_ranges:
+        _inject_databars(out_xlsx, databar_ranges)
+
+
+def _inject_databars(path, ranges,
+                     positive='FF63C384', negative='FFFF0000', axis='FF000000'):
+    """Add Excel-style data bars with a zero axis to ``ranges`` in ``path``.
+
+    openpyxl's ``DataBarRule`` only writes the 2007 data bar, which fills every
+    bar from the left edge (min→max) with one colour. Excel's default data bars
+    use the ``x14`` extension: a zero axis with positive values drawn to the
+    right and negative values to the left in a separate colour. openpyxl can't
+    emit that, so we patch the worksheet XML after saving.
+
+    ``ranges`` is a list of ``(sqref, axis_position)`` pairs, where
+    ``axis_position`` is ``'automatic'`` (axis placed from the data range) or
+    ``'middle'`` (zero axis fixed at the centre of the column).
+    """
+    import os
+    import uuid
+    import zipfile
+
+    sheet = 'xl/worksheets/sheet1.xml'
+    X14_NS = 'http://schemas.microsoft.com/office/spreadsheetml/2009/9/main'
+    XM_NS = 'http://schemas.microsoft.com/office/excel/2006/main'
+
+    with zipfile.ZipFile(path) as z:
+        xml = z.read(sheet).decode('utf-8')
+
+    legacy_blocks, x14_rules = [], []
+    for rng, axis_pos in ranges:
+        guid = '{%s}' % str(uuid.uuid4()).upper()
+        # 2007 data bar (older Excel / LibreOffice fallback). It points at the
+        # x14 rule below via a shared GUID.
+        legacy_blocks.append(
+            f'<conditionalFormatting sqref="{rng}">'
+            f'<cfRule type="dataBar" priority="1">'
+            f'<dataBar><cfvo type="min"/><cfvo type="max"/>'
+            f'<color rgb="{positive}"/></dataBar>'
+            f'<extLst><ext xmlns:x14="{X14_NS}" '
+            f'uri="{{B025F937-C7B1-47D3-B67F-A62EFF666E3E}}">'
+            f'<x14:id>{guid}</x14:id></ext></extLst>'
+            f'</cfRule></conditionalFormatting>'
+        )
+        # x14 data bar: zero axis + distinct negative colour.
+        x14_rules.append(
+            f'<x14:conditionalFormatting xmlns:xm="{XM_NS}">'
+            f'<x14:cfRule type="dataBar" id="{guid}">'
+            f'<x14:dataBar minLength="0" maxLength="100" '
+            f'negativeBarColorSameAsPositive="0" '
+            f'negativeBarBorderColorSameAsPositive="0" axisPosition="{axis_pos}">'
+            f'<x14:cfvo type="autoMin"/><x14:cfvo type="autoMax"/>'
+            f'<x14:negativeFillColor rgb="{negative}"/>'
+            f'<x14:axisColor rgb="{axis}"/>'
+            f'</x14:dataBar></x14:cfRule>'
+            f'<xm:sqref>{rng}</xm:sqref>'
+            f'</x14:conditionalFormatting>'
+        )
+
+    ext_xml = (
+        '<extLst><ext uri="{78C0D931-6437-407d-A8EE-F0AAD7539E65}" '
+        f'xmlns:x14="{X14_NS}"><x14:conditionalFormattings>'
+        + ''.join(x14_rules) +
+        '</x14:conditionalFormattings></ext></extLst>'
+    )
+
+    # conditionalFormatting must come before <pageMargins; the worksheet
+    # extLst must be the final child of <worksheet>.
+    xml = xml.replace('<pageMargins', ''.join(legacy_blocks) + '<pageMargins', 1)
+    xml = xml.replace('</worksheet>', ext_xml + '</worksheet>', 1)
+
+    tmp = path + '.tmp'
+    with zipfile.ZipFile(path) as zsrc, \
+            zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as zdst:
+        for item in zsrc.infolist():
+            data = xml.encode('utf-8') if item.filename == sheet else zsrc.read(item.filename)
+            zdst.writestr(item, data)
+    os.replace(tmp, path)
+
+
+def _book_realized_pnl(rows):
+    """Assign per-fill ``pnl`` / running ``cumpnl`` / ``cumvol`` to ``rows``.
+
+    ``rows`` are all fills (matched and unmatched) in chronological order.
+
+    The primary position is tracked in signed lots (BUY = long +, SELL = short -).
+    Each fill carries a spread basis ``d = actual_price_diff`` (primary - hedge),
+    and the open position keeps a volume-weighted average basis ``vwap``.
+
+    Realized PnL is booked *only* on the volume that closes against an existing
+    opposite-side position:
+        closing a long  (an incoming SELL): (d - vwap) * closed_vol
+        closing a short (an incoming BUY) : (vwap - d) * closed_vol
+    A same-side fill just grows the position and blends the VWAP; it books 0.
+    If a fill is larger than the open position it flips the side: the closing
+    part realizes PnL, and the remainder opens a fresh position at this fill's
+    spread ``d``.
+
+    A fill with no hedge leg has no ``actual_price_diff``; its spread is unknown,
+    so it is marked at the last observed spread (``mark``). Its volume still
+    flows through the position so ``cumvol`` stays correct.
+
+    Returns the final ``(pos, vwap, mark)`` so the caller can mark open inventory.
+    """
+    pos = 0.0     # signed primary lots; + = net long primary
+    vwap = 0.0    # volume-weighted average spread basis of the open position
+    mark = 0.0    # last observed actual spread (proxy for hedge-less fills)
+    cum = 0.0
+    for r in rows:
+        vol = r['vol']
+        signed = vol if r['side'] == 'BUY' else -vol
+        d = r.get('actual_price_diff')
+        eff = d if d is not None else mark   # hedge-less fill -> mark at last spread
+
+        realized = 0.0
+        if pos == 0 or (pos > 0) == (signed > 0):
+            # Flat or same direction: grow the position, blend the VWAP.
+            new_pos = pos + signed
+            vwap = (vwap * abs(pos) + eff * vol) / abs(new_pos)
+            pos = new_pos
+        else:
+            # Opposite direction: realize PnL on the closed volume.
+            close_vol = min(vol, abs(pos))
+            realized = (eff - vwap) * close_vol if pos > 0 else (vwap - eff) * close_vol
+            pos += signed
+            if pos == 0:
+                vwap = 0.0
+            elif (pos > 0) == (signed > 0):
+                # Flipped past flat: remainder opens a new position at eff.
+                vwap = eff
+            # else: position only reduced, VWAP unchanged.
+
+        if d is not None:
+            mark = d
+
+        r['pnl'] = round(realized, 4)
+        cum = round(cum + realized, 4)
+        r['cumpnl'] = cum
+        r['cumvol'] = round(pos, 4)   # signed net primary position after this fill
+    return pos, vwap, mark
 
 
 def analyze_orders(log_file, out_xlsx=None):
@@ -171,7 +326,7 @@ def analyze_orders(log_file, out_xlsx=None):
             if m:
                 fills.append({
                     'ts_str': m.group(1).replace(',', '.'), 'ts_dt': datetime.strptime(m.group(1), ts_fmt),
-                    'side': m.group(2), 'fill_price': float(m.group(3)), 'qty': float(m.group(4)), 'order_id': m.group(5)
+                    'side': m.group(2), 'fill_price': float(m.group(3)), 'vol': float(m.group(4)), 'order_id': m.group(5)
                 })
                 filtered_lines.append((fills[-1]['ts_dt'], line))
                 continue
@@ -191,7 +346,7 @@ def analyze_orders(log_file, out_xlsx=None):
                 if order_id not in placements:
                     placements[order_id] = {
                         'ts_str': m.group(1).replace(',', '.'), 'ts_dt': datetime.strptime(m.group(1), ts_fmt),
-                        'side': m.group(3), 'qty': float(m.group(4)), 'price': float(m.group(5)),
+                        'side': m.group(3), 'vol': float(m.group(4)), 'price': float(m.group(5)),
                     }
                 filtered_lines.append((datetime.strptime(m.group(1), ts_fmt), line))
 
@@ -238,7 +393,26 @@ def analyze_orders(log_file, out_xlsx=None):
                 break
 
         if pred is None or hedge is None:
-            results.append({'fill': fill, 'pred': pred, 'hedge': hedge, 'match': False})
+            # Incomplete row (missing the price-diff prediction and/or the
+            # hedge fill), so the edge/slippage analytics can't be computed.
+            # It is still a real fill that moves the position, so emit a flat
+            # row with whatever we have. When the hedge leg exists the spread
+            # basis is known, so the fill fully participates in PnL; otherwise
+            # only its volume flows through (see _book_realized_pnl).
+            row = {
+                'fill_ts'              : fill['ts_str'],
+                'side'                 : fill['side'],
+                'vol'                  : fill['vol'],
+                'order_id'             : fill['order_id'],
+                'placed_ts'            : placed['ts_str'] if placed else '',
+                'actual_primary_price' : fill['fill_price'],
+                'match'                : False,
+            }
+            if hedge is not None:
+                row['hedge_ts']           = hedge['ts_str']
+                row['actual_hedge_price'] = hedge['price']
+                row['actual_price_diff']  = round(fill['fill_price'] - hedge['price'], 4)
+            results.append(row)
             continue
 
         is_buy = fill['side'] == 'BUY'
@@ -262,10 +436,8 @@ def analyze_orders(log_file, out_xlsx=None):
         hedge_edge   = round(-sign * hedge_price_diff, 4)
         net_edge     = round(sign * slippage, 4)
 
-        # Spread cash-flow locked in by this pair, in price-points x lots.
-        # SELL primary collects the spread (+), BUY primary pays it (-).
-        # Multiply by the instrument point value to get money.
-        pnl          = round(sign * actual_price_diff * fill['qty'], 4)
+        # pnl / cumpnl are filled in afterwards by a position-tracking pass
+        # (realized only on volume that closes against the opposite side).
 
         pred_to_fill_ms      = round((fill['ts_dt'] - pred['ts_dt']).total_seconds() * 1000)
         pred_to_hedge_ms     = round((hedge['ts_dt'] - pred['ts_dt']).total_seconds() * 1000)
@@ -274,7 +446,7 @@ def analyze_orders(log_file, out_xlsx=None):
         results.append({
             'fill_ts'              : fill['ts_str'],
             'side'                 : fill['side'],
-            'qty'                  : fill['qty'],
+            'vol'                  : fill['vol'],
             'order_id'             : fill['order_id'],
             'placed_ts'            : placed['ts_str'] if placed else '',
             'pred_ts'              : pred['ts_str'],
@@ -294,33 +466,32 @@ def analyze_orders(log_file, out_xlsx=None):
             'primary_edge'         : primary_edge,
             'hedge_edge'           : hedge_edge,
             'net_edge'             : net_edge,
-            'pnl'                  : pnl,
             'match'                : True
         })
 
-    matched   = [r for r in results if r['match']]
-    unmatched = [r for r in results if not r['match']]
+    # Every fill (matched or not) moves the real position, so run the
+    # position-tracking pass over all rows in chronological order. It books
+    # realized PnL and the running cumvol/cumpnl onto each row in place.
+    sheet_rows = sorted(results, key=lambda x: x['fill_ts'])
+    pos, vwap, mark = _book_realized_pnl(sheet_rows)
 
-    # Running cumulative PnL in fill order.
-    _cum = 0.0
-    for r in matched:
-        _cum = round(_cum + r['pnl'], 4)
-        r['cumpnl'] = _cum
+    matched   = [r for r in sheet_rows if r['match']]
+    unmatched = [r for r in sheet_rows if not r['match']]
 
     fieldnames = [
-        'fill_ts', 'side', 'qty', 'order_id', 'placed_ts', 'pred_ts',
+        'fill_ts', 'side', 'vol', 'cumvol', 'order_id', 'placed_ts', 'pred_ts',
         'pred_to_fill_ms', 'order_age_ms', 'pred_to_hedge_ms',
         'pred_primary_price', 'pred_hedge_price', 'predicted_price_diff',
         'hedge_ts', 'actual_primary_price', 'actual_hedge_price', 'actual_price_diff',
         'primary_price_diff', 'hedge_price_diff', 'slippage',
         'primary_edge', 'hedge_edge', 'net_edge', 'pnl', 'cumpnl',
     ]
-    _write_xlsx(out_xlsx, fieldnames, matched)
+    _write_xlsx(out_xlsx, fieldnames, sheet_rows)
     print(f"Written to {out_xlsx}")
     print()
 
     col = (
-        f"{'#':<3} {'Fill Time':<26} {'S':<5} {'Qty':>8} {'Order ID':<14}"
+        f"{'#':<3} {'Fill Time':<26} {'S':<5} {'Vol':>8} {'CumVol':>8} {'Order ID':<14}"
         f"{'P→Fill':>8} {'OrderAge':>10} {'P→Hedge':>8} "
         f"{'PredPrimary':>11} {'PredHedge':>10} {'PredDiff':>9}"
         f"{'ActPrimary':>11} {'ActHedge':>10} {'ActDiff':>9}"
@@ -335,7 +506,7 @@ def analyze_orders(log_file, out_xlsx=None):
         s = f"{r['slippage']:+.4f}"
         age = f"{r['order_age_ms']}ms" if r['order_age_ms'] != '' else '-'
         print(
-            f"{i:<3} {r['fill_ts']:<26} {r['side']:<5} {r['qty']:>8} {r['order_id']:<14}"
+            f"{i:<3} {r['fill_ts']:<26} {r['side']:<5} {r['vol']:>8} {r['cumvol']:>+8.3f} {r['order_id']:<14}"
             f"{r['pred_to_fill_ms']:>7}ms {age:>10} {r['pred_to_hedge_ms']:>7}ms"
             f"{r['pred_primary_price']:>11.2f} {r['pred_hedge_price']:>10.2f} {r['predicted_price_diff']:>9.2f}"
             f"{r['actual_primary_price']:>11.2f} {r['actual_hedge_price']:>10.2f} {r['actual_price_diff']:>9.4f}"
@@ -368,49 +539,29 @@ def analyze_orders(log_file, out_xlsx=None):
         print(sep)
 
         # ── PnL (in price-points x lots; multiply by point value for money) ──
-        # Each pair locks in a spread: SELL primary collects it, BUY pays it.
-        # Realized = the flat (matched) volume, valued at the average spread
-        # collected vs paid. The leftover inventory is still open and is
-        # marked at the last observed spread (actual_price_diff).
-        sell_qty  = sum(r['qty'] for r in matched if r['side'] == 'SELL')
-        buy_qty   = sum(r['qty'] for r in matched if r['side'] == 'BUY')
-        sell_val  = sum(r['actual_price_diff'] * r['qty'] for r in matched if r['side'] == 'SELL')
-        buy_cost  = sum(r['actual_price_diff'] * r['qty'] for r in matched if r['side'] == 'BUY')
-        avg_sell  = sell_val / sell_qty if sell_qty else 0.0
-        avg_buy   = buy_cost / buy_qty if buy_qty else 0.0
-        matched_qty = min(sell_qty, buy_qty)
-        realized  = (avg_sell - avg_buy) * matched_qty
+        # Realized is booked fill-by-fill over all fills (matched and unmatched)
+        # in time order: a fill only books PnL on the volume that closes against
+        # the opposite-side position, valued against that position's running
+        # VWAP spread (see _book_realized_pnl). The leftover inventory is open
+        # and marked at the last observed spread.
+        realized = sheet_rows[-1]['cumpnl']
 
-        mark      = matched[-1]['actual_price_diff']          # last observed spread
-        net_qty   = buy_qty - sell_qty                        # +ve = net long primary
-        if net_qty > 0:        # excess BUYs -> long primary, close by selling at mark
-            open_qty, open_basis = net_qty, avg_buy
-            unrealized = (mark - avg_buy) * net_qty
-            open_desc  = f"long primary {net_qty:.3f} @ spread {avg_buy:+.4f}"
-        elif net_qty < 0:      # excess SELLs -> short primary, close by buying at mark
-            open_qty, open_basis = -net_qty, avg_sell
-            unrealized = (avg_sell - mark) * (-net_qty)
-            open_desc  = f"short primary {-net_qty:.3f} @ spread {avg_sell:+.4f}"
+        if pos > 0:            # net long primary, close by selling at mark
+            unrealized = (mark - vwap) * pos
+            open_desc  = f"long primary {pos:.3f} @ spread {vwap:+.4f}"
+        elif pos < 0:          # net short primary, close by buying at mark
+            unrealized = (vwap - mark) * (-pos)
+            open_desc  = f"short primary {-pos:.3f} @ spread {vwap:+.4f}"
         else:
-            open_qty, unrealized, open_desc = 0.0, 0.0, "flat"
+            unrealized, open_desc = 0.0, "flat"
 
-        total_pnl = sum(r['pnl'] for r in matched)
         print("  PnL (price-points x lots; x point value = money)")
-        print(f"  Avg spread SELL: {avg_sell:+.4f}  (collected, n_qty={sell_qty:g})")
-        print(f"  Avg spread BUY : {avg_buy:+.4f}  (paid,      n_qty={buy_qty:g})")
-        print(f"  Realized       : {realized:+.4f}  (matched {matched_qty:g} lots)")
+        print(f"  Realized       : {realized:+.4f}  (closed against opposite side)")
         print(f"  Open inventory : {open_desc}")
         print(f"  Unrealized     : {unrealized:+.4f}  (marked @ last spread {mark:+.4f})")
         print(f"  MTM total      : {realized + unrealized:+.4f}")
-        print(f"  Cash-flow sum  : {total_pnl:+.4f}  (= realized + open cost basis)")
+        print(f"  Unmatched fills: {len(unmatched)}")
         print(sep)
-
-    if unmatched:
-        print(f"\nUnmatched fills ({len(unmatched)}):")
-        for r in unmatched:
-            f_ = r['fill']
-            print(f"  {f_['ts_str']} side={f_['side']} qty={f_['qty']} fill={f_['fill_price']}"
-                  f"  pred={'YES' if r['pred'] else 'NO'} hedge={'YES' if r['hedge'] else 'NO'}")
 
 
 def analyze_chase_delay(log_file, out_csv=None, symbol='XAUUSDT', threshold=0.10):
@@ -433,7 +584,7 @@ def analyze_chase_delay(log_file, out_csv=None, symbol='XAUUSDT', threshold=0.10
             m = chase_re.search(line)
             if m:
                 chases.append({'time': m.group(1), 'order_id': m.group(2), 'side': m.group(3),
-                                'qty': m.group(4), 'price': float(m.group(5))})
+                                'vol': m.group(4), 'price': float(m.group(5))})
             m = pdiff_re.search(line)
             if m:
                 pdiffs.append({'time': m.group(1), 'primary_ask': float(m.group(2)), 'primary_bid': float(m.group(3))})
@@ -468,7 +619,7 @@ def analyze_chase_delay(log_file, out_csv=None, symbol='XAUUSDT', threshold=0.10
             'order_id':           c['order_id'],
             'chase_time':         c['time'],
             'side':               c['side'],
-            'qty':                c['qty'],
+            'vol':                c['vol'],
             'chase_price':        p,
             'matched_pdiff_time': best['time'] if best else '',
             'delay_ms':           delay_ms if delay_ms is not None else '',
@@ -478,7 +629,7 @@ def analyze_chase_delay(log_file, out_csv=None, symbol='XAUUSDT', threshold=0.10
 
     with open(out_csv, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=[
-            'order_id', 'chase_time', 'side', 'qty', 'chase_price',
+            'order_id', 'chase_time', 'side', 'vol', 'chase_price',
             'matched_pdiff_time', 'delay_ms', 'matched_price', 'price_seen_before',
         ])
         writer.writeheader()
