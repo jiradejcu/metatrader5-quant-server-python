@@ -181,21 +181,31 @@ def _process_tick(primary_symbol, short_upper, short_lower, long_upper, long_low
         ask_diff = latest_ask_diff
         bid_diff = latest_bid_diff
 
-    if latest_atr > ATR_HIGH_THRESHOLD:
-        logger.warning(
-            f"[Grid] High volatility — skipping tick: "
-            f"ATR={latest_atr:.3f} > threshold={ATR_HIGH_THRESHOLD}"
-        )
-        return
-
     logger.debug(
         f"position={position_amt} open_orders={len(open_orders or [])} "
         f"net_pending={net_pending} max_pos={max_pos} ask_diff={ask_diff:.2f} bid_diff={bid_diff:.2f}"
     )
 
-    if len(open_orders) > 1:
-        logger.info(f"Multiple open orders ({len(open_orders)}) — cancelling all before reconcile")
-        cancel_all_open_orders(primary_symbol)
+    # ── Abort conditions ────────────────────────────────────────────────────
+    # Each of these means we must not place or chase an order this tick. Any
+    # order already resting on the book is cancelled too, so it can't fill on
+    # unsafe prices (volatile/stale) or leave duplicate orders outstanding.
+    abort_reason = None
+    if latest_atr > ATR_HIGH_THRESHOLD:
+        abort_reason = f"high volatility (ATR={latest_atr:.3f} > {ATR_HIGH_THRESHOLD})"
+    elif len(open_orders) > 1:
+        abort_reason = f"multiple open orders ({len(open_orders)})"
+    elif latest_price_ts is not None:
+        price_age_ms = (time.monotonic() - latest_price_ts) * 1000
+        if price_age_ms > PRICE_DIFF_MAX_AGE_MS:
+            abort_reason = f"stale price ({price_age_ms:.0f}ms > {PRICE_DIFF_MAX_AGE_MS}ms)"
+
+    if abort_reason is not None:
+        if open_orders:
+            logger.warning(f"[Grid] Abort ({abort_reason}) — cancelling {len(open_orders)} open order(s)")
+            cancel_all_open_orders(primary_symbol)
+        else:
+            logger.debug(f"[Grid] Abort ({abort_reason}) — no open orders")
         return
 
     zone = _determine_zone(ask_diff, bid_diff, short_upper, short_lower, long_upper, long_lower, position_amt)
@@ -206,12 +216,6 @@ def _process_tick(primary_symbol, short_upper, short_lower, long_upper, long_low
 
     target = _compute_target(zone, position_amt, order_size, max_pos, net_pending=net_pending)
     logger.debug(f"Target={target}")
-
-    if latest_price_ts is not None:
-        price_age_ms = (time.monotonic() - latest_price_ts) * 1000
-        if price_age_ms > PRICE_DIFF_MAX_AGE_MS:
-            logger.warning(f"Price diff is stale ({price_age_ms:.0f}ms > {PRICE_DIFF_MAX_AGE_MS}ms) — skipping reconcile")
-            return
 
     sync_pending = get_sync_pending()
     _reconcile(primary_symbol, target, position_amt, open_orders, sync_pending=bool(sync_pending))
