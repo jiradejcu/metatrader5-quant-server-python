@@ -73,8 +73,10 @@ def watch_user_data_stream(symbol, on_order_update=None):
                         return
                     order_id = o.get('i')
                     new_status = o.get('X')
+                    exec_type = o.get('x')          # execution type of THIS event
                     orig_qty = float(o.get('q', 0))
-                    executed_qty = float(o.get('z', 0))
+                    executed_qty = float(o.get('z', 0))   # cumulative filled qty
+                    last_fill_qty = float(o.get('l', 0))  # qty filled in THIS execution
                     fill_pct = (executed_qty / orig_qty * 100) if orig_qty > 0 else 0
                     last_fill_price = o.get('L')
                     avg_price = o.get('ap')
@@ -98,11 +100,18 @@ def watch_user_data_stream(symbol, on_order_update=None):
                             "status_changed": status_changed,
                         })
 
-                    if new_status == 'FILLED':
+                    # Log every trade execution, not just orders that reach the
+                    # FILLED status. A chased order is often partially filled and
+                    # then amended/canceled; that volume still moves the position
+                    # but never reaches FILLED, so keying off status under-counts
+                    # fills. ``x == 'TRADE'`` fires once per execution with the
+                    # incremental ``l`` qty, so logged fills reconcile with the
+                    # exchange position.
+                    if exec_type == 'TRADE' and last_fill_qty > 0:
                         logger.info(
-                            f"[UserDataStream] Order FILLED: side={o.get('S')} "
+                            f"[UserDataStream] Order {new_status}: side={o.get('S')} "
                             f"fill_price={last_fill_price} avg_price={avg_price} "
-                            f"qty={executed_qty}/{orig_qty} order_id={order_id}"
+                            f"qty={last_fill_qty}/{orig_qty} order_id={order_id}"
                         )
                     order_status[order_id] = new_status
                     if new_status in TERMINAL_STATUSES:

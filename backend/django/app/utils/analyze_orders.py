@@ -13,7 +13,7 @@ price_diff_pat = re.compile(
     r"'primary_bid': ([0-9.]+).*?'hedge_bid': ([0-9.]+)"
 )
 filled_pat = re.compile(
-    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*\[UserDataStream\] Order FILLED: "
+    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*\[UserDataStream\] Order [A-Z_]+: "
     r"side=(\w+) fill_price=([0-9.]+) avg_price=[0-9.]+ qty=([0-9.]+)/[0-9.]+ order_id=(\d+)"
 )
 # Order placement (the moment the order_id was first opened on the book)
