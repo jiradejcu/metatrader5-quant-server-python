@@ -17,6 +17,12 @@ _consecutive_errors = 0
 _ERROR_THRESHOLD = 3
 _POSITION_SYNC_OK_FLAG = "position_sync_ok_flag"
 _SYNC_PENDING_FLAG = "sync_pending_flag"
+# OK flag is a liveness heartbeat: its absence means the sync process is dead.
+# Pending TTL must be >= OK TTL so the in-flight lock never lapses while the grid
+# bot is still running _process_tick (which is gated on the OK flag) — otherwise a
+# new entry could be placed on top of an unconfirmed hedge.
+_OK_FLAG_TTL = 2
+_SYNC_PENDING_TTL = 5
 
 
 def _log_entry_price_diff(redis_conn, hedge_symbol: str, primary_entry: float, trigger: str):
@@ -36,7 +42,7 @@ def _mark_sync_healthy(redis_conn):
     if _consecutive_errors > 0:
         logger.info("[PositionSync] Recovered — restoring ok flag.")
         _consecutive_errors = 0
-    redis_conn.set(_POSITION_SYNC_OK_FLAG, "1")
+    redis_conn.set(_POSITION_SYNC_OK_FLAG, "1", ex=_OK_FLAG_TTL)
 
 
 def _stop_grid_bot(reason: str):
@@ -96,6 +102,12 @@ def handle_position_update(pubsub):
                 if pre_order_volume is not None:
                     if hedge_volume == pre_order_volume:
                         logger.debug(f"Hedge volume unchanged at {hedge_volume}. Waiting for MT5 position update...")
+                        # Heartbeat: the process is alive and healthily waiting for the hedge
+                        # confirmation. Keep OK (liveness) and pending (in-flight) fresh so the
+                        # grid bot reads this as "mid-hedge-wait" — block new entries but keep
+                        # managing existing orders — rather than "sync process failed".
+                        _mark_sync_healthy(redis_conn)
+                        redis_conn.set(_SYNC_PENDING_FLAG, "1", ex=_SYNC_PENDING_TTL)
                         continue
                     logger.debug(f"MT5 position confirmed: {pre_order_volume} → {hedge_volume}.")
                     pre_order_volume = None
@@ -158,7 +170,7 @@ def handle_position_update(pubsub):
 
                     pre_order_volume = hedge_volume
                     redis_conn.delete(f"position:mt5:{hedge_symbol}")
-                    redis_conn.set(_SYNC_PENDING_FLAG, "1", ex=5)
+                    redis_conn.set(_SYNC_PENDING_FLAG, "1", ex=_SYNC_PENDING_TTL)
                 else:
                     logger.debug(f"No significant discrepancy for {received_symbol}. No action taken.")
 
