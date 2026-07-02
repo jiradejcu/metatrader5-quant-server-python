@@ -30,6 +30,14 @@ hedge_new_pat = re.compile(
 primary_pos_pat = re.compile(
     r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*Primary Position \S+ - Amount: (-?[0-9.]+)"
 )
+# VWAP entry-price spread logged directly by position_sync: primary VWAP from the
+# exchange (Binance entryPrice) minus hedge VWAP from the bot's position group.
+# Used to reconcile the first row's inherited-position basis independently of where
+# the log window happens to start.
+entry_diff_pat = re.compile(
+    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*\[EntryPriceDiff\]\[\w+\] "
+    r"primary_entry=([0-9.]+) hedge_entry=([0-9.]+) diff=(-?[0-9.]+)"
+)
 
 
 # ── Functions ─────────────────────────────────────────────────────────────────
@@ -237,14 +245,15 @@ def _inject_databars(path, ranges,
     os.replace(tmp, path)
 
 
-def _book_realized_pnl(rows, initial_pos=0.0):
+def _book_realized_pnl(rows, initial_pos=0.0, initial_spread=None):
     """Assign per-fill ``pnl`` / running ``cumpnl`` / ``cumvol`` to ``rows``.
 
     ``rows`` are all fills (matched and unmatched) in chronological order.
     ``initial_pos`` is the signed primary position the book already carried
     before the first fill (from the exchange's Primary Position log), so cumvol
     tracks the real position rather than assuming it starts flat. Its spread
-    basis is unknown, so it is seeded at the first observed spread.
+    basis is seeded from ``initial_spread`` (the VWAP entry-price diff logged by
+    position_sync) when given, else from the first observed in-window spread.
 
     The primary position is tracked in signed lots (BUY = long +, SELL = short -).
     Each fill carries a spread basis ``d = actual_price_diff`` (primary - hedge),
@@ -270,8 +279,12 @@ def _book_realized_pnl(rows, initial_pos=0.0):
     # we observe, so closing inherited inventory books sane (near-zero) PnL.
     first_spread = next((r['actual_price_diff'] for r in rows
                          if r.get('actual_price_diff') is not None), 0.0)
-    vwap = first_spread if pos else 0.0   # avg spread basis of the open position
-    mark = first_spread                   # last observed spread (hedge-less proxy)
+    # Prefer the logged VWAP entry-price diff as the inherited basis: it is a true
+    # spread-of-VWAPs from the exchange/position group and is valid regardless of
+    # where the window was cut, unlike the first in-window spread.
+    seed = initial_spread if initial_spread is not None else first_spread
+    vwap = seed if pos else 0.0   # avg spread basis of the open position
+    mark = seed                   # last observed spread (hedge-less proxy)
     cum = 0.0
     for r in rows:
         vol = r['vol']
@@ -412,6 +425,7 @@ def analyze_orders(log_file, out_xlsx=None):
     hedges_new = []
     placements = {}
     primary_positions = []
+    entry_diffs = []
     filtered_lines = []
 
     with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
@@ -461,6 +475,15 @@ def analyze_orders(log_file, out_xlsx=None):
                     'amount': float(m.group(2)),
                 })
                 filtered_lines.append((primary_positions[-1]['ts_dt'], line))
+                continue
+            m = entry_diff_pat.search(line)
+            if m:
+                entry_diffs.append({
+                    'ts_str': m.group(1).replace(',', '.'), 'ts_dt': datetime.strptime(m.group(1), ts_fmt),
+                    'primary_entry': float(m.group(2)), 'hedge_entry': float(m.group(3)),
+                    'diff': float(m.group(4)),
+                })
+                filtered_lines.append((entry_diffs[-1]['ts_dt'], line))
 
     filtered_lines.sort(key=lambda x: x[0])
     with open(out_log, 'w', encoding='utf-8') as f:
@@ -472,6 +495,7 @@ def analyze_orders(log_file, out_xlsx=None):
     print(f"MT5 new hedges: {len(hedges_new)}")
     print(f"Order placed  : {len(placements)}")
     print(f"Primary pos   : {len(primary_positions)}")
+    print(f"Entry diffs   : {len(entry_diffs)}")
 
     # Ground-truth starting position: the last logged primary position at or
     # before the first fill. cumvol is seeded with this so it tracks the real
@@ -601,7 +625,44 @@ def analyze_orders(log_file, out_xlsx=None):
     # cumvol/cumpnl/vwap onto each row in place.
     fill_rows = sorted(results, key=lambda x: x['fill_ts'])
     sheet_rows = _sync_positions(fill_rows, primary_positions, initial_pos)
-    pos, vwap, mark = _book_realized_pnl(sheet_rows, initial_pos)
+
+    # Anchor the inherited position's VWAP basis to the spread logged by
+    # position_sync ([EntryPriceDiff]) rather than the first in-window spread.
+    # The window can be truncated anywhere, so the first in-window spread is a
+    # poor proxy for a position opened earlier; the logged entry-price diff
+    # (exchange primary VWAP - position-group hedge VWAP) is accurate wherever
+    # the window starts. Use the last diff at or before the first fill (the
+    # inherited basis), falling back to the earliest available.
+    log_spread = None
+    log_spread_src = None
+    if entry_diffs and fills:
+        first_fill_ts = min(f['ts_dt'] for f in fills)
+        before = [e for e in entry_diffs if e['ts_dt'] <= first_fill_ts]
+        log_spread_src = before[-1] if before else entry_diffs[0]
+        log_spread = log_spread_src['diff']
+
+    pos, vwap, mark = _book_realized_pnl(sheet_rows, initial_pos, initial_spread=log_spread)
+
+    # Reconcile the first row: the logged VWAP spread (ground truth) vs. the first
+    # spread the script would otherwise have reconstructed from in-window fills.
+    in_window_spread = next((r['actual_price_diff'] for r in sheet_rows
+                             if r.get('actual_price_diff') is not None), None)
+    print("VWAP spread reconciliation (first row / inherited basis)")
+    if log_spread is not None:
+        src = log_spread_src
+        gap = (min(f['ts_dt'] for f in fills) - src['ts_dt']).total_seconds()
+        when = 'before' if gap >= 0 else 'after'
+        print(f"  Log entry-diff  : {log_spread:+.4f}  "
+              f"(primary {src['primary_entry']:.5f} - hedge {src['hedge_entry']:.5f})")
+        print(f"                    @ {src['ts_str']}  ({abs(gap):.1f}s {when} first fill)")
+        if in_window_spread is not None:
+            print(f"  In-window spread: {in_window_spread:+.4f}  (first hedged fill)")
+            print(f"  Delta (win-log) : {in_window_spread - log_spread:+.4f}")
+        print("  Seed used       : log entry-diff (window-truncation safe)")
+    else:
+        seeded = in_window_spread if in_window_spread is not None else 0.0
+        print(f"  No [EntryPriceDiff] in window; seeded from in-window first spread {seeded:+.4f}")
+    print()
 
     matched     = [r for r in sheet_rows if r.get('match')]
     corrections = [r for r in sheet_rows if r.get('correction')]
