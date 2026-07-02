@@ -149,6 +149,6 @@ def update_position_group(
         "[PositionGroup] %s %s fill: group_id=%s price=%.5f vol=%.5f → "
         "group_entry=%.5f group_vol=%.5f",
         symbol, "LONG" if fill_volume > 0 else "SHORT",
-        group_id, fill_price, fill_volume, entry_price, abs(new_volume),
+        group_id, fill_price, fill_volume, entry_price, new_volume,
     )
     return entry_price
