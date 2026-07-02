@@ -480,6 +480,45 @@ class TestComputeTargetOppositeDirection:
 
 
 # ---------------------------------------------------------------------------
+# _compute_target — same-direction capacity clamp (overshoot regression)
+# ---------------------------------------------------------------------------
+
+class TestComputeTargetSameDirectionClamp:
+    """Same-direction (opening) branch must not overshoot max_pos when the
+    remaining capacity is smaller than order_size.
+
+    Regression for the 2026-07-01 incident: pos=444, max_pos=450, order_size=10,
+    zone=BUY. remaining_capacity=6 (>0), so the old code added a full order_size
+    and targeted 454 — 4 lots over the cap. The step is now clamped to the
+    remaining capacity so the target lands exactly on max_pos.
+    """
+
+    @pytest.fixture(autouse=True)
+    def integer_mode(self):
+        with patch.dict("os.environ", _INTEGER_ENV):
+            yield
+
+    def test_long_buy_clamps_step_to_remaining_capacity(self):
+        # Exact incident repro. Old: trunc(444+10)=454. Fixed: step=min(10,6)=6 → 450.
+        assert _gb._compute_target('BUY', 444.0, 10.0, max_pos=450.0) == 450
+
+    def test_short_sell_clamps_step_to_remaining_capacity(self):
+        # Symmetric short side: pos=-444 → old trunc(-444-10)=-454. Fixed → -450.
+        assert _gb._compute_target('SELL', -444.0, 10.0, max_pos=450.0) == -450
+
+    def test_long_buy_full_order_fits_within_capacity(self):
+        # capacity=20 ≥ order_size=10 → full step, no clamp.
+        assert _gb._compute_target('BUY', 430.0, 10.0, max_pos=450.0) == 440
+
+    def test_short_sell_full_order_fits_within_capacity(self):
+        assert _gb._compute_target('SELL', -430.0, 10.0, max_pos=450.0) == -440
+
+    def test_long_buy_target_never_exceeds_max_pos(self):
+        # One lot short of the cap: capacity=1, step clamps to 1 → exactly max_pos.
+        assert _gb._compute_target('BUY', 449.0, 10.0, max_pos=450.0) == 450
+
+
+# ---------------------------------------------------------------------------
 # _process_tick — MOCK_ENTRY_POSITION_AMT integration
 # ---------------------------------------------------------------------------
 

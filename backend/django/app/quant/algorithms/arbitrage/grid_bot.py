@@ -98,9 +98,13 @@ def _compute_target(zone, position_amt, order_size, max_pos, net_pending=0):
             return 0
         return _trunc(raw)
 
-    # Same-direction order below: check capacity.
+    # Same-direction order below: check capacity. Clamp the step to the
+    # remaining capacity so a full order_size can't overshoot max_pos when
+    # capacity is smaller than order_size — e.g. pos=444, max_pos=450,
+    # order_size=10 would otherwise target 454. step=6 → target=450.
     if remaining_capacity > 0:
-        return _trunc(position_amt + zone_delta)
+        step = min(order_size, remaining_capacity)
+        return _trunc(position_amt + math.copysign(step, zone_delta))
 
     # remaining_capacity == 0: a pending order fills the last slot — chase it.
     if remaining_capacity == 0:
