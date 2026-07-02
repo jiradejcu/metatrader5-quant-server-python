@@ -329,16 +329,26 @@ def _book_realized_pnl(rows, initial_pos=0.0):
     return pos, vwap, mark
 
 
-def _sync_positions(fill_rows, primary_positions, initial_pos):
+def _sync_positions(fill_rows, primary_positions, initial_pos, settle_grace=0.5):
     """Interleave correction rows so cumvol stays in sync with the exchange.
 
-    ``fill_rows`` must be in chronological order. For each fill the actual
-    primary position is taken from the last ``Primary Position`` log that falls
-    after that fill and before the next one, and stored on the row as
-    ``primary_pos``. Whenever the running position (seeded from ``initial_pos``)
-    drifts from that logged amount -- e.g. fills that never reached this log --
-    a synthetic ``correction`` row carrying the difference is inserted so the
-    position re-syncs to reality.
+    ``fill_rows`` must be in chronological order. The exchange's Primary
+    Position feed (ACCOUNT_UPDATE) is sampled asynchronously and lags the
+    fills: when an order fills in several executions milliseconds apart, a
+    snapshot logged *between* two of those fills can still report the pre-burst
+    position. Reconciling at every fill against such a snapshot would insert a
+    pair of spurious ``SYNC`` corrections that immediately cancel out (e.g. a
+    3.487-lot partial followed by the 6.513-lot remainder of the same order).
+
+    To avoid that, fills are grouped into bursts -- runs of fills less than
+    ``settle_grace`` seconds apart -- and the running position (seeded from
+    ``initial_pos``) is reconciled to the logged Primary Position only at the
+    end of each burst, against the last snapshot that falls after the burst's
+    final fill. By then the feed has had a quiet moment to catch up to every
+    fill in the burst, so any remaining drift is a *real* discrepancy (e.g. a
+    fill that never reached the log) and gets a synthetic ``correction`` row
+    carrying the difference. Mid-burst fills keep ``primary_pos = None`` since
+    no settled snapshot exists for them yet.
 
     Returns the augmented row list (fills + correction rows, in order).
     """
@@ -352,15 +362,23 @@ def _sync_positions(fill_rows, primary_positions, initial_pos):
     augmented = []
     running = float(initial_pos)
     for i, r in enumerate(fill_rows):
+        running += r['vol'] if r['side'] == 'BUY' else -r['vol']
+        augmented.append(r)
+
+        # Reconcile only at the end of a burst: the next fill is more than
+        # settle_grace away (or this is the last fill), so the position feed
+        # has had time to reflect every fill up to and including this one.
         t0 = ts[i]
+        gap = (ts[i + 1] - t0).total_seconds() if i + 1 < n else float('inf')
+        if gap <= settle_grace:
+            continue
+
+        # Last logged position after this (burst-final) fill and before the
+        # next one -- the settled amount to reconcile against.
         t1 = ts[i + 1] if i + 1 < n else datetime.max
-        # Last logged position in this fill's post-fill window.
         snaps = [p['amount'] for p in primary_positions if t0 <= p['ts_dt'] < t1]
         snap = snaps[-1] if snaps else None
         r['primary_pos'] = snap
-
-        running += r['vol'] if r['side'] == 'BUY' else -r['vol']
-        augmented.append(r)
 
         if snap is not None:
             disc = round(snap - running, 4)
