@@ -7,8 +7,9 @@ from . import config
 from decimal import Decimal
 from app.utils.redis_client import get_redis_connection
 from app.utils.api.positions import get_position_by_symbol as get_hedge_position
+from app.utils.api.positions import get_net_position
 from app.utils.api.order import send_market_order
-from app.utils.position_group import update_position_group, resolve_group_id, make_comment, get_position_group
+from app.utils.position_group import update_position_group, resolve_group_id, make_comment, get_position_group, seed_position_group
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +192,18 @@ def start_position_sync():
 
     try:
         redis_conn = get_redis_connection()
+
+        # Anchor the position-group baseline to the live MT5 hedge position before
+        # processing any updates. Otherwise the group assumes a flat start and any
+        # position already open is orphaned, leaving a permanent volume offset that
+        # the incremental fill accounting never corrects.
+        hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
+        try:
+            live = get_net_position(hedge_symbol)
+            seed_position_group(redis_conn, hedge_symbol, live['volume'], live['entryPrice'])
+        except Exception as e:
+            logger.error(f"Failed to seed position group from MT5 for {hedge_symbol}: {e}", exc_info=True)
+
         pubsub = redis_conn.pubsub()
         pubsub.subscribe(f"position:{primary_exchange}:{primary_symbol}")
         logger.info(f"Subscribed to Redis channel position:{primary_exchange}:{primary_symbol} for position updates.")

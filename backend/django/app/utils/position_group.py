@@ -91,6 +91,43 @@ def resolve_group_id(redis_conn, symbol: str) -> str:
     return group_id
 
 
+def seed_position_group(redis_conn, symbol: str, volume: float, entry_price: float) -> None:
+    """Anchor the tracked group baseline to the live exchange position.
+
+    Call this at process start so the group's ``volume`` reflects the *actual*
+    MT5 position instead of assuming a flat start. Seeding at zero would orphan
+    any position already open when tracking begins, leaving a permanent volume
+    offset that the incremental fill accounting never heals (each fill only does
+    ``new = prev + fill``, so an initial gap is carried forward forever).
+
+    Preserves the existing ``group_id`` when one is already tracked (keeps the
+    MT5 comment linkage intact); otherwise starts a fresh group. Clears the
+    group when the exchange is flat.
+    """
+    volume = float(volume)
+    entry_price = float(entry_price or 0.0)
+
+    if abs(volume) <= 1e-9:
+        if get_position_group(redis_conn, symbol):
+            redis_conn.delete(_key(symbol))
+            logger.info("[PositionGroup] %s exchange flat at startup — group cleared.", symbol)
+        return
+
+    existing = get_position_group(redis_conn, symbol)
+    group_id = existing["group_id"] if existing and existing.get("group_id") else _new_group_id()
+    group = {
+        "group_id": group_id,
+        "entry_price": entry_price,
+        "volume": volume,
+        "cost": entry_price * abs(volume),
+    }
+    redis_conn.set(_key(symbol), json.dumps(group))
+    logger.info(
+        "[PositionGroup] %s seeded from exchange at startup: group_id=%s volume=%.5f entry=%.5f",
+        symbol, group_id, volume, entry_price,
+    )
+
+
 def update_position_group(
     redis_conn,
     symbol: str,

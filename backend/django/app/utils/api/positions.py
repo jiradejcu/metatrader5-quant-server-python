@@ -93,6 +93,22 @@ def get_position_by_symbol(symbol: str) -> Dict:
         'unRealizedProfit': positions_df['profit'].sum(),
     }
 
+def get_net_position(symbol: str) -> Dict:
+    """Read the live net MT5 position for *symbol* straight from MT5 (bypassing
+    the Redis cache): signed net volume and the volume-weighted open price of the
+    currently-open legs. Used to seed the position-group baseline at startup so
+    it starts in sync with the exchange rather than assuming a flat position.
+    """
+    positions_df = get_positions()
+    sym = positions_df[positions_df['symbol'] == symbol]
+    if sym.empty:
+        return {'volume': 0.0, 'entryPrice': 0.0}
+    sym = _add_signed_volume(sym)
+    net = float(sym['signed_volume'].sum())
+    vwap = float((sym['price_open'] * sym['signed_volume']).sum() / net) if abs(net) > 1e-9 else 0.0
+    return {'volume': net, 'entryPrice': vwap}
+
+
 def get_position_list_by_symbol(symbol: str) -> List[Dict]:
     positions_df = get_positions()
     symbol_positions = positions_df[positions_df['symbol'] == symbol]
