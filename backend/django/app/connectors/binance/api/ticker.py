@@ -42,8 +42,8 @@ async def subscribe_symbol_ticker(symbol: str):
                 redis_key = f"ticker:binance:{symbol}"
                 now = time.time()
                 event_ts = data.E
-                redis_conn.hset(redis_key, mapping={"best_bid": data.b, "best_ask": data.a, "event_ts": event_ts})
-                redis_conn.expire(redis_key, 10)
+                payload = json.dumps({"best_bid": data.b, "best_ask": data.a, "event_ts": event_ts})
+                redis_conn.set(redis_key, payload, ex=10)
                 last_message_time[0] = now
                 if not first_message_received[0]:
                     first_message_received[0] = True
@@ -78,13 +78,14 @@ async def subscribe_symbol_ticker(symbol: str):
 
 def get_ticker(symbol: str):
     redis_key = f"ticker:binance:{symbol}"
-    ticker_data = redis_conn.hgetall(redis_key)
-    # logger.debug(f"Fetched ticker data from Redis {redis_key}: {ticker_data}")
-    if ticker_data:
+    ticker_raw = redis_conn.get(redis_key)
+    # logger.debug(f"Fetched ticker data from Redis {redis_key}: {ticker_raw}")
+    if ticker_raw:
+        ticker_data = json.loads(ticker_raw)
         return {
-            "best_bid": ticker_data.get(b'best_bid').decode('utf-8'),
-            "best_ask": ticker_data.get(b'best_ask').decode('utf-8'),
-            "event_ts": float(ticker_data.get(b'event_ts', 0)),
+            "best_bid": ticker_data["best_bid"],
+            "best_ask": ticker_data["best_ask"],
+            "event_ts": float(ticker_data.get("event_ts", 0)),
         }
     return None
 

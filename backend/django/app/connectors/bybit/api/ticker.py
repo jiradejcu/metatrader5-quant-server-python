@@ -1,5 +1,6 @@
 import logging
 import time
+import json
 import threading
 from pybit.unified_trading import WebSocket
 from app.utils.redis_client import get_redis_connection
@@ -29,8 +30,8 @@ def subscribe_symbol_ticker(symbol: str):
                         best_bid = bids[0][0]
                         best_ask = asks[0][0]
                         redis_key = f"ticker:bybit:{symbol}"
-                        redis_conn.hset(redis_key, mapping={"best_bid": best_bid, "best_ask": best_ask})
-                        redis_conn.expire(redis_key, 10)
+                        payload = json.dumps({"best_bid": best_bid, "best_ask": best_ask})
+                        redis_conn.set(redis_key, payload, ex=10)
                         last_message_time[0] = time.time()
                         if not first_message_received[0]:
                             first_message_received[0] = True
@@ -63,11 +64,12 @@ def subscribe_symbol_ticker(symbol: str):
 
 def get_ticker(symbol: str):
     redis_key = f"ticker:bybit:{symbol}"
-    ticker_data = redis_conn.hgetall(redis_key)
-    if ticker_data:
+    ticker_raw = redis_conn.get(redis_key)
+    if ticker_raw:
+        ticker_data = json.loads(ticker_raw)
         return {
-            "best_bid": ticker_data.get(b'best_bid').decode('utf-8'),
-            "best_ask": ticker_data.get(b'best_ask').decode('utf-8'),
+            "best_bid": ticker_data["best_bid"],
+            "best_ask": ticker_data["best_ask"],
         }
     return None
 
