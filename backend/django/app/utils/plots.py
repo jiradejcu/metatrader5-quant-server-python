@@ -1,6 +1,8 @@
 import os
 import re
+import ast
 import sys
+import bisect
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -349,6 +351,241 @@ def plot_ticker_lag(
     print(f"Saved to {out_file}")
 
 
+def plot_atr(
+    log_file: str,
+    threshold: float = 0.3,
+    time_from: datetime = None,
+    time_to: datetime = None,
+    out_file: str = None,
+):
+    """Plot the grid_bot ATR volatility guard alongside price diff.
+
+    Two overlaid series on a shared time axis:
+      - left axis  : ask_diff / bid_diff consumed by the grid_bot, plus the
+                     grid limits stepped from the latest grid settings seen in
+                     the log — entry limits (short_upper for a short entry,
+                     long_lower for a long entry) and exit limits (long_upper to
+                     close a long, short_lower to close a short).
+      - right axis : running ATR and its ATR_HIGH_THRESHOLD line.
+
+    ask_diff / bid_diff / atr all come from the same ``[PubSub] Price diff
+    updated: …`` line, so they are perfectly time-aligned. Three event overlays:
+
+      - ATR above threshold : the ticks where the ATR guard actually tripped,
+        counted from the ``[Grid] Abort (high volatility …)`` log lines. ATR is
+        the first abort check in grid_bot, so every such abort is genuinely
+        ATR-caused (not stale-price / multi-order).
+
+      - blocked entry : the subset where ATR was above threshold *and* the price
+        diff had breached an entry limit (ask_diff >= short_upper or
+        bid_diff <= long_lower) — i.e. a trade would have been opened if the ATR
+        guard hadn't stopped it.
+
+      - blocked exit : ATR above threshold *and* price past an exit limit
+        *and* the matching position is actually open — a long exit
+        (ask_diff >= long_upper) only counts while holding a long (position > 0),
+        a short exit (bid_diff <= short_lower) only while holding a short
+        (position < 0). Position is read from the ``position=…`` line grid_bot
+        logs each tick before the abort check, carried forward between logs.
+
+    Entry vs exit is resolved by position (mirrors grid_bot's _determine_zone +
+    _compute_target): a SELL closes a long when position > 0 but opens a short
+    otherwise; a BUY closes a short when position < 0 but opens a long otherwise.
+
+    There is no per-event log of the grid limit, so the latest grid settings in
+    effect at each tick are assumed.
+    """
+    if out_file is None:
+        out_file = f"/app/logs/atr_{_log_stem(log_file)}.png"
+
+    ts_pat = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})"
+    tick_re = re.compile(
+        ts_pat + r".*\[PubSub\] Price diff updated: "
+        r"ask_diff=([+-]?[\d.]+), bid_diff=([+-]?[\d.]+), atr=([\d.]+)"
+    )
+    # ATR is checked first in grid_bot's abort chain, so a "high volatility"
+    # abort is always attributable to ATR alone.
+    abort_re = re.compile(
+        ts_pat + r".*\[Grid\] Abort \(high volatility \(ATR=([\d.]+)"
+    )
+    settings_re = re.compile(
+        ts_pat + r".*\[PubSub\] Grid settings updated: (\{.*\})\s*$"
+    )
+    # grid_bot logs this in _process_tick right before the abort check, so the
+    # position is available even on high-ATR (aborted) ticks.
+    position_re = re.compile(
+        ts_pat + r".*position=([+-]?[\d.]+) open_orders="
+    )
+
+    times, ask_diffs, bid_diffs, atrs = [], [], [], []
+    abort_times, abort_atrs = [], []
+    settings_times, settings_vals = [], []   # chronological grid-settings changes
+    position_times, position_vals = [], []   # chronological position snapshots
+    with open(log_file) as f:
+        for line in f:
+            m = tick_re.search(line)
+            if m:
+                times.append(datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S,%f"))
+                ask_diffs.append(float(m.group(2)))
+                bid_diffs.append(float(m.group(3)))
+                atrs.append(float(m.group(4)))
+                continue
+            m = abort_re.search(line)
+            if m:
+                abort_times.append(datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S,%f"))
+                abort_atrs.append(float(m.group(2)))
+                continue
+            m = position_re.search(line)
+            if m:
+                position_times.append(datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S,%f"))
+                position_vals.append(float(m.group(2)))
+                continue
+            m = settings_re.search(line)
+            if m:
+                try:
+                    settings_vals.append(ast.literal_eval(m.group(2)))
+                    settings_times.append(datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S,%f"))
+                except (ValueError, SyntaxError):
+                    pass
+
+    if not times:
+        print("nothing to plot")
+        return
+
+    def _settings_at(t):
+        """Latest grid settings in effect at time t (assume the first-known
+        settings for ticks that precede any settings line)."""
+        if not settings_times:
+            return None
+        i = bisect.bisect_right(settings_times, t) - 1
+        return settings_vals[max(i, 0)]
+
+    def _position_at(t):
+        """Latest logged position at time t; 0.0 (flat) before the first log."""
+        if not position_times:
+            return 0.0
+        i = bisect.bisect_right(position_times, t) - 1
+        return position_vals[i] if i >= 0 else 0.0
+
+    # Per-tick grid limits (stepped) and the blocked entry/exit masks.
+    short_upper_arr, long_lower_arr = [], []   # entry limits
+    long_upper_arr, short_lower_arr = [], []   # exit limits
+    entry_times, entry_vals = [], []
+    exit_times, exit_vals = [], []
+    for t, ask, bid, atr in zip(times, ask_diffs, bid_diffs, atrs):
+        s = _settings_at(t)
+        su = s["short_upper"] if s else None
+        ll = s["long_lower"] if s else None
+        lu = s["long_upper"] if s else None
+        sl = s["short_lower"] if s else None
+        short_upper_arr.append(su)
+        long_lower_arr.append(ll)
+        long_upper_arr.append(lu)
+        short_lower_arr.append(sl)
+        if s is None or atr <= threshold:
+            continue
+        pos = _position_at(t)
+        # Resolve entry vs exit by position, mirroring _determine_zone +
+        # _compute_target: a SELL closes a long (exit) only when position > 0,
+        # else opens a short (entry); a BUY closes a short (exit) only when
+        # position < 0, else opens a long (entry). Exit conditions are checked
+        # first so they win over the entry limit when the position is held.
+        if pos > 0 and ask >= lu:        # SELL closes the open long → exit
+            exit_times.append(t); exit_vals.append(ask)
+        elif pos < 0 and bid <= sl:      # BUY closes the open short → exit
+            exit_times.append(t); exit_vals.append(bid)
+        elif ask >= su:                  # short entry would have opened
+            entry_times.append(t); entry_vals.append(ask)
+        elif bid <= ll:                  # long entry would have opened
+            entry_times.append(t); entry_vals.append(bid)
+
+    n_above = len(abort_times)       # ATR guard actually tripped
+    n_entry = len(entry_times)       # ... and a trade would have opened
+    n_exit = len(exit_times)         # ... and the held position could have closed
+    print(f"atr points: {len(times)}  "
+          f"ATR above threshold (grid aborts): {n_above}  "
+          f"blocked entry (past entry limit): {n_entry}  "
+          f"blocked exit (past exit limit, position held): {n_exit}")
+    if not position_times:
+        print("warning: no 'position=' lines found — cannot confirm the held "
+              "position, blocked-exit count is 0")
+    if not settings_times:
+        print("warning: no '[PubSub] Grid settings updated' lines found — "
+              "cannot determine grid limits, blocked-entry/exit counts are 0")
+
+    fig, ax = plt.subplots(figsize=(18, 6))
+    ax2 = ax.twinx()
+
+    # ── left axis: price diff consumed by the grid bot ──
+    ax.plot(times, ask_diffs, color='steelblue', linewidth=0.8, alpha=0.9,
+            label='ask_diff (consumed)')
+    ax.plot(times, bid_diffs, color='seagreen', linewidth=0.8, alpha=0.6,
+            label='bid_diff (consumed)')
+    if settings_times:
+        ax.plot(times, short_upper_arr, color='steelblue', linewidth=1,
+                linestyle=':', alpha=0.7, drawstyle='steps-post',
+                label='short_upper (short entry limit)')
+        ax.plot(times, long_lower_arr, color='seagreen', linewidth=1,
+                linestyle=':', alpha=0.7, drawstyle='steps-post',
+                label='long_lower (long entry limit)')
+        ax.plot(times, long_upper_arr, color='steelblue', linewidth=1,
+                linestyle='-.', alpha=0.5, drawstyle='steps-post',
+                label='long_upper (long exit limit)')
+        ax.plot(times, short_lower_arr, color='seagreen', linewidth=1,
+                linestyle='-.', alpha=0.5, drawstyle='steps-post',
+                label='short_lower (short exit limit)')
+    ax.set_ylabel('price diff')
+
+    # ── right axis: ATR + guard threshold ──
+    ax2.plot(times, atrs, color='darkorange', linewidth=1.1, alpha=0.9, label='ATR')
+    ax2.axhline(threshold, color='tomato', linestyle='--', linewidth=1,
+                alpha=0.8, label=f'ATR_HIGH_THRESHOLD ({threshold})')
+    ax2.set_ylabel('ATR')
+    ax2.set_ylim(bottom=0)
+
+    # ── overlay 1: ATR guard tripped (aborts) ──
+    if abort_times:
+        ax2.scatter(abort_times, abort_atrs, color='tomato', marker='o', s=14,
+                    alpha=0.6, zorder=4,
+                    label=f'ATR above threshold ({n_above} aborts)')
+
+    # ── overlay 2: ATR blocked an entry (abort + price past entry limit) ──
+    if entry_times:
+        ax.scatter(entry_times, entry_vals, color='red', marker='x', s=110,
+                   linewidths=2, zorder=6,
+                   label=f'blocked entry ({n_entry} events)')
+
+    # ── overlay 3: ATR blocked an exit (abort + price past exit limit) ──
+    if exit_times:
+        ax.scatter(exit_times, exit_vals, color='blueviolet', marker='x', s=90,
+                   linewidths=2, zorder=6,
+                   label=f'blocked exit ({n_exit}, position held)')
+
+    if time_from and time_to:
+        ax.set_xlim(time_from, time_to)
+
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    fig.autofmt_xdate()
+
+    title_range = (
+        f" — {time_from.strftime('%Y-%m-%d')} ({time_from.strftime('%H:%M')}–{time_to.strftime('%H:%M')})"
+        if time_from and time_to else ""
+    )
+    ax.set_title(f'grid_bot ATR guard vs price diff{title_range}', fontsize=13)
+    ax.set_xlabel('Time')
+    ax.grid(True, alpha=0.3)
+
+    # merge legends from both axes
+    lines1, labels1 = ax.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(lines1 + lines2, labels1 + labels2, loc='upper left', fontsize=9)
+
+    plt.tight_layout()
+    plt.savefig(out_file, dpi=150)
+    print(f"Saved to {out_file}")
+
+
 if __name__ == "__main__":
     if "--pubsub-flow" in sys.argv:
         idx = sys.argv.index("--pubsub-flow")
@@ -372,3 +609,9 @@ if __name__ == "__main__":
         side = sys.argv[idx + 2] if idx + 2 < len(sys.argv) and sys.argv[idx + 2] in ("primary", "hedge") else "primary"
         out  = sys.argv[idx + 3] if idx + 3 < len(sys.argv) and sys.argv[idx + 2] in ("primary", "hedge") else (sys.argv[idx + 2] if idx + 2 < len(sys.argv) and sys.argv[idx + 2] not in ("primary", "hedge") else None)
         plot_ticker_lag(log_file=log, side=side, out_file=out)
+    elif "--atr" in sys.argv:
+        idx = sys.argv.index("--atr")
+        log = sys.argv[idx + 1]
+        threshold = float(os.getenv("ATR_HIGH_THRESHOLD", "0.3"))
+        out = sys.argv[idx + 2] if idx + 2 < len(sys.argv) else None
+        plot_atr(log_file=log, threshold=threshold, out_file=out)

@@ -11,4 +11,5 @@ fi
 python plots.py --price-diff "$LOG_FILE"
 python plots.py --stale-age "$LOG_FILE"
 python plots.py --ticker-lag "$LOG_FILE" primary
+python plots.py --atr "$LOG_FILE"
 python analyze_orders.py "$LOG_FILE"
