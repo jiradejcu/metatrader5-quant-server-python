@@ -23,8 +23,50 @@ configuration_ws_streams = ConfigurationWebSocketStreams(
 client = DerivativesTradingUsdsFutures(config_ws_streams=configuration_ws_streams)
 redis_conn = get_redis_connection()
 
+# How often the flush thread writes the latest tick to Redis (seconds).
+FLUSH_INTERVAL = float(os.getenv("TICKER_FLUSH_INTERVAL", "0.05"))
+
+# Latest tick per symbol, updated in-memory by the WebSocket callback. Kept out
+# of Redis on the hot path so the callback never blocks on network I/O and the
+# socket always drains at memory speed (no receive-buffer backlog / stale ages).
+_latest = {}
+_flusher_started = set()
+_flusher_lock = threading.Lock()
+
+
+def _flush_latest_to_redis(symbol: str):
+    """Write the most recent in-memory tick to Redis at a fixed cadence.
+
+    Only writes when a new tick has arrived (event_ts changed), so a dead stream
+    stops refreshing the key and it TTL-expires after 10s — preserving the
+    "No primary ticker" signal that price_diff/health checks rely on.
+    """
+    redis_key = f"ticker:binance:{symbol}"
+    last_flushed_ts = None
+    while True:
+        time.sleep(FLUSH_INTERVAL)
+        payload = _latest.get(symbol)
+        if payload is None or payload["event_ts"] == last_flushed_ts:
+            continue
+        try:
+            redis_conn.set(redis_key, json.dumps(payload), ex=10)
+            last_flushed_ts = payload["event_ts"]
+        except Exception as e:
+            logger.error(f"Error flushing {symbol} ticker to Redis: {e}")
+
+
+def _ensure_flusher(symbol: str):
+    """Start the Redis flush thread for a symbol exactly once."""
+    with _flusher_lock:
+        if symbol in _flusher_started:
+            return
+        _flusher_started.add(symbol)
+    threading.Thread(target=_flush_latest_to_redis, args=(symbol,), daemon=True).start()
+    logger.info(f"Started Redis flush thread for {symbol} ticker (interval={FLUSH_INTERVAL * 1000:.0f}ms).")
+
 
 async def subscribe_symbol_ticker(symbol: str):
+    _ensure_flusher(symbol)
     while True:
         connection = None
         try:
@@ -39,12 +81,11 @@ async def subscribe_symbol_ticker(symbol: str):
             first_message_received = [False]
 
             def handle_message(data):
-                redis_key = f"ticker:binance:{symbol}"
-                now = time.time()
-                event_ts = data.E
-                payload = json.dumps({"best_bid": data.b, "best_ask": data.a, "event_ts": event_ts})
-                redis_conn.set(redis_key, payload, ex=10)
-                last_message_time[0] = now
+                # In-memory only — no network I/O here so the callback returns
+                # immediately and the WebSocket never accumulates a backlog.
+                # The flush thread persists this to Redis on its own cadence.
+                _latest[symbol] = {"best_bid": data.b, "best_ask": data.a, "event_ts": data.E}
+                last_message_time[0] = time.time()
                 if not first_message_received[0]:
                     first_message_received[0] = True
                     logger.info(f"First ticker message received for {symbol} (binance).")
