@@ -5,7 +5,32 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from datetime import datetime
+from datetime import datetime, timedelta
+
+_STALE_RE = re.compile(
+    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) "
+    r".*Stale (primary|hedge) ticker for (\S+): ([\d.]+)ms old"
+)
+
+
+def parse_stale_events(log_file: str, side: str = "both"):
+    """Yield (which, symbol, log_dt, event_dt, age_ms) from 'Stale ticker' log lines.
+
+    price_diff logs ``Stale <side> ticker for <SYMBOL>: <age>ms old`` where
+    age = now_ms - event_ts, so ``event_ts ≈ log_time - age``. A flat event_dt
+    means the price froze; a slowly-rising one means the consumer is backlogged.
+    """
+    with open(log_file) as f:
+        for line in f:
+            m = _STALE_RE.search(line)
+            if not m:
+                continue
+            which = m.group(2)
+            if side != "both" and which != side:
+                continue
+            log_dt = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S,%f")
+            age = float(m.group(4))
+            yield which, m.group(3), log_dt, log_dt - timedelta(milliseconds=age), age
 
 
 def _log_stem(log_file: str) -> str:
@@ -183,7 +208,7 @@ def plot_pubsub_flow(
 
 
 
-def plot_stale_ticker(
+def plot_stale_age(
     log_file: str,
     side: str = "both",          # "primary", "hedge", or "both"
     time_from: datetime = None,
@@ -200,7 +225,7 @@ def plot_stale_ticker(
         raise ValueError(f"side must be 'primary', 'hedge', or 'both', got {side!r}")
 
     if out_file is None:
-        out_file = f"/app/logs/stale_ticker_{side}_{_log_stem(log_file)}.png"
+        out_file = f"/app/logs/stale_age_{side}_{_log_stem(log_file)}.png"
 
     stale_re = re.compile(
         r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) "
@@ -260,6 +285,70 @@ def plot_stale_ticker(
     print(f"Saved to {out_file}")
 
 
+def plot_ticker_lag(
+    log_file: str,
+    side: str = "primary",
+    time_from: datetime = None,
+    time_to: datetime = None,
+    out_file: str = None,
+):
+    """Plot reconstructed ticker event_ts vs wall-clock time (lag / freeze view).
+
+    The dashed diagonal is zero-lag (event_ts == wall clock). The vertical gap
+    below it is the lag (staleness); flat horizontal runs mean the price froze
+    while real time kept moving.
+    """
+    if out_file is None:
+        out_file = f"/app/logs/ticker_lag_{side}_{_log_stem(log_file)}.png"
+
+    log_times, event_times, ages = [], [], []
+    for _which, _symbol, log_dt, event_dt, age in parse_stale_events(log_file, side):
+        log_times.append(log_dt)
+        event_times.append(event_dt)
+        ages.append(age)
+    print(f"{side} stale events: {len(log_times)}")
+    if not log_times:
+        print("nothing to plot")
+        return
+
+    fig, ax = plt.subplots(figsize=(18, 6))
+
+    # zero-age reference (event_ts == wall clock)
+    lo, hi = min(log_times), max(log_times)
+    ax.plot([lo, hi], [lo, hi], color='gray', linestyle='--', linewidth=1,
+            alpha=0.7, label='zero age (event_ts = wall clock)')
+
+    sc = ax.scatter(log_times, event_times, c=ages, cmap='inferno_r', s=6,
+                    label=f'{side} event_ts ({len(log_times)} events)')
+    cbar = fig.colorbar(sc, ax=ax)
+    cbar.set_label('ticker age (ms)')
+
+    if time_from and time_to:
+        # event_ts ≈ wall clock, so constrain y to the same window to make
+        # the (sub-minute) staleness deviations from the diagonal visible.
+        ax.set_xlim(time_from, time_to)
+        ax.set_ylim(time_from, time_to)
+
+    for axis in (ax.xaxis, ax.yaxis):
+        axis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+        axis.set_major_locator(mdates.AutoDateLocator())
+    fig.autofmt_xdate()
+
+    title_range = (
+        f" — {time_from.strftime('%Y-%m-%d')} ({time_from.strftime('%H:%M')}–{time_to.strftime('%H:%M')})"
+        if time_from and time_to else ""
+    )
+    ax.set_title(f'Reconstructed {side} ticker event_ts vs wall clock{title_range}', fontsize=13)
+    ax.set_xlabel('Wall-clock time (log timestamp)')
+    ax.set_ylabel('Reconstructed event_ts')
+    ax.legend(loc='upper left')
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(out_file, dpi=150)
+    print(f"Saved to {out_file}")
+
+
 if __name__ == "__main__":
     if "--pubsub-flow" in sys.argv:
         idx = sys.argv.index("--pubsub-flow")
@@ -271,9 +360,15 @@ if __name__ == "__main__":
         log = sys.argv[idx + 1]
         out = sys.argv[idx + 2] if idx + 2 < len(sys.argv) else None
         plot_price_diff(log_file=log, out_file=out)
-    elif "--stale-ticker" in sys.argv:
-        idx = sys.argv.index("--stale-ticker")
+    elif "--stale-age" in sys.argv:
+        idx = sys.argv.index("--stale-age")
         log  = sys.argv[idx + 1]
         side = sys.argv[idx + 2] if idx + 2 < len(sys.argv) and sys.argv[idx + 2] in ("primary", "hedge", "both") else "both"
         out  = sys.argv[idx + 3] if idx + 3 < len(sys.argv) and sys.argv[idx + 2] in ("primary", "hedge", "both") else (sys.argv[idx + 2] if idx + 2 < len(sys.argv) and sys.argv[idx + 2] not in ("primary", "hedge", "both") else None)
-        plot_stale_ticker(log_file=log, side=side, out_file=out)
+        plot_stale_age(log_file=log, side=side, out_file=out)
+    elif "--ticker-lag" in sys.argv:
+        idx = sys.argv.index("--ticker-lag")
+        log  = sys.argv[idx + 1]
+        side = sys.argv[idx + 2] if idx + 2 < len(sys.argv) and sys.argv[idx + 2] in ("primary", "hedge") else "primary"
+        out  = sys.argv[idx + 3] if idx + 3 < len(sys.argv) and sys.argv[idx + 2] in ("primary", "hedge") else (sys.argv[idx + 2] if idx + 2 < len(sys.argv) and sys.argv[idx + 2] not in ("primary", "hedge") else None)
+        plot_ticker_lag(log_file=log, side=side, out_file=out)

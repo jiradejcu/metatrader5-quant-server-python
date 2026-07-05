@@ -9,5 +9,6 @@ if [ -z "$LOG_FILE" ]; then
 fi
 
 python plots.py --price-diff "$LOG_FILE"
-python plots.py --stale-ticker "$LOG_FILE"
+python plots.py --stale-age "$LOG_FILE"
+python plots.py --ticker-lag "$LOG_FILE" primary
 python analyze_orders.py "$LOG_FILE"
