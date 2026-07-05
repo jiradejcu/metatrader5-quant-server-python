@@ -360,13 +360,18 @@ def plot_atr(
 ):
     """Plot the grid_bot ATR volatility guard alongside price diff.
 
-    Two overlaid series on a shared time axis:
-      - left axis  : ask_diff / bid_diff consumed by the grid_bot, plus the
-                     grid limits stepped from the latest grid settings seen in
-                     the log — entry limits (short_upper for a short entry,
-                     long_lower for a long entry) and exit limits (long_upper to
-                     close a long, short_lower to close a short).
-      - right axis : running ATR and its ATR_HIGH_THRESHOLD line.
+    Overlaid series on a shared time axis:
+      - left axis       : ask_diff / bid_diff consumed by the grid_bot, plus the
+                          grid limits stepped from the latest grid settings seen
+                          in the log — entry limits (short_upper for a short
+                          entry, long_lower for a long entry) and exit limits
+                          (long_upper to close a long, short_lower to close a
+                          short). Actual executions are marked here too as
+                          outline triangles: ▲ BUY / ▼ SELL, black edge = opening
+                          the position, crimson edge = closing.
+      - right axis      : running ATR and its ATR_HIGH_THRESHOLD line.
+      - 2nd right axis  : current position size (signed lots) from the
+                          ``position=…`` log, stepped between snapshots.
 
     ask_diff / bid_diff / atr all come from the same ``[PubSub] Price diff
     updated: …`` line, so they are perfectly time-aligned. Three event overlays:
@@ -416,11 +421,17 @@ def plot_atr(
     position_re = re.compile(
         ts_pat + r".*position=([+-]?[\d.]+) open_orders="
     )
+    # Actual executions reported on the user data stream (FILLED / PARTIALLY_FILLED).
+    fill_re = re.compile(
+        ts_pat + r".*\[UserDataStream\] Order [A-Z_]+: side=(\w+) "
+        r"fill_price=([\d.]+) avg_price=[\d.]+ qty=([\d.]+)/[\d.]+ order_id="
+    )
 
     times, ask_diffs, bid_diffs, atrs = [], [], [], []
     abort_times, abort_atrs = [], []
     settings_times, settings_vals = [], []   # chronological grid-settings changes
     position_times, position_vals = [], []   # chronological position snapshots
+    fill_times, fill_sides, fill_qtys = [], [], []   # actual executions
     with open(log_file) as f:
         for line in f:
             m = tick_re.search(line)
@@ -439,6 +450,12 @@ def plot_atr(
             if m:
                 position_times.append(datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S,%f"))
                 position_vals.append(float(m.group(2)))
+                continue
+            m = fill_re.search(line)
+            if m:
+                fill_times.append(datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S,%f"))
+                fill_sides.append(m.group(2))
+                fill_qtys.append(float(m.group(3)))
                 continue
             m = settings_re.search(line)
             if m:
@@ -513,8 +530,37 @@ def plot_atr(
         print("warning: no '[PubSub] Grid settings updated' lines found — "
               "cannot determine grid limits, blocked-entry/exit counts are 0")
 
+    # Actual fills, placed on the price-diff axis at the spread current when they
+    # executed (BUY near bid_diff, SELL near ask_diff). Open vs close is decided
+    # by the position held just before the fill: a fill that grows abs(position)
+    # opens, one that shrinks it closes.
+    def _pricediff_at(t, side):
+        i = max(bisect.bisect_right(times, t) - 1, 0)
+        return bid_diffs[i] if side == "BUY" else ask_diffs[i]
+
+    buy_open_t, buy_open_v = [], []
+    buy_close_t, buy_close_v = [], []
+    sell_open_t, sell_open_v = [], []
+    sell_close_t, sell_close_v = [], []
+    for ft, side, qty in zip(fill_times, fill_sides, fill_qtys):
+        v = _pricediff_at(ft, side)
+        pos_before = _position_at(ft)
+        signed = qty if side == "BUY" else -qty
+        is_open = pos_before == 0 or (pos_before > 0) == (signed > 0)
+        if side == "BUY":
+            (buy_open_t if is_open else buy_close_t).append(ft)
+            (buy_open_v if is_open else buy_close_v).append(v)
+        else:
+            (sell_open_t if is_open else sell_close_t).append(ft)
+            (sell_open_v if is_open else sell_close_v).append(v)
+    n_open = len(buy_open_t) + len(sell_open_t)
+    n_close = len(buy_close_t) + len(sell_close_t)
+    print(f"fills: {len(fill_times)}  (open: {n_open}, close: {n_close})")
+
     fig, ax = plt.subplots(figsize=(18, 6))
     ax2 = ax.twinx()
+    ax3 = ax.twinx()
+    ax3.spines['right'].set_position(('outward', 55))
 
     # ── left axis: price diff consumed by the grid bot ──
     ax.plot(times, ask_diffs, color='steelblue', linewidth=0.8, alpha=0.9,
@@ -543,6 +589,12 @@ def plot_atr(
     ax2.set_ylabel('ATR')
     ax2.set_ylim(bottom=0)
 
+    # ── second right axis: current position size ──
+    if position_times:
+        ax3.plot(position_times, position_vals, color='gray', linewidth=1.2,
+                 alpha=0.7, drawstyle='steps-post', label='position (lots)')
+    ax3.set_ylabel('position (lots)')
+
     # ── overlay 1: ATR guard tripped (aborts) ──
     if abort_times:
         ax2.scatter(abort_times, abort_atrs, color='tomato', marker='o', s=14,
@@ -551,15 +603,31 @@ def plot_atr(
 
     # ── overlay 2: ATR blocked an entry (abort + price past entry limit) ──
     if entry_times:
-        ax.scatter(entry_times, entry_vals, color='red', marker='x', s=110,
-                   linewidths=2, zorder=6,
+        ax.scatter(entry_times, entry_vals, color='red', marker='x', s=45,
+                   linewidths=1.4, zorder=6,
                    label=f'blocked entry ({n_entry} events)')
 
     # ── overlay 3: ATR blocked an exit (abort + price past exit limit) ──
     if exit_times:
-        ax.scatter(exit_times, exit_vals, color='blueviolet', marker='x', s=90,
-                   linewidths=2, zorder=6,
+        ax.scatter(exit_times, exit_vals, color='blueviolet', marker='x', s=40,
+                   linewidths=1.4, zorder=6,
                    label=f'blocked exit ({n_exit}, position held)')
+
+    # ── overlay 4: actual fills (▲ BUY / ▼ SELL, outline only; edge colour
+    #    distinguishes open vs close) ──
+    fkw = dict(s=32, zorder=7, linewidths=1.0, facecolors='none', alpha=0.75)
+    if buy_open_t:
+        ax.scatter(buy_open_t, buy_open_v, marker='^', edgecolors='black', **fkw,
+                   label=f'fill BUY open ({len(buy_open_t)})')
+    if buy_close_t:
+        ax.scatter(buy_close_t, buy_close_v, marker='^', edgecolors='crimson', **fkw,
+                   label=f'fill BUY close ({len(buy_close_t)})')
+    if sell_open_t:
+        ax.scatter(sell_open_t, sell_open_v, marker='v', edgecolors='black', **fkw,
+                   label=f'fill SELL open ({len(sell_open_t)})')
+    if sell_close_t:
+        ax.scatter(sell_close_t, sell_close_v, marker='v', edgecolors='crimson', **fkw,
+                   label=f'fill SELL close ({len(sell_close_t)})')
 
     if time_from and time_to:
         ax.set_xlim(time_from, time_to)
@@ -576,13 +644,15 @@ def plot_atr(
     ax.set_xlabel('Time')
     ax.grid(True, alpha=0.3)
 
-    # merge legends from both axes
+    # merge legends from all three axes
     lines1, labels1 = ax.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(lines1 + lines2, labels1 + labels2, loc='upper left', fontsize=9)
+    lines3, labels3 = ax3.get_legend_handles_labels()
+    ax.legend(lines1 + lines2 + lines3, labels1 + labels2 + labels3,
+              loc='upper left', fontsize=8, ncol=2)
 
     plt.tight_layout()
-    plt.savefig(out_file, dpi=150)
+    plt.savefig(out_file, dpi=150, bbox_inches='tight')
     print(f"Saved to {out_file}")
 
 
