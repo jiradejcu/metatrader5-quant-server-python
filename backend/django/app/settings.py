@@ -113,6 +113,7 @@ INSTALLED_APPS = [
     'app.quant.apps.QuantConfig',
     'app.connectors.binance',
     'app.connectors.bybit',
+    'app.connectors.hyperliquid',
     'app.ui_web'
 ]
 
