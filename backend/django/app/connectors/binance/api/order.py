@@ -56,6 +56,32 @@ def new_order(symbol, quantity, price, side):
         logger.error(f"New order error (Post-only might have been rejected if price matches immediately): {e}")
         return None
 
+def close_order(symbol, quantity, side, price):
+    """Place a reduce-only IOC limit order to close/reduce a position.
+
+    Unlike chase_order (post-only GTX, never crosses the book), this is a
+    taker order meant to cross up to `price`. The caller computes `price`
+    from order-book depth so realized slippage stays within its budget —
+    this function just submits it with reduce_only so it can never open or
+    flip the position.
+    """
+    try:
+        response = client.rest_api.new_order(
+            symbol=symbol,
+            quantity=quantity,
+            price=price,
+            side=NewOrderSideEnum[side].value,
+            type="LIMIT",
+            time_in_force=NewOrderTimeInForceEnum["IOC"].value,
+            reduce_only="true",
+        )
+        data = response.data()
+        logger.info(f"Close order placed: symbol={symbol} side={side} qty={quantity} price={price}")
+        return data
+    except Exception as e:
+        logger.error(f"Close order error: {e}")
+        return None
+
 def cancel_all_open_orders(symbol):
     try:
         # logger.info(f"Cancel all open order: symbol={symbol}")

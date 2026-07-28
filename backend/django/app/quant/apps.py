@@ -22,6 +22,9 @@ class QuantConfig(AppConfig):
         from .algorithms.arbitrage import grid_bot
         grid_bot.start_grid_bot_sync()
 
+        from .algorithms.prediction import prediction_bot
+        prediction_bot.start_prediction_bot_sync()
+
         from .algorithms.arbitrage import health_monitor
         health_monitor.start_health_monitor()
 
