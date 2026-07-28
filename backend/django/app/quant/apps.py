@@ -43,6 +43,9 @@ class QuantConfig(AppConfig):
             elif primary_exchange == 'bybit':
                 from app.connectors.bybit.api.ticker import fetch_ticker_data as fetch_bybit_ticker_data
                 fetch_bybit_ticker_data(primary_symbol)
+            elif primary_exchange == 'hyperliquid':
+                from app.connectors.hyperliquid.api.ticker import fetch_ticker_data as fetch_hyperliquid_ticker_data
+                fetch_hyperliquid_ticker_data(primary_symbol)
 
             if hedge_exchange == 'mt5':
                 from app.utils.api.data import subscribe_symbol_ticker as subscribe_mt5_ticker

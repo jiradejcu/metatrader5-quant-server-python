@@ -42,6 +42,7 @@ cover/
 venv/
 env/
 ENV/
+hlvenv/
 
 # Next.js
 .next/

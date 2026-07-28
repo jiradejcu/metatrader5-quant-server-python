@@ -24,4 +24,13 @@ PAIRS = [
         'minimum_trade_amount': 1,
         'timezone_offset_hours': 3,
     },
+    # Hyperliquid primary. Hyperliquid uses bare coin names (e.g. 'BTC') and its
+    # signed size (szi) is already in coin units, so contract_size is 1. Adjust
+    # the hedge symbol / contract_size to your actual instrument before trading.
+    {
+        'primary': {'exchange': 'hyperliquid', 'symbol': 'BTC'},
+        'hedge': {'exchange': 'mt5',           'symbol': 'BTCUSD'},
+        'contract_size': 1,
+        'minimum_trade_amount': 1,
+    },
 ]
