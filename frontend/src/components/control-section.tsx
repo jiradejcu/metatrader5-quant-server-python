@@ -19,6 +19,11 @@ function containerStatusColor(status: string | undefined): string {
     return 'text-gray-500 dark:text-gray-400';
 }
 
+function containerStatusLabel(status: string | undefined): string {
+    if (!status) return 'Fetching';
+    return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
 export const ControlSection = (arg: ICardSection) => {
     const {
         apiUrl,
@@ -83,7 +88,7 @@ export const ControlSection = (arg: ICardSection) => {
 
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Container status: <span className={`font-bold ${containerStatusColor(botServer?.status)}`}>
-                    {botServer?.status ?? 'Fetching'}
+                    {containerStatusLabel(botServer?.status)}
                   </span>
                 </p>
 
