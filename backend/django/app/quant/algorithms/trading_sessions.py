@@ -45,3 +45,41 @@ def is_within_trading_session(primary_symbol, hedge_symbol):
     except Exception as e:
         logger.warning(f"[Session] Failed to check trading session, allowing tick: {e}")
         return True
+
+
+def minutes_until_next_session(primary_symbol, hedge_symbol):
+    """Return minutes from now until the next trading session starts.
+
+    Meant to be called while outside any session, to answer "how long until
+    grid_bot resumes?". Looks at today's remaining ranges first, then walks
+    forward day by day (up to a full week) for the next configured range.
+    Returns None if there's no session config (trading is unrestricted, so
+    there's nothing to count down to) or on error.
+    """
+    try:
+        redis_conn = get_redis_connection()
+        key = f"trading_sessions:{primary_symbol}:{hedge_symbol}"
+        raw = redis_conn.get(key)
+        if not raw:
+            return None
+
+        sessions = json.loads(raw)
+        now_utc = datetime.now(timezone.utc)
+        current_minutes = now_utc.hour * 60 + now_utc.minute
+
+        for day_offset in range(8):  # today + a full week ahead
+            day_name = _DAY_NAMES[(now_utc.weekday() + day_offset) % 7]
+            ranges = sessions.get(day_name, [])
+            starts = sorted(
+                int(r['start'].split(':')[0]) * 60 + int(r['start'].split(':')[1])
+                for r in ranges
+            )
+            for start_min in starts:
+                if day_offset == 0 and start_min <= current_minutes:
+                    continue
+                return day_offset * 1440 + start_min - current_minutes
+
+        return None
+    except Exception as e:
+        logger.warning(f"[Session] Failed to compute time to next session: {e}")
+        return None

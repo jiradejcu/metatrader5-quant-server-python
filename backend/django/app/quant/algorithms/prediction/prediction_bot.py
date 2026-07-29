@@ -11,7 +11,7 @@ from app.connectors.binance.api.position import get_position
 from app.connectors.binance.api.ticker import get_ticker
 from app.connectors.binance.api.depth import get_order_book
 from ..arbitrage import config
-from ..trading_sessions import is_within_trading_session
+from ..trading_sessions import is_within_trading_session, minutes_until_next_session
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,14 @@ def _parse_prediction_settings(settings_dict):
         # large position gets closed in clips instead of one order. <= 0
         # means uncapped — close the full position at once.
         "max_close_size": float(settings_dict.get('max_close_size', 0.0)),
+        # Once this many minutes (or fewer) remain before the trading
+        # session reopens, force aggressive closing regardless of the
+        # configured aggressiveness — so the position is flat before
+        # grid_bot resumes instead of left waiting on a passive fill.
+        # <= 0 disables the auto-escalation.
+        "force_aggressive_minutes_before_reopen": float(
+            settings_dict.get('force_aggressive_minutes_before_reopen', 0.0)
+        ),
     }
 
 
@@ -51,6 +59,30 @@ def _capped_close_qty(position_amt, max_close_size):
     if max_close_size and max_close_size > 0:
         return min(position_amt, max_close_size)
     return position_amt
+
+
+def _resolve_effective_settings(primary_symbol, hedge_symbol, settings):
+    """Auto-escalate aggressiveness to "aggressive" when few minutes remain
+    before the trading session reopens, so the bot forces itself flat before
+    grid_bot resumes rather than leaving a passive order that may never fill
+    in time. A no-op when already aggressive, or when the escalation window
+    is disabled (force_aggressive_minutes_before_reopen <= 0).
+    """
+    if settings['aggressiveness'] == AGGRESSIVENESS_AGGRESSIVE:
+        return settings
+
+    threshold = settings['force_aggressive_minutes_before_reopen']
+    if threshold <= 0:
+        return settings
+
+    minutes_left = minutes_until_next_session(primary_symbol, hedge_symbol)
+    if minutes_left is None or minutes_left > threshold:
+        return settings
+
+    logger.info(
+        f"[Prediction] {minutes_left:.1f}m until session reopens (<= {threshold}) — forcing aggressive close"
+    )
+    return dict(settings, aggressiveness=AGGRESSIVENESS_AGGRESSIVE)
 
 
 def _max_closeable_qty(bids, remaining_qty, max_slippage_usd):
@@ -361,7 +393,10 @@ def handle_prediction_flow(pubsub, settings_channel, primary_symbol, hedge_symbo
                 and latest_prediction_settings is not None
                 and not in_trading_session
             ):
-                _process_tick(primary_symbol, latest_prediction_settings)
+                effective_settings = _resolve_effective_settings(
+                    primary_symbol, hedge_symbol, latest_prediction_settings
+                )
+                _process_tick(primary_symbol, effective_settings)
         except Exception as e:
             logger.error(f"[Prediction] Error in tick loop: {e}", exc_info=True)
         time.sleep(poll_interval)

@@ -6,6 +6,7 @@ cancel_all_open_orders, chase_order, get_order_book, close_order) are
 patched on the loaded module object.
 """
 import importlib.util
+import json
 import pathlib
 import queue
 import sys
@@ -86,6 +87,7 @@ DEFAULT_SETTINGS = {
     "aggressiveness": "passive",
     "reentry_tolerance_usd": 0.0,
     "max_close_size": 0.0,
+    "force_aggressive_minutes_before_reopen": 0.0,
 }
 
 AGGRESSIVE_SETTINGS = dict(DEFAULT_SETTINGS, aggressiveness="aggressive")
@@ -114,6 +116,7 @@ class TestParsePredictionSettings:
             "aggressiveness": "aggressive",
             "reentry_tolerance_usd": "0.5",
             "max_close_size": "0.25",
+            "force_aggressive_minutes_before_reopen": "15",
         }
         parsed = _pb._parse_prediction_settings(raw)
         assert parsed == {
@@ -122,6 +125,7 @@ class TestParsePredictionSettings:
             "aggressiveness": "aggressive",
             "reentry_tolerance_usd": 0.5,
             "max_close_size": 0.25,
+            "force_aggressive_minutes_before_reopen": 15.0,
         }
 
     def test_defaults_missing_fields(self):
@@ -131,6 +135,7 @@ class TestParsePredictionSettings:
             "aggressiveness": "passive",
             "reentry_tolerance_usd": 0.0,
             "max_close_size": 0.0,
+            "force_aggressive_minutes_before_reopen": 0.0,
         }
 
     def test_normalizes_case_and_whitespace(self):
@@ -506,6 +511,52 @@ class TestMaxCloseSize:
 
 
 # ---------------------------------------------------------------------------
+# _resolve_effective_settings
+# ---------------------------------------------------------------------------
+
+class TestResolveEffectiveSettings:
+    def test_unchanged_when_already_aggressive(self):
+        settings = dict(AGGRESSIVE_SETTINGS, force_aggressive_minutes_before_reopen=30.0)
+        with patch.object(_pb, "minutes_until_next_session") as mock_minutes:
+            result = _pb._resolve_effective_settings("BTCUSDT", "XAUUSD", settings)
+            mock_minutes.assert_not_called()
+        assert result is settings
+
+    def test_unchanged_when_escalation_disabled(self):
+        settings = dict(DEFAULT_SETTINGS, force_aggressive_minutes_before_reopen=0.0)
+        with patch.object(_pb, "minutes_until_next_session") as mock_minutes:
+            result = _pb._resolve_effective_settings("BTCUSDT", "XAUUSD", settings)
+            mock_minutes.assert_not_called()
+        assert result is settings
+
+    def test_unchanged_when_no_session_config(self):
+        settings = dict(DEFAULT_SETTINGS, force_aggressive_minutes_before_reopen=30.0)
+        with patch.object(_pb, "minutes_until_next_session", return_value=None):
+            result = _pb._resolve_effective_settings("BTCUSDT", "XAUUSD", settings)
+        assert result is settings
+
+    def test_unchanged_when_still_plenty_of_time(self):
+        settings = dict(DEFAULT_SETTINGS, force_aggressive_minutes_before_reopen=30.0)
+        with patch.object(_pb, "minutes_until_next_session", return_value=45.0):
+            result = _pb._resolve_effective_settings("BTCUSDT", "XAUUSD", settings)
+        assert result is settings
+
+    def test_escalates_to_aggressive_within_threshold(self):
+        settings = dict(DEFAULT_SETTINGS, force_aggressive_minutes_before_reopen=30.0)
+        with patch.object(_pb, "minutes_until_next_session", return_value=10.0):
+            result = _pb._resolve_effective_settings("BTCUSDT", "XAUUSD", settings)
+        assert result["aggressiveness"] == "aggressive"
+        assert result is not settings
+        assert settings["aggressiveness"] == "passive"  # original untouched
+
+    def test_escalates_exactly_at_threshold(self):
+        settings = dict(DEFAULT_SETTINGS, force_aggressive_minutes_before_reopen=30.0)
+        with patch.object(_pb, "minutes_until_next_session", return_value=30.0):
+            result = _pb._resolve_effective_settings("BTCUSDT", "XAUUSD", settings)
+        assert result["aggressiveness"] == "aggressive"
+
+
+# ---------------------------------------------------------------------------
 # _reset_position_tracking
 # ---------------------------------------------------------------------------
 
@@ -595,3 +646,41 @@ class TestHandleFlowTradingSessionAnchor:
         # discovering it's already out-of-session on tick one still anchors.
         mock_reset = _run_handle_prediction_flow_for_sessions([False])
         mock_reset.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# handle_prediction_flow — wires _resolve_effective_settings into each tick
+# ---------------------------------------------------------------------------
+
+class TestHandleFlowAppliesEffectiveSettings:
+    def test_process_tick_receives_resolved_settings(self):
+        redis_mock = MagicMock()
+        redis_mock.get.return_value = json.dumps({"profit_target_usd": "5"})
+
+        def _fake_sleep(_):
+            raise _StopLoop("done")
+
+        escalated = dict(DEFAULT_SETTINGS, aggressiveness="aggressive")
+
+        with patch.object(_pb, "get_redis_connection", return_value=redis_mock), \
+             patch.object(_pb, "get_active_status", return_value=True), \
+             patch.object(_pb, "is_within_trading_session", return_value=False), \
+             patch.object(_pb, "_resolve_effective_settings", return_value=escalated) as mock_resolve, \
+             patch.object(_pb, "time") as mock_time, \
+             patch.object(_pb, "_process_tick") as mock_process_tick:
+            mock_time.sleep.side_effect = _fake_sleep
+            try:
+                _pb.handle_prediction_flow(_blocking_pubsub(), "settings_channel", "BTCUSDT", "XAUUSD", poll_interval=0)
+            except _StopLoop:
+                pass
+
+        expected_parsed_settings = {
+            "profit_target_usd": 5.0,
+            "max_slippage_usd": 0.0,
+            "aggressiveness": "passive",
+            "reentry_tolerance_usd": 0.0,
+            "max_close_size": 0.0,
+            "force_aggressive_minutes_before_reopen": 0.0,
+        }
+        mock_resolve.assert_called_once_with("BTCUSDT", "XAUUSD", expected_parsed_settings)
+        mock_process_tick.assert_called_once_with("BTCUSDT", escalated)
