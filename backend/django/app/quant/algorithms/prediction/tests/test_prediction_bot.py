@@ -1,17 +1,13 @@
 """
 Automated tests for prediction_bot trading logic.
 
-External Binance calls (get_open_orders, get_position, get_ticker,
-get_order_book, cancel_all_open_orders, chase_order, close_order) are patched
-on the loaded module object.
+External Binance calls (get_position, get_ticker, get_order_book,
+close_order) are patched on the loaded module object.
 """
 import importlib.util
-import json
 import pathlib
 import sys
 import types
-from datetime import datetime, timezone
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -66,17 +62,11 @@ _spec.loader.exec_module(_pb)
 # helpers
 # ---------------------------------------------------------------------------
 
-def _open_order(side="BUY", orig_qty=1.0, order_id=123):
-    return SimpleNamespace(side=side, orig_qty=orig_qty, order_id=order_id)
-
-
 def _position(position_amt="0", entry_price="0"):
     return {"positionAmt": position_amt, "entryPrice": entry_price}
 
 
 DEFAULT_SETTINGS = {
-    "minutes_before_close": 15.0,
-    "order_amount": 1.0,
     "profit_target_usd": 5.0,
     "max_slippage_usd": 2.0,
 }
@@ -96,64 +86,20 @@ def reset_globals():
 class TestParsePredictionSettings:
     def test_parses_all_fields(self):
         raw = {
-            "minutes_before_close": "10",
-            "order_amount": "2.5",
             "profit_target_usd": "3",
             "max_slippage_usd": "1.5",
         }
         parsed = _pb._parse_prediction_settings(raw)
         assert parsed == {
-            "minutes_before_close": 10.0,
-            "order_amount": 2.5,
             "profit_target_usd": 3.0,
             "max_slippage_usd": 1.5,
         }
 
     def test_defaults_missing_fields_to_zero(self):
         assert _pb._parse_prediction_settings({}) == {
-            "minutes_before_close": 0.0,
-            "order_amount": 0.0,
             "profit_target_usd": 0.0,
             "max_slippage_usd": 0.0,
         }
-
-
-# ---------------------------------------------------------------------------
-# _minutes_until_session_close / _is_entry_window
-# ---------------------------------------------------------------------------
-
-class TestMinutesUntilSessionClose:
-    def test_no_sessions_returns_none(self):
-        assert _pb._minutes_until_session_close(None, datetime(2024, 1, 1, tzinfo=timezone.utc)) is None
-
-    def test_within_active_range_returns_remaining_minutes(self):
-        sessions = {"Monday": [{"start": "08:00", "end": "16:00"}]}
-        now = datetime(2024, 1, 1, 15, 45, tzinfo=timezone.utc)  # Monday
-        assert _pb._minutes_until_session_close(sessions, now) == pytest.approx(15.0)
-
-    def test_outside_any_range_returns_none(self):
-        sessions = {"Monday": [{"start": "08:00", "end": "16:00"}]}
-        now = datetime(2024, 1, 1, 20, 0, tzinfo=timezone.utc)
-        assert _pb._minutes_until_session_close(sessions, now) is None
-
-    def test_end_of_day_marker(self):
-        sessions = {"Monday": [{"start": "00:00", "end": "24:00"}]}
-        now = datetime(2024, 1, 1, 23, 50, tzinfo=timezone.utc)
-        assert _pb._minutes_until_session_close(sessions, now) == pytest.approx(10.0)
-
-
-class TestIsEntryWindow:
-    def test_within_window(self):
-        assert _pb._is_entry_window(10.0, 15.0) is True
-
-    def test_outside_window(self):
-        assert _pb._is_entry_window(30.0, 15.0) is False
-
-    def test_none_minutes_remaining(self):
-        assert _pb._is_entry_window(None, 15.0) is False
-
-    def test_zero_minutes_before_close_disables_entry(self):
-        assert _pb._is_entry_window(0.0, 0.0) is False
 
 
 # ---------------------------------------------------------------------------
@@ -197,74 +143,13 @@ class TestMaxCloseableQty:
 # ---------------------------------------------------------------------------
 
 class TestProcessTickIdle:
-    def test_enters_within_window_when_not_already_entered(self):
+    def test_does_nothing_without_a_position(self):
         with patch.object(_pb, "get_position", return_value=_position()), \
-             patch.object(_pb, "get_open_orders", return_value=[]), \
-             patch.object(_pb, "_already_entered_today", return_value=False), \
-             patch.object(_pb, "_get_trading_sessions", return_value={"x": []}), \
-             patch.object(_pb, "_minutes_until_session_close", return_value=5.0), \
-             patch.object(_pb, "chase_order") as mock_chase, \
-             patch.object(_pb, "_mark_entered_today") as mock_mark:
-            _pb._process_tick("BTCUSDT", "XAUUSD", DEFAULT_SETTINGS)
-            mock_chase.assert_called_once_with("BTCUSDT", DEFAULT_SETTINGS["order_amount"], "BUY", order_id=None)
-            mock_mark.assert_called_once_with("BTCUSDT", "XAUUSD")
-
-    def test_skips_when_already_entered_today(self):
-        with patch.object(_pb, "get_position", return_value=_position()), \
-             patch.object(_pb, "get_open_orders", return_value=[]), \
-             patch.object(_pb, "_already_entered_today", return_value=True), \
-             patch.object(_pb, "chase_order") as mock_chase:
-            _pb._process_tick("BTCUSDT", "XAUUSD", DEFAULT_SETTINGS)
-            mock_chase.assert_not_called()
-
-    def test_skips_outside_window(self):
-        with patch.object(_pb, "get_position", return_value=_position()), \
-             patch.object(_pb, "get_open_orders", return_value=[]), \
-             patch.object(_pb, "_already_entered_today", return_value=False), \
-             patch.object(_pb, "_get_trading_sessions", return_value=None), \
-             patch.object(_pb, "_minutes_until_session_close", return_value=None), \
-             patch.object(_pb, "chase_order") as mock_chase:
-            _pb._process_tick("BTCUSDT", "XAUUSD", DEFAULT_SETTINGS)
-            mock_chase.assert_not_called()
-
-    def test_skips_when_order_amount_unset(self):
-        settings = dict(DEFAULT_SETTINGS, order_amount=0.0)
-        with patch.object(_pb, "get_position", return_value=_position()), \
-             patch.object(_pb, "get_open_orders", return_value=[]), \
-             patch.object(_pb, "chase_order") as mock_chase:
-            _pb._process_tick("BTCUSDT", "XAUUSD", settings)
-            mock_chase.assert_not_called()
-
-
-class TestProcessTickEntering:
-    def test_chases_existing_buy_order(self):
-        order = _open_order(side="BUY", orig_qty=1.0, order_id=42)
-        with patch.object(_pb, "get_position", return_value=_position()), \
-             patch.object(_pb, "get_open_orders", return_value=[order]), \
-             patch.object(_pb, "_minutes_until_session_close", return_value=5.0), \
-             patch.object(_pb, "chase_order") as mock_chase:
-            _pb._process_tick("BTCUSDT", "XAUUSD", DEFAULT_SETTINGS)
-            mock_chase.assert_called_once_with("BTCUSDT", 1.0, "BUY", order_id=42)
-
-    def test_cancels_when_session_ended_before_fill(self):
-        order = _open_order(side="BUY")
-        with patch.object(_pb, "get_position", return_value=_position()), \
-             patch.object(_pb, "get_open_orders", return_value=[order]), \
-             patch.object(_pb, "_minutes_until_session_close", return_value=None), \
-             patch.object(_pb, "cancel_all_open_orders") as mock_cancel, \
-             patch.object(_pb, "chase_order") as mock_chase:
-            _pb._process_tick("BTCUSDT", "XAUUSD", DEFAULT_SETTINGS)
-            mock_cancel.assert_called_once_with("BTCUSDT")
-            mock_chase.assert_not_called()
-
-    def test_cancels_unexpected_sell_order(self):
-        order = _open_order(side="SELL")
-        with patch.object(_pb, "get_position", return_value=_position()), \
-             patch.object(_pb, "get_open_orders", return_value=[order]), \
-             patch.object(_pb, "_minutes_until_session_close", return_value=5.0), \
-             patch.object(_pb, "cancel_all_open_orders") as mock_cancel:
-            _pb._process_tick("BTCUSDT", "XAUUSD", DEFAULT_SETTINGS)
-            mock_cancel.assert_called_once_with("BTCUSDT")
+             patch.object(_pb, "get_ticker") as mock_ticker, \
+             patch.object(_pb, "close_order") as mock_close:
+            _pb._process_tick("BTCUSDT", DEFAULT_SETTINGS)
+            mock_ticker.assert_not_called()
+            mock_close.assert_not_called()
 
 
 class TestProcessTickHolding:
@@ -272,7 +157,7 @@ class TestProcessTickHolding:
         with patch.object(_pb, "get_position", return_value=_position("1.0", "100.0")), \
              patch.object(_pb, "get_ticker", return_value={"best_bid": 103.0, "best_ask": 103.5}), \
              patch.object(_pb, "close_order") as mock_close:
-            _pb._process_tick("BTCUSDT", "XAUUSD", DEFAULT_SETTINGS)  # target=5.0
+            _pb._process_tick("BTCUSDT", DEFAULT_SETTINGS)  # target=5.0
             mock_close.assert_not_called()
 
     def test_closes_when_profit_target_hit_and_depth_sufficient(self):
@@ -281,7 +166,7 @@ class TestProcessTickHolding:
              patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
              patch.object(_pb, "get_order_book", return_value=order_book), \
              patch.object(_pb, "close_order") as mock_close:
-            _pb._process_tick("BTCUSDT", "XAUUSD", DEFAULT_SETTINGS)  # profit=6 >= target=5
+            _pb._process_tick("BTCUSDT", DEFAULT_SETTINGS)  # profit=6 >= target=5
             mock_close.assert_called_once_with("BTCUSDT", 1.0, "SELL", 105.0)
 
     def test_waits_when_book_too_thin_for_slippage_budget(self):
@@ -291,13 +176,11 @@ class TestProcessTickHolding:
              patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
              patch.object(_pb, "get_order_book", return_value=order_book), \
              patch.object(_pb, "close_order") as mock_close:
-            _pb._process_tick("BTCUSDT", "XAUUSD", DEFAULT_SETTINGS)
+            _pb._process_tick("BTCUSDT", DEFAULT_SETTINGS)
             mock_close.assert_not_called()
 
     def test_skips_unexpected_short_position(self):
         with patch.object(_pb, "get_position", return_value=_position("-1.0", "100.0")), \
-             patch.object(_pb, "close_order") as mock_close, \
-             patch.object(_pb, "chase_order") as mock_chase:
-            _pb._process_tick("BTCUSDT", "XAUUSD", DEFAULT_SETTINGS)
+             patch.object(_pb, "close_order") as mock_close:
+            _pb._process_tick("BTCUSDT", DEFAULT_SETTINGS)
             mock_close.assert_not_called()
-            mock_chase.assert_not_called()

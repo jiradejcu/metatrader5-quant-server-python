@@ -4,15 +4,9 @@ import math
 import os
 import threading
 import time
-from datetime import datetime, timezone
 
 from app.utils.redis_client import get_redis_connection
-from app.connectors.binance.api.order import (
-    get_open_orders,
-    cancel_all_open_orders,
-    chase_order,
-    close_order,
-)
+from app.connectors.binance.api.order import close_order
 from app.connectors.binance.api.position import get_position
 from app.connectors.binance.api.ticker import get_ticker
 from app.connectors.binance.api.depth import get_order_book
@@ -22,51 +16,14 @@ logger = logging.getLogger(__name__)
 
 latest_prediction_settings = None
 
-_DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-
 QTY_PRECISION = int(os.getenv('PREDICTION_QTY_PRECISION', '3'))
 
 
 def _parse_prediction_settings(settings_dict):
     return {
-        "minutes_before_close": float(settings_dict.get('minutes_before_close', 0.0)),
-        "order_amount": float(settings_dict.get('order_amount', 0.0)),
         "profit_target_usd": float(settings_dict.get('profit_target_usd', 0.0)),
         "max_slippage_usd": float(settings_dict.get('max_slippage_usd', 0.0)),
     }
-
-
-def _minutes_until_session_close(sessions, now_utc):
-    """Return minutes remaining until the end of the currently active trading
-    session, or None if `now_utc` doesn't fall inside any configured range.
-
-    Uses the same Redis schema as grid_bot._is_within_trading_session:
-    {day_name: [{"start": "HH:MM", "end": "HH:MM"}]}, where "24:00" means end
-    of day. No config at all means no session boundary is defined, so there's
-    nothing to count down to.
-    """
-    if not sessions:
-        return None
-
-    day_name = _DAY_NAMES[now_utc.weekday()]
-    ranges = sessions.get(day_name, [])
-    current_minutes = now_utc.hour * 60 + now_utc.minute + now_utc.second / 60
-
-    for r in ranges:
-        start_h, start_m = map(int, r['start'].split(':'))
-        end_h, end_m = map(int, r['end'].split(':'))
-        start_min = start_h * 60 + start_m
-        end_min = end_h * 60 + end_m
-        if start_min <= current_minutes < end_min:
-            return end_min - current_minutes
-
-    return None
-
-
-def _is_entry_window(minutes_remaining, minutes_before_close):
-    if minutes_remaining is None or minutes_before_close <= 0:
-        return False
-    return minutes_remaining <= minutes_before_close
 
 
 def _max_closeable_qty(bids, remaining_qty, max_slippage_usd):
@@ -115,78 +72,8 @@ def _round_down(value, decimals=QTY_PRECISION):
     return math.floor(value * factor) / factor
 
 
-def _get_trading_sessions(primary_symbol, hedge_symbol):
-    try:
-        redis_conn = get_redis_connection()
-        raw = redis_conn.get(f"trading_sessions:{primary_symbol}:{hedge_symbol}")
-        return json.loads(raw) if raw else None
-    except Exception as e:
-        logger.warning(f"[Prediction] Failed to read trading sessions: {e}")
-        return None
-
-
-def _already_entered_today(primary_symbol, hedge_symbol):
-    redis_conn = get_redis_connection()
-    key = f"prediction_entered_date:{primary_symbol}:{hedge_symbol}"
-    raw = redis_conn.get(key)
-    if raw is None:
-        return False
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    return raw.decode('utf-8') == today
-
-
-def _mark_entered_today(primary_symbol, hedge_symbol):
-    redis_conn = get_redis_connection()
-    key = f"prediction_entered_date:{primary_symbol}:{hedge_symbol}"
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    redis_conn.set(key, today, ex=172800)  # 2 days — self-cleaning, tomorrow's date won't match anyway
-
-
 def get_active_status():
     return get_redis_connection().get("prediction_bot_active_flag")
-
-
-def _handle_idle(primary_symbol, hedge_symbol, settings):
-    if settings['order_amount'] <= 0:
-        logger.debug("[Prediction] order_amount not configured — skipping")
-        return
-
-    if _already_entered_today(primary_symbol, hedge_symbol):
-        return
-
-    sessions = _get_trading_sessions(primary_symbol, hedge_symbol)
-    minutes_remaining = _minutes_until_session_close(sessions, datetime.now(timezone.utc))
-
-    if not _is_entry_window(minutes_remaining, settings['minutes_before_close']):
-        return
-
-    logger.info(
-        f"[Prediction] Entry window open ({minutes_remaining:.1f}m to session close) — "
-        f"placing best-bid BUY for {settings['order_amount']} on {primary_symbol}"
-    )
-    chase_order(primary_symbol, settings['order_amount'], 'BUY', order_id=None)
-    _mark_entered_today(primary_symbol, hedge_symbol)
-
-
-def _handle_entering(primary_symbol, hedge_symbol, open_orders, settings):
-    sessions = _get_trading_sessions(primary_symbol, hedge_symbol)
-    minutes_remaining = _minutes_until_session_close(sessions, datetime.now(timezone.utc))
-    if minutes_remaining is None:
-        logger.info("[Prediction] Trading session ended before entry filled — cancelling")
-        cancel_all_open_orders(primary_symbol)
-        return
-
-    order = open_orders[0]
-    side = getattr(order, 'side', None)
-    if side != 'BUY':
-        logger.warning(f"[Prediction] Unexpected {side} order while entering — cancelling")
-        cancel_all_open_orders(primary_symbol)
-        return
-
-    order_id = getattr(order, 'order_id', None)
-    qty = float(getattr(order, 'orig_qty', settings['order_amount']))
-    logger.debug(f"[Prediction] Chasing entry order_id={order_id} qty={qty}")
-    chase_order(primary_symbol, qty, 'BUY', order_id=order_id)
 
 
 def _handle_holding_or_closing(primary_symbol, position_amt, position, settings):
@@ -222,10 +109,10 @@ def _handle_holding_or_closing(primary_symbol, position_amt, position, settings)
     close_order(primary_symbol, close_qty, 'SELL', worst_price)
 
 
-def _process_tick(primary_symbol, hedge_symbol, settings):
-    """Execute one prediction-bot decision. Phase is derived from live
-    exchange state each tick rather than tracked separately, so a restart
-    just resumes wherever the actual position/orders are.
+def _process_tick(primary_symbol, settings):
+    """Execute one prediction-bot decision. This bot never opens positions —
+    the grid bot is responsible for entries. It only watches for an existing
+    long position and closes it once the profit target is met.
     """
     position = get_position(primary_symbol)
     position_amt = float((position or {}).get('positionAmt', 0) or 0)
@@ -239,17 +126,9 @@ def _process_tick(primary_symbol, hedge_symbol, settings):
 
     if position_amt > 0:
         _handle_holding_or_closing(primary_symbol, position_amt, position, settings)
-        return
-
-    open_orders = get_open_orders(primary_symbol)
-    if open_orders:
-        _handle_entering(primary_symbol, hedge_symbol, open_orders, settings)
-        return
-
-    _handle_idle(primary_symbol, hedge_symbol, settings)
 
 
-def handle_prediction_flow(pubsub, settings_channel, primary_symbol, hedge_symbol, poll_interval=2.0):
+def handle_prediction_flow(pubsub, settings_channel, primary_symbol, poll_interval=2.0):
     global latest_prediction_settings
     latest_prediction_settings = None
 
@@ -285,7 +164,7 @@ def handle_prediction_flow(pubsub, settings_channel, primary_symbol, hedge_symbo
     while True:
         try:
             if get_active_status() and latest_prediction_settings is not None:
-                _process_tick(primary_symbol, hedge_symbol, latest_prediction_settings)
+                _process_tick(primary_symbol, latest_prediction_settings)
         except Exception as e:
             logger.error(f"[Prediction] Error in tick loop: {e}", exc_info=True)
         time.sleep(poll_interval)
@@ -310,7 +189,7 @@ def start_prediction_bot_sync():
 
         threading.Thread(
             target=handle_prediction_flow,
-            args=(pubsub, settings_channel, primary_symbol, hedge_symbol),
+            args=(pubsub, settings_channel, primary_symbol),
             daemon=True,
         ).start()
         logger.info("Prediction bot thread started and running in background.")
