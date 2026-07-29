@@ -6,7 +6,7 @@ import threading
 import time
 
 from app.utils.redis_client import get_redis_connection
-from app.connectors.binance.api.order import close_order
+from app.connectors.binance.api.order import get_open_orders, cancel_all_open_orders, chase_order, close_order
 from app.connectors.binance.api.position import get_position
 from app.connectors.binance.api.ticker import get_ticker
 from app.connectors.binance.api.depth import get_order_book
@@ -19,11 +19,26 @@ latest_prediction_settings = None
 
 QTY_PRECISION = int(os.getenv('PREDICTION_QTY_PRECISION', '3'))
 
+# "passive" chases a post-only best-ask SELL (same order style grid_bot uses
+# to enter) — zero slippage, but only fills if the market comes to it.
+# "aggressive" crosses the book with a reduce-only IOC SELL bounded by
+# max_slippage_usd — guarantees getting flat (or as close as the book
+# allows) at the cost of paying the spread/slippage. Meant for e.g. forcing
+# the position closed before the trading session reopens and grid_bot
+# resumes.
+AGGRESSIVENESS_PASSIVE = "passive"
+AGGRESSIVENESS_AGGRESSIVE = "aggressive"
+
 
 def _parse_prediction_settings(settings_dict):
+    aggressiveness = str(settings_dict.get('aggressiveness', AGGRESSIVENESS_PASSIVE)).strip().lower()
+    if aggressiveness not in (AGGRESSIVENESS_PASSIVE, AGGRESSIVENESS_AGGRESSIVE):
+        aggressiveness = AGGRESSIVENESS_PASSIVE
+
     return {
         "profit_target_usd": float(settings_dict.get('profit_target_usd', 0.0)),
         "max_slippage_usd": float(settings_dict.get('max_slippage_usd', 0.0)),
+        "aggressiveness": aggressiveness,
     }
 
 
@@ -77,43 +92,89 @@ def get_active_status():
     return get_redis_connection().get("prediction_bot_active_flag")
 
 
-def _handle_holding_or_closing(primary_symbol, position_amt, position, settings):
+def _close_passive(primary_symbol, position_amt, open_orders):
+    """Chase a post-only best-ask SELL, same order style as grid_bot's entries."""
+    if not open_orders:
+        logger.info(
+            f"[Prediction] Placing passive best-ask SELL for {position_amt} on {primary_symbol}"
+        )
+        chase_order(primary_symbol, position_amt, 'SELL', order_id=None)
+        return
+
+    order = open_orders[0]
+    side = getattr(order, 'side', None)
+    if side != 'SELL':
+        logger.warning(f"[Prediction] Unexpected {side} order while closing (passive) — cancelling")
+        cancel_all_open_orders(primary_symbol)
+        return
+
+    order_id = getattr(order, 'order_id', None)
+    qty = float(getattr(order, 'orig_qty', position_amt))
+    logger.debug(f"[Prediction] Chasing close order_id={order_id} qty={qty}")
+    chase_order(primary_symbol, qty, 'SELL', order_id=order_id)
+
+
+def _close_aggressive(primary_symbol, position_amt, open_orders, max_slippage_usd):
+    """Cross the book with a reduce-only IOC SELL bounded by max_slippage_usd."""
+    if open_orders:
+        # A resting passive order can only get here if aggressiveness was just
+        # switched mid-flight — pull it so the two styles don't stack.
+        logger.info("[Prediction] Switching to aggressive close — cancelling resting order first")
+        cancel_all_open_orders(primary_symbol)
+        return
+
+    order_book = get_order_book(primary_symbol)
+    bids = (order_book or {}).get('bids', [])
+    close_qty, worst_price = _max_closeable_qty(bids, position_amt, max_slippage_usd)
+    close_qty = _round_down(close_qty)
+
+    if close_qty <= 0 or worst_price is None:
+        logger.debug(
+            f"[Prediction] Aggressive close: book too thin to close within slippage budget "
+            f"({max_slippage_usd}) — waiting"
+        )
+        return
+
+    logger.info(
+        f"[Prediction] Aggressive close {close_qty}/{position_amt} {primary_symbol} at worst_price={worst_price} "
+        f"(slippage_budget={max_slippage_usd})"
+    )
+    close_order(primary_symbol, close_qty, 'SELL', worst_price)
+
+
+def _handle_holding_or_closing(primary_symbol, position_amt, position, open_orders, settings):
     entry_price = float((position or {}).get('entryPrice', 0) or 0)
     ticker = get_ticker(primary_symbol)
     if not ticker or not entry_price:
         return
 
     profit_usd = ticker['best_bid'] - entry_price
-    if profit_usd < settings['profit_target_usd']:
-        logger.debug(
-            f"[Prediction] Holding {position_amt} {primary_symbol}: "
-            f"profit={profit_usd:.2f} < target={settings['profit_target_usd']:.2f}"
-        )
+    target_met = profit_usd >= settings['profit_target_usd']
+
+    if not target_met:
+        if open_orders:
+            logger.info(
+                f"[Prediction] Profit target no longer met (profit={profit_usd:.2f}) — cancelling close order"
+            )
+            cancel_all_open_orders(primary_symbol)
+        else:
+            logger.debug(
+                f"[Prediction] Holding {position_amt} {primary_symbol}: "
+                f"profit={profit_usd:.2f} < target={settings['profit_target_usd']:.2f}"
+            )
         return
 
-    order_book = get_order_book(primary_symbol)
-    bids = (order_book or {}).get('bids', [])
-    close_qty, worst_price = _max_closeable_qty(bids, position_amt, settings['max_slippage_usd'])
-    close_qty = _round_down(close_qty)
-
-    if close_qty <= 0 or worst_price is None:
-        logger.debug(
-            f"[Prediction] Profit target hit (profit={profit_usd:.2f}) but book too thin to close "
-            f"within slippage budget ({settings['max_slippage_usd']}) — waiting"
-        )
-        return
-
-    logger.info(
-        f"[Prediction] Closing {close_qty}/{position_amt} {primary_symbol} at worst_price={worst_price} "
-        f"(profit={profit_usd:.2f}, slippage_budget={settings['max_slippage_usd']})"
-    )
-    close_order(primary_symbol, close_qty, 'SELL', worst_price)
+    if settings['aggressiveness'] == AGGRESSIVENESS_AGGRESSIVE:
+        _close_aggressive(primary_symbol, position_amt, open_orders, settings['max_slippage_usd'])
+    else:
+        _close_passive(primary_symbol, position_amt, open_orders)
 
 
 def _process_tick(primary_symbol, settings):
     """Execute one prediction-bot decision. This bot never opens positions —
     the grid bot is responsible for entries. It only watches for an existing
-    long position and closes it once the profit target is met.
+    long position and closes it once the profit target is met, using either
+    the "passive" or "aggressive" order style per settings['aggressiveness'].
     """
     position = get_position(primary_symbol)
     position_amt = float((position or {}).get('positionAmt', 0) or 0)
@@ -125,8 +186,15 @@ def _process_tick(primary_symbol, settings):
         )
         return
 
+    open_orders = get_open_orders(primary_symbol)
+
     if position_amt > 0:
-        _handle_holding_or_closing(primary_symbol, position_amt, position, settings)
+        _handle_holding_or_closing(primary_symbol, position_amt, position, open_orders, settings)
+        return
+
+    if open_orders:
+        logger.info("[Prediction] No position but open order(s) found — cancelling")
+        cancel_all_open_orders(primary_symbol)
 
 
 def handle_prediction_flow(pubsub, settings_channel, primary_symbol, hedge_symbol, poll_interval=2.0):
