@@ -242,20 +242,22 @@ def _handle_holding_or_closing(primary_symbol, position_amt, position, open_orde
         _close_passive(primary_symbol, position_amt, open_orders, settings['max_close_size'])
 
 
-def _handle_reacquire(primary_symbol, open_orders, settings):
-    """While flat, buy the last-closed position back once price falls to
-    within reentry_tolerance_usd of the price it was originally entered at —
-    i.e. the run-up got given back, so re-enter at (roughly) the same basis.
+def _handle_reacquire(primary_symbol, open_orders, settings, qty):
+    """Buy back whatever portion of the last-tracked position is still
+    missing (qty) once price falls to within reentry_tolerance_usd of the
+    price it was originally entered at — i.e. the run-up got given back, so
+    re-enter at (roughly) the same basis. Runs regardless of whether the
+    position is fully flat or only partially closed; `qty` is the gap
+    between the original size and whatever's currently held.
 
     Uses the same passive chase-at-best-price style as grid_bot's entries.
     Disabled (falls through to plain stray-order cleanup) when there's no
-    remembered position yet or reentry_tolerance_usd is 0.
+    remembered position yet, nothing missing, or reentry_tolerance_usd is 0.
     """
     entry_price = _last_position['entry_price']
-    qty = _last_position['qty']
     tolerance = settings['reentry_tolerance_usd']
 
-    if not entry_price or not qty or tolerance <= 0:
+    if not entry_price or not qty or qty <= 0 or tolerance <= 0:
         if open_orders:
             logger.info("[Prediction] No position but open order(s) found — cancelling")
             cancel_all_open_orders(primary_symbol)
@@ -307,9 +309,13 @@ def _process_tick(primary_symbol, settings):
     """Execute one prediction-bot decision. This bot never opens a *new*
     position — the grid bot is responsible for entries. It watches an
     existing long and closes it once the profit target is met (passive or
-    aggressive per settings['aggressiveness']), then, while flat, will buy
-    the same position back if price falls back to within
-    reentry_tolerance_usd of where it was originally entered.
+    aggressive per settings['aggressiveness']), and — independently, on the
+    same tick — will buy back any portion of the original size that's
+    currently missing (whether fully flat or only partially closed) once
+    price falls back to within reentry_tolerance_usd of where it was
+    originally entered. Under normal settings (profit_target_usd >
+    reentry_tolerance_usd) the two zones don't overlap, so at most one side
+    ever has a resting order at a time.
     """
     position = get_position(primary_symbol)
     position_amt = float((position or {}).get('positionAmt', 0) or 0)
@@ -322,6 +328,8 @@ def _process_tick(primary_symbol, settings):
         return
 
     open_orders = get_open_orders(primary_symbol)
+    close_orders = [o for o in open_orders if getattr(o, 'side', None) == 'SELL']
+    reacquire_orders = [o for o in open_orders if getattr(o, 'side', None) == 'BUY']
 
     if position_amt > 0:
         entry_price = float((position or {}).get('entryPrice', 0) or 0)
@@ -330,11 +338,12 @@ def _process_tick(primary_symbol, settings):
                 _original_position_qty['value'] = position_amt
             _last_position['entry_price'] = entry_price
             _last_position['qty'] = _original_position_qty['value']
-        _handle_holding_or_closing(primary_symbol, position_amt, position, open_orders, settings)
-        return
+        _handle_holding_or_closing(primary_symbol, position_amt, position, close_orders, settings)
+    else:
+        _original_position_qty['value'] = None
 
-    _original_position_qty['value'] = None
-    _handle_reacquire(primary_symbol, open_orders, settings)
+    missing_qty = _round_down((_last_position['qty'] or 0) - position_amt)
+    _handle_reacquire(primary_symbol, reacquire_orders, settings, missing_qty)
 
 
 def handle_prediction_flow(pubsub, settings_channel, primary_symbol, hedge_symbol, poll_interval=2.0):
