@@ -11,6 +11,7 @@ from app.connectors.binance.api.position import get_position
 from app.connectors.binance.api.ticker import get_ticker
 from app.connectors.binance.api.depth import get_order_book
 from ..arbitrage import config
+from ..trading_sessions import is_within_trading_session
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ def _process_tick(primary_symbol, settings):
         _handle_holding_or_closing(primary_symbol, position_amt, position, settings)
 
 
-def handle_prediction_flow(pubsub, settings_channel, primary_symbol, poll_interval=2.0):
+def handle_prediction_flow(pubsub, settings_channel, primary_symbol, hedge_symbol, poll_interval=2.0):
     global latest_prediction_settings
     latest_prediction_settings = None
 
@@ -163,7 +164,15 @@ def handle_prediction_flow(pubsub, settings_channel, primary_symbol, poll_interv
 
     while True:
         try:
-            if get_active_status() and latest_prediction_settings is not None:
+            # Interlocked with grid_bot: grid_bot trades only inside the
+            # configured session window, so prediction_bot trades only
+            # outside it — both can be left "active" at once without
+            # colliding.
+            if (
+                get_active_status()
+                and latest_prediction_settings is not None
+                and not is_within_trading_session(primary_symbol, hedge_symbol)
+            ):
                 _process_tick(primary_symbol, latest_prediction_settings)
         except Exception as e:
             logger.error(f"[Prediction] Error in tick loop: {e}", exc_info=True)
@@ -189,7 +198,7 @@ def start_prediction_bot_sync():
 
         threading.Thread(
             target=handle_prediction_flow,
-            args=(pubsub, settings_channel, primary_symbol),
+            args=(pubsub, settings_channel, primary_symbol, hedge_symbol),
             daemon=True,
         ).start()
         logger.info("Prediction bot thread started and running in background.")

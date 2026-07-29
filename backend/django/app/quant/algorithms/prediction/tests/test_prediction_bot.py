@@ -49,6 +49,13 @@ import threading as _threading
 _state_mod.state_lock = _threading.Lock()
 sys.modules[f"{_PKG}.prediction.state"] = _state_mod
 
+# --- trading_sessions: load the real module (shared with grid_bot) ---
+_ts_path = pathlib.Path(__file__).parents[2] / "trading_sessions.py"
+_ts_spec = importlib.util.spec_from_file_location(f"{_PKG}.trading_sessions", str(_ts_path))
+_ts_mod = importlib.util.module_from_spec(_ts_spec)
+sys.modules[f"{_PKG}.trading_sessions"] = _ts_mod
+_ts_spec.loader.exec_module(_ts_mod)
+
 # --- load prediction_bot.py as _PKG.prediction.prediction_bot ---
 _pb_path = pathlib.Path(__file__).parent.parent / "prediction_bot.py"
 _spec = importlib.util.spec_from_file_location(f"{_PKG}.prediction.prediction_bot", str(_pb_path))

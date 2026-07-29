@@ -218,7 +218,7 @@ def patch_grid_bot(fake_redis):
     grid_bot.get_active_status = lambda: True
     grid_bot.get_position_sync_ok = lambda: True
     grid_bot.get_sync_pending = lambda: False
-    grid_bot._is_within_trading_session = lambda *a, **k: True
+    grid_bot.is_within_trading_session = lambda *a, **k: True
 
 
 # ---------------------------------------------------------------------------

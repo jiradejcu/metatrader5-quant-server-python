@@ -26,42 +26,53 @@ logger = logging.getLogger(__name__)
 
 _PKG = "_gb_test_pkg"
 
-_parent = types.ModuleType(_PKG)
-_parent.__path__ = []
-sys.modules[_PKG] = _parent
+_root = types.ModuleType(_PKG)
+_root.__path__ = []
+sys.modules[_PKG] = _root
+
+_arbitrage_pkg = types.ModuleType(f"{_PKG}.arbitrage")
+_arbitrage_pkg.__path__ = []
+sys.modules[f"{_PKG}.arbitrage"] = _arbitrage_pkg
 
 # --- config: load PAIRS directly from the real config.py ---
-_config_mod = types.ModuleType(f"{_PKG}.config")
+_config_mod = types.ModuleType(f"{_PKG}.arbitrage.config")
 _real_config_path = pathlib.Path(__file__).parent.parent / "config.py"
 _real_config_spec = importlib.util.spec_from_file_location("_real_config", _real_config_path)
 _real_config = importlib.util.module_from_spec(_real_config_spec)
 _real_config_spec.loader.exec_module(_real_config)
 _config_mod.PAIRS = _real_config.PAIRS
-sys.modules[f"{_PKG}.config"] = _config_mod
+sys.modules[f"{_PKG}.arbitrage.config"] = _config_mod
 
 # --- price_diff stub ---
-_price_diff_mod = types.ModuleType(f"{_PKG}.price_diff")
+_price_diff_mod = types.ModuleType(f"{_PKG}.arbitrage.price_diff")
 _price_diff_mod.PRICE_DIFF_MAX_AGE_MS = int(
     __import__("os").getenv("PRICE_DIFF_MAX_AGE_MS", "1600")
 )
-sys.modules[f"{_PKG}.price_diff"] = _price_diff_mod
+sys.modules[f"{_PKG}.arbitrage.price_diff"] = _price_diff_mod
 
 # --- minimal state stub (mirrors the real state.py) ---
-_state_mod = types.ModuleType(f"{_PKG}.state")
+_state_mod = types.ModuleType(f"{_PKG}.arbitrage.state")
 _state_mod.state_lock = threading.Lock()
 _state_mod.placing_order_state = {
     "order_id": None, "status": None, "is_clean": True,
     "fill_pct": 0, "side": None, "price": None, "orig_qty": 0,
 }
 _state_mod.force_fetch = False
-sys.modules[f"{_PKG}.state"] = _state_mod
+sys.modules[f"{_PKG}.arbitrage.state"] = _state_mod
 
-# --- load grid_bot.py as _PKG.grid_bot ---
+# --- trading_sessions: load the real module (shared with prediction_bot) ---
+_ts_path = pathlib.Path(__file__).parents[2] / "trading_sessions.py"
+_ts_spec = importlib.util.spec_from_file_location(f"{_PKG}.trading_sessions", str(_ts_path))
+_ts_mod = importlib.util.module_from_spec(_ts_spec)
+sys.modules[f"{_PKG}.trading_sessions"] = _ts_mod
+_ts_spec.loader.exec_module(_ts_mod)
+
+# --- load grid_bot.py as _PKG.arbitrage.grid_bot ---
 _gb_path = pathlib.Path(__file__).parent.parent / "grid_bot.py"
-_spec = importlib.util.spec_from_file_location(f"{_PKG}.grid_bot", str(_gb_path))
+_spec = importlib.util.spec_from_file_location(f"{_PKG}.arbitrage.grid_bot", str(_gb_path))
 _gb = importlib.util.module_from_spec(_spec)
-_gb.__package__ = _PKG
-sys.modules[f"{_PKG}.grid_bot"] = _gb
+_gb.__package__ = f"{_PKG}.arbitrage"
+sys.modules[f"{_PKG}.arbitrage.grid_bot"] = _gb
 _spec.loader.exec_module(_gb)
 
 # ---------------------------------------------------------------------------
