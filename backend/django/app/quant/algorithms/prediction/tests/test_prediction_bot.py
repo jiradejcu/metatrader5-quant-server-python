@@ -7,10 +7,11 @@ patched on the loaded module object.
 """
 import importlib.util
 import pathlib
+import queue
 import sys
 import types
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -83,6 +84,8 @@ DEFAULT_SETTINGS = {
     "profit_target_usd": 5.0,
     "max_slippage_usd": 2.0,
     "aggressiveness": "passive",
+    "reentry_tolerance_usd": 0.0,
+    "max_close_size": 0.0,
 }
 
 AGGRESSIVE_SETTINGS = dict(DEFAULT_SETTINGS, aggressiveness="aggressive")
@@ -91,8 +94,12 @@ AGGRESSIVE_SETTINGS = dict(DEFAULT_SETTINGS, aggressiveness="aggressive")
 @pytest.fixture(autouse=True)
 def reset_globals():
     _pb.latest_prediction_settings = None
+    _pb._last_position = {"entry_price": None, "qty": None}
+    _pb._original_position_qty = {"value": None}
     yield
     _pb.latest_prediction_settings = None
+    _pb._last_position = {"entry_price": None, "qty": None}
+    _pb._original_position_qty = {"value": None}
 
 
 # ---------------------------------------------------------------------------
@@ -105,12 +112,16 @@ class TestParsePredictionSettings:
             "profit_target_usd": "3",
             "max_slippage_usd": "1.5",
             "aggressiveness": "aggressive",
+            "reentry_tolerance_usd": "0.5",
+            "max_close_size": "0.25",
         }
         parsed = _pb._parse_prediction_settings(raw)
         assert parsed == {
             "profit_target_usd": 3.0,
             "max_slippage_usd": 1.5,
             "aggressiveness": "aggressive",
+            "reentry_tolerance_usd": 0.5,
+            "max_close_size": 0.25,
         }
 
     def test_defaults_missing_fields(self):
@@ -118,6 +129,8 @@ class TestParsePredictionSettings:
             "profit_target_usd": 0.0,
             "max_slippage_usd": 0.0,
             "aggressiveness": "passive",
+            "reentry_tolerance_usd": 0.0,
+            "max_close_size": 0.0,
         }
 
     def test_normalizes_case_and_whitespace(self):
@@ -163,6 +176,24 @@ class TestMaxCloseableQty:
         # 2 units free at best price, then budget=1 allows 1/(100-95)=0.2 more
         assert qty == pytest.approx(2.2)
         assert price == 95.0
+
+
+# ---------------------------------------------------------------------------
+# _capped_close_qty
+# ---------------------------------------------------------------------------
+
+class TestCappedCloseQty:
+    def test_uncapped_when_zero(self):
+        assert _pb._capped_close_qty(5.0, 0.0) == 5.0
+
+    def test_uncapped_when_negative(self):
+        assert _pb._capped_close_qty(5.0, -1.0) == 5.0
+
+    def test_caps_to_max_close_size(self):
+        assert _pb._capped_close_qty(5.0, 2.0) == 2.0
+
+    def test_does_not_exceed_position_when_cap_is_larger(self):
+        assert _pb._capped_close_qty(5.0, 10.0) == 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -295,3 +326,272 @@ class TestProcessTickAggressive:
             _pb._process_tick("BTCUSDT", AGGRESSIVE_SETTINGS)  # profit=6 >= target=5
             mock_cancel.assert_called_once_with("BTCUSDT")
             mock_close.assert_not_called()
+
+
+class TestProcessTickReacquire:
+    """position_amt == 0, reentry_tolerance_usd > 0 and a prior close is remembered."""
+
+    REENTRY_SETTINGS = dict(DEFAULT_SETTINGS, reentry_tolerance_usd=1.0)
+
+    def test_no_reacquire_without_a_remembered_position(self):
+        with patch.object(_pb, "get_position", return_value=_position()), \
+             patch.object(_pb, "get_open_orders", return_value=[]), \
+             patch.object(_pb, "get_ticker") as mock_ticker, \
+             patch.object(_pb, "chase_order") as mock_chase:
+            _pb._process_tick("BTCUSDT", self.REENTRY_SETTINGS)
+            mock_ticker.assert_not_called()
+            mock_chase.assert_not_called()
+
+    def test_no_reacquire_when_tolerance_is_zero(self):
+        _pb._last_position['entry_price'] = 100.0
+        _pb._last_position['qty'] = 1.0
+        with patch.object(_pb, "get_position", return_value=_position()), \
+             patch.object(_pb, "get_open_orders", return_value=[]), \
+             patch.object(_pb, "get_ticker") as mock_ticker, \
+             patch.object(_pb, "chase_order") as mock_chase:
+            _pb._process_tick("BTCUSDT", DEFAULT_SETTINGS)  # reentry_tolerance_usd=0.0
+            mock_ticker.assert_not_called()
+            mock_chase.assert_not_called()
+
+    def test_waits_when_price_still_above_reentry_band(self):
+        _pb._last_position['entry_price'] = 100.0
+        _pb._last_position['qty'] = 1.0
+        with patch.object(_pb, "get_position", return_value=_position()), \
+             patch.object(_pb, "get_open_orders", return_value=[]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 104.5, "best_ask": 105.0}), \
+             patch.object(_pb, "chase_order") as mock_chase, \
+             patch.object(_pb, "cancel_all_open_orders") as mock_cancel:
+            _pb._process_tick("BTCUSDT", self.REENTRY_SETTINGS)  # band = 101.0, ask=105.0
+            mock_chase.assert_not_called()
+            mock_cancel.assert_not_called()
+
+    def test_places_reacquire_order_when_price_falls_back_to_entry(self):
+        _pb._last_position['entry_price'] = 100.0
+        _pb._last_position['qty'] = 2.0
+        with patch.object(_pb, "get_position", return_value=_position()), \
+             patch.object(_pb, "get_open_orders", return_value=[]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 100.0, "best_ask": 100.5}), \
+             patch.object(_pb, "chase_order") as mock_chase:
+            _pb._process_tick("BTCUSDT", self.REENTRY_SETTINGS)  # ask=100.5 <= band=101.0
+            mock_chase.assert_called_once_with("BTCUSDT", 2.0, "BUY", order_id=None)
+
+    def test_chases_existing_reacquire_order(self):
+        _pb._last_position['entry_price'] = 100.0
+        _pb._last_position['qty'] = 2.0
+        order = _open_order(side="BUY", orig_qty=2.0, order_id=77)
+        with patch.object(_pb, "get_position", return_value=_position()), \
+             patch.object(_pb, "get_open_orders", return_value=[order]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 100.0, "best_ask": 100.5}), \
+             patch.object(_pb, "chase_order") as mock_chase:
+            _pb._process_tick("BTCUSDT", self.REENTRY_SETTINGS)
+            mock_chase.assert_called_once_with("BTCUSDT", 2.0, "BUY", order_id=77)
+
+    def test_cancels_resting_reacquire_order_when_price_moves_back_up(self):
+        _pb._last_position['entry_price'] = 100.0
+        _pb._last_position['qty'] = 2.0
+        order = _open_order(side="BUY", orig_qty=2.0, order_id=77)
+        with patch.object(_pb, "get_position", return_value=_position()), \
+             patch.object(_pb, "get_open_orders", return_value=[order]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 104.5, "best_ask": 105.0}), \
+             patch.object(_pb, "cancel_all_open_orders") as mock_cancel, \
+             patch.object(_pb, "chase_order") as mock_chase:
+            _pb._process_tick("BTCUSDT", self.REENTRY_SETTINGS)
+            mock_cancel.assert_called_once_with("BTCUSDT")
+            mock_chase.assert_not_called()
+
+    def test_cancels_unexpected_sell_order_while_reacquiring(self):
+        _pb._last_position['entry_price'] = 100.0
+        _pb._last_position['qty'] = 2.0
+        order = _open_order(side="SELL")
+        with patch.object(_pb, "get_position", return_value=_position()), \
+             patch.object(_pb, "get_open_orders", return_value=[order]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 100.0, "best_ask": 100.5}), \
+             patch.object(_pb, "cancel_all_open_orders") as mock_cancel:
+            _pb._process_tick("BTCUSDT", self.REENTRY_SETTINGS)
+            mock_cancel.assert_called_once_with("BTCUSDT")
+
+
+class TestFullCloseThenReacquireCycle:
+    def test_remembers_entry_price_on_close_and_reacquires_on_dip(self):
+        settings = dict(DEFAULT_SETTINGS, reentry_tolerance_usd=1.0)
+
+        # Holding, profit target hit → closes and remembers entry/qty.
+        with patch.object(_pb, "get_position", return_value=_position("1.0", "100.0")), \
+             patch.object(_pb, "get_open_orders", return_value=[]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "chase_order") as mock_chase_close:
+            _pb._process_tick("BTCUSDT", settings)
+            mock_chase_close.assert_called_once_with("BTCUSDT", 1.0, "SELL", order_id=None)
+
+        assert _pb._last_position == {"entry_price": 100.0, "qty": 1.0}
+
+        # Flat now, price fell back to entry → reacquires the same size.
+        with patch.object(_pb, "get_position", return_value=_position()), \
+             patch.object(_pb, "get_open_orders", return_value=[]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 100.2, "best_ask": 100.5}), \
+             patch.object(_pb, "chase_order") as mock_chase_reacquire:
+            _pb._process_tick("BTCUSDT", settings)
+            mock_chase_reacquire.assert_called_once_with("BTCUSDT", 1.0, "BUY", order_id=None)
+
+
+class TestMaxCloseSize:
+    """settings['max_close_size'] clips each close order's size."""
+
+    def test_passive_close_capped_to_max_close_size(self):
+        settings = dict(DEFAULT_SETTINGS, max_close_size=0.4)
+        with patch.object(_pb, "get_position", return_value=_position("1.0", "100.0")), \
+             patch.object(_pb, "get_open_orders", return_value=[]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "chase_order") as mock_chase:
+            _pb._process_tick("BTCUSDT", settings)  # profit=6 >= target=5
+            mock_chase.assert_called_once_with("BTCUSDT", 0.4, "SELL", order_id=None)
+
+    def test_passive_close_uncapped_when_position_smaller_than_cap(self):
+        settings = dict(DEFAULT_SETTINGS, max_close_size=5.0)
+        with patch.object(_pb, "get_position", return_value=_position("1.0", "100.0")), \
+             patch.object(_pb, "get_open_orders", return_value=[]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "chase_order") as mock_chase:
+            _pb._process_tick("BTCUSDT", settings)
+            mock_chase.assert_called_once_with("BTCUSDT", 1.0, "SELL", order_id=None)
+
+    def test_aggressive_close_capped_to_max_close_size(self):
+        settings = dict(AGGRESSIVE_SETTINGS, max_close_size=0.4, max_slippage_usd=10.0)
+        order_book = {"bids": [(105.0, 10.0)], "asks": []}
+        with patch.object(_pb, "get_position", return_value=_position("1.0", "100.0")), \
+             patch.object(_pb, "get_open_orders", return_value=[]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "get_order_book", return_value=order_book), \
+             patch.object(_pb, "close_order") as mock_close:
+            _pb._process_tick("BTCUSDT", settings)  # book has plenty of depth, cap should bind
+            mock_close.assert_called_once_with("BTCUSDT", 0.4, "SELL", 105.0)
+
+    def test_original_qty_stays_fixed_across_partial_closes_for_reacquire(self):
+        # Position starts at 1.0, gets clipped down to 0.6 then 0.2 by
+        # max_close_size=0.4 closes over successive ticks, then goes flat.
+        # The remembered reacquire size must be the ORIGINAL 1.0, not 0.2.
+        settings = dict(DEFAULT_SETTINGS, max_close_size=0.4, reentry_tolerance_usd=1.0)
+
+        with patch.object(_pb, "get_position", return_value=_position("1.0", "100.0")), \
+             patch.object(_pb, "get_open_orders", return_value=[]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "chase_order") as mock_chase:
+            _pb._process_tick("BTCUSDT", settings)
+            mock_chase.assert_called_once_with("BTCUSDT", 0.4, "SELL", order_id=None)
+        assert _pb._last_position == {"entry_price": 100.0, "qty": 1.0}
+
+        with patch.object(_pb, "get_position", return_value=_position("0.6", "100.0")), \
+             patch.object(_pb, "get_open_orders", return_value=[]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "chase_order") as mock_chase:
+            _pb._process_tick("BTCUSDT", settings)
+            mock_chase.assert_called_once_with("BTCUSDT", 0.4, "SELL", order_id=None)
+        assert _pb._last_position == {"entry_price": 100.0, "qty": 1.0}
+
+        with patch.object(_pb, "get_position", return_value=_position("0.2", "100.0")), \
+             patch.object(_pb, "get_open_orders", return_value=[]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "chase_order") as mock_chase:
+            _pb._process_tick("BTCUSDT", settings)
+            mock_chase.assert_called_once_with("BTCUSDT", 0.2, "SELL", order_id=None)
+        assert _pb._last_position == {"entry_price": 100.0, "qty": 1.0}
+
+        # Now flat — reacquire must target the original 1.0, not the last 0.2 clip.
+        with patch.object(_pb, "get_position", return_value=_position()), \
+             patch.object(_pb, "get_open_orders", return_value=[]), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 100.2, "best_ask": 100.5}), \
+             patch.object(_pb, "chase_order") as mock_chase:
+            _pb._process_tick("BTCUSDT", settings)
+            mock_chase.assert_called_once_with("BTCUSDT", 1.0, "BUY", order_id=None)
+
+
+# ---------------------------------------------------------------------------
+# _reset_position_tracking
+# ---------------------------------------------------------------------------
+
+class TestResetPositionTracking:
+    def test_clears_original_qty_and_last_position(self):
+        _pb._original_position_qty['value'] = 3.0
+        _pb._last_position['entry_price'] = 100.0
+        _pb._last_position['qty'] = 3.0
+
+        _pb._reset_position_tracking()
+
+        assert _pb._original_position_qty == {"value": None}
+        assert _pb._last_position == {"entry_price": None, "qty": None}
+
+
+# ---------------------------------------------------------------------------
+# handle_prediction_flow — trading-session boundary anchors tracking
+# ---------------------------------------------------------------------------
+
+class _StopLoop(BaseException):
+    """Sentinel to break handle_prediction_flow's infinite tick loop.
+
+    Must subclass BaseException, not Exception, because the loop has a bare
+    `except Exception` that would otherwise swallow this and loop forever.
+    """
+
+
+def _blocking_pubsub():
+    """A pubsub whose listen() blocks forever on an empty queue — same idle,
+    no-CPU-spin behavior as grid_bot's tests get from Event.wait().
+    """
+    pubsub = MagicMock()
+
+    def _listen():
+        q = queue.Queue()
+        while True:
+            yield q.get()
+
+    pubsub.listen.side_effect = _listen
+    return pubsub
+
+
+def _run_handle_prediction_flow_for_sessions(session_values):
+    """Drive handle_prediction_flow through len(session_values) tick-loop
+    iterations, one is_within_trading_session() reading per iteration
+    (patched to return them in order), then stop. Returns the
+    _reset_position_tracking mock so callers can assert on call count.
+    """
+    redis_mock = MagicMock()
+    redis_mock.get.return_value = None
+
+    sleep_calls = {"count": 0}
+
+    def _fake_sleep(_):
+        sleep_calls["count"] += 1
+        if sleep_calls["count"] >= len(session_values):
+            raise _StopLoop("done")
+
+    session_iter = iter(session_values)
+
+    with patch.object(_pb, "get_redis_connection", return_value=redis_mock), \
+         patch.object(_pb, "get_active_status", return_value=True), \
+         patch.object(_pb, "is_within_trading_session", side_effect=lambda *a, **k: next(session_iter)), \
+         patch.object(_pb, "time") as mock_time, \
+         patch.object(_pb, "_reset_position_tracking") as mock_reset, \
+         patch.object(_pb, "_process_tick"):
+        mock_time.sleep.side_effect = _fake_sleep
+        try:
+            _pb.handle_prediction_flow(_blocking_pubsub(), "settings_channel", "BTCUSDT", "XAUUSD", poll_interval=0)
+        except _StopLoop:
+            pass
+
+    return mock_reset
+
+
+class TestHandleFlowTradingSessionAnchor:
+    def test_resets_exactly_once_on_session_close_transition(self):
+        mock_reset = _run_handle_prediction_flow_for_sessions([True, False, False, False])
+        mock_reset.assert_called_once()
+
+    def test_no_reset_while_continuously_in_session(self):
+        mock_reset = _run_handle_prediction_flow_for_sessions([True, True, True])
+        mock_reset.assert_not_called()
+
+    def test_resets_immediately_if_first_tick_is_already_out_of_session(self):
+        # A freshly (re)started bot assumes it just came from in-session, so
+        # discovering it's already out-of-session on tick one still anchors.
+        mock_reset = _run_handle_prediction_flow_for_sessions([False])
+        mock_reset.assert_called_once()
