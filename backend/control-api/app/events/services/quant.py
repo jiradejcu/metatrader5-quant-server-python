@@ -29,6 +29,7 @@ def get_arbitrage_summary():
         hedge_key = f"position:{hedge_exchange}:{hedge_symbol}"
         pause_position_key = "position_sync_paused_flag"
         grid_bot_active_key = "grid_bot_active_flag"
+        prediction_bot_active_key = "prediction_bot_active_flag"
 
         redis_conn = get_redis_connection()
 
@@ -40,6 +41,7 @@ def get_arbitrage_summary():
 
         pause_position = 'Active'
         grid_bot_status = 'Inactive'
+        prediction_bot_status = 'Inactive'
         pairStatus = 'Warning'
 
         primary_size = float(primary_result.get('positionAmt', 0))
@@ -51,6 +53,9 @@ def get_arbitrage_summary():
 
         if redis_conn.get(grid_bot_active_key):
             grid_bot_status = 'Active'
+
+        if redis_conn.get(prediction_bot_active_key):
+            prediction_bot_status = 'Active'
 
         now = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S") # use UTC(+7) Thailand time zone
         primary_mark_price = float(primary_result.get('markPrice', 0))
@@ -78,6 +83,7 @@ def get_arbitrage_summary():
             'hedgeSize': hedge_size,
             'pausePositionSync': pause_position,
             'gridBotStatus': grid_bot_status,
+            'predictionBotStatus': prediction_bot_status,
             'time_update_hedge': now,
             'time_update_primary': now,
             'primarySymbol': primary_symbol,

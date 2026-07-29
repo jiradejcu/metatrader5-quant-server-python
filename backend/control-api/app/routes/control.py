@@ -61,7 +61,6 @@ def get_django_status():
         return jsonify({
             'container': TARGET_CONTAINER,
             'status': current_status,
-            'is_running': current_status == 'running'
         }) , 200
     except docker.errors.NotFound:
         return jsonify({
@@ -287,6 +286,154 @@ def _trading_sessions_key():
     primary_symbol = PAIRS[PAIR_INDEX]['primary']['symbol']
     hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
     return f"trading_sessions:{primary_symbol}:{hedge_symbol}"
+
+
+@control_bp.route('/toggle-prediction-bot', methods=['POST'])
+def handle_toggle_prediction_bot():
+    try:
+        redis_key = "prediction_bot_active_flag"
+        redis_conn = get_redis_connection()
+        is_active = redis_conn.exists(redis_key)
+
+        if is_active:
+            redis_conn.delete(redis_key)
+            return jsonify({
+                "message": "Prediction bot is now INACTIVE.",
+                "is_active": False
+            }), 200
+
+        redis_conn.set(redis_key, 'ACTIVE')
+        return jsonify({
+            "message": "Prediction bot is now ACTIVE.",
+            "is_active": True
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Toggling prediction bot error: {e}")
+        return jsonify({"message": f"Server error: {str(e)}", "is_active": None}), 500
+
+
+def _prediction_settings_key():
+    primary_symbol = PAIRS[PAIR_INDEX]['primary']['symbol']
+    hedge_symbol = PAIRS[PAIR_INDEX]['hedge']['symbol']
+    return f"setting_prediction_channel:{primary_symbol}:{hedge_symbol}"
+
+
+_PREDICTION_SETTINGS_DEFAULTS = {
+    "profit_target_usd": 0.0,
+    "max_slippage_usd": 0.0,
+    "aggressiveness": "passive",
+    "reentry_tolerance_usd": 0.0,
+    "max_close_size": 0.0,
+    "force_aggressive_minutes_before_reopen": 0.0,
+}
+
+
+@control_bp.route('/prediction-settings', methods=['GET'])
+def get_prediction_settings():
+    try:
+        redis_conn = get_redis_connection()
+        raw = redis_conn.get(_prediction_settings_key())
+        if not raw:
+            return jsonify({'status': 'successful', 'data': _PREDICTION_SETTINGS_DEFAULTS}), 200
+        data = {**_PREDICTION_SETTINGS_DEFAULTS, **json.loads(raw)}
+        return jsonify({'status': 'successful', 'data': data}), 200
+    except Exception as e:
+        logger.error(f"Get prediction settings error: {e}")
+        return jsonify({'status': 'error', 'reason': str(e)}), 500
+
+
+@control_bp.route('/set-prediction-channel', methods=['POST'])
+def set_prediction_settings():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': 'Required define data on body!!'}), 400
+
+        logger.info(f"Prediction setting update requested: {data}")
+
+        numeric_fields = [
+            'profit_target_usd', 'max_slippage_usd', 'reentry_tolerance_usd',
+            'max_close_size', 'force_aggressive_minutes_before_reopen',
+        ]
+
+        for field in numeric_fields:
+            if field not in data:
+                logger.warning(f"Prediction setting update rejected — missing field: {field}")
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Required attribute "{field}" is missing!'
+                }), 400
+            if not isinstance(data[field], (int, float)):
+                logger.warning(f"Prediction setting update rejected — non-numeric field: {field}={data[field]!r}")
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Attribute "{field}" must be numeric!'
+                }), 400
+
+        aggressiveness = str(data.get('aggressiveness', 'passive')).strip().lower()
+        if aggressiveness not in ('passive', 'aggressive'):
+            return jsonify({
+                'status': 'error',
+                'message': 'Attribute "aggressiveness" must be "passive" or "aggressive"!'
+            }), 400
+
+        profit_target_usd = float(data['profit_target_usd'])
+        max_slippage_usd = float(data['max_slippage_usd'])
+        reentry_tolerance_usd = float(data['reentry_tolerance_usd'])
+        max_close_size = float(data['max_close_size'])
+        force_aggressive_minutes_before_reopen = float(data['force_aggressive_minutes_before_reopen'])
+
+        errors = []
+        if profit_target_usd <= 0:
+            errors.append("profit_target_usd must be greater than 0")
+        if max_slippage_usd < 0:
+            errors.append("max_slippage_usd must be greater than or equal to 0")
+        if reentry_tolerance_usd < 0:
+            errors.append("reentry_tolerance_usd must be greater than or equal to 0")
+        if max_close_size < 0:
+            errors.append("max_close_size must be greater than or equal to 0")
+        if force_aggressive_minutes_before_reopen < 0:
+            errors.append("force_aggressive_minutes_before_reopen must be greater than or equal to 0")
+
+        if errors:
+            logger.warning(f"Prediction setting update rejected — validation errors: {errors}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Validation failed',
+                'errors': errors
+            }), 400
+
+        prediction_channel = {
+            "profit_target_usd": profit_target_usd,
+            "max_slippage_usd": max_slippage_usd,
+            "aggressiveness": aggressiveness,
+            "reentry_tolerance_usd": reentry_tolerance_usd,
+            "max_close_size": max_close_size,
+            "force_aggressive_minutes_before_reopen": force_aggressive_minutes_before_reopen,
+        }
+
+        payload = json.dumps(prediction_channel)
+        redis_key = _prediction_settings_key()
+
+        redis_conn = get_redis_connection()
+        redis_conn.set(redis_key, payload)
+        redis_conn.publish(redis_key, payload)
+
+        logger.info(f"Prediction setting updated successfully [{redis_key}]: {prediction_channel}")
+
+        return jsonify({
+            'status': 'successful',
+            'message': "Prediction channel settings updated successfully",
+            'data': prediction_channel
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Set prediction channel error: {e}")
+        return jsonify({
+            'status': 'error',
+            'reason': str(e)
+        }), 500
 
 
 @control_bp.route('/trading-sessions', methods=['GET'])

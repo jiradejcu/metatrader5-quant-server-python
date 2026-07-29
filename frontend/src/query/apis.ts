@@ -165,6 +165,69 @@ export async function setTradingSessions(API_BASE_URL: string, sessions: Trading
   }
 }
 
+export async function togglePredictionBot(API_BASE_URL: string): Promise<Response> {
+  const url = `${API_BASE_URL}/toggle-prediction-bot`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to toggle prediction bot: ${response.statusText}`);
+  }
+
+  return response;
+}
+
+export type PredictionSettings = {
+  profit_target_usd: number;
+  max_slippage_usd: number;
+  aggressiveness: 'passive' | 'aggressive';
+  reentry_tolerance_usd: number;
+  max_close_size: number;
+  force_aggressive_minutes_before_reopen: number;
+};
+
+export async function getPredictionSettings(API_BASE_URL: string): Promise<PredictionSettings> {
+  const url = `${API_BASE_URL}/prediction-settings`;
+  const response = await fetch(url, { method: 'GET' });
+  if (!response.ok) throw new Error(`Failed to get prediction settings: ${response.statusText}`);
+  const body = await response.json();
+  return body.data as PredictionSettings;
+}
+
+export async function setupPredictionParameters(API_BASE_URL: string, parameters: PredictionSettings): Promise<Response> {
+  const url = `${API_BASE_URL}/set-prediction-channel`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(parameters),
+  });
+
+  if (!response.ok) {
+    let messages: string[];
+    try {
+      const body = await response.json();
+      if (Array.isArray(body.errors) && body.errors.length > 0) {
+        messages = body.errors;
+      } else if (typeof body.message === 'string') {
+        messages = [body.message];
+      } else {
+        messages = [response.statusText];
+      }
+    } catch {
+      messages = [response.statusText];
+    }
+    throw new ApiError(messages);
+  }
+
+  return response;
+}
+
 export async function getActiveUserInfo(API_BASE_URL: string): Promise<Response> {
   const url =`${API_BASE_URL}/user-info`
   const response = await fetch(url, {

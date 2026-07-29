@@ -22,6 +22,7 @@ interface IArbitrageSummary {
   hedgeSymbol?: string;
   price_diff_percent?: number;
   gridBotStatus?: string;
+  predictionBotStatus?: string;
   ask_diff?: number;
   bid_diff?: number;
 }
@@ -37,6 +38,7 @@ export const useGetSummaryStreamData = (url: string) => {
     const {
         pausePositionSync = 'Active',
         gridBotStatus = 'Inactive',
+        predictionBotStatus = 'Inactive',
         spread = 0,
         pairStatus = 'Idle',
         primaryAction = 'N/A',
@@ -63,6 +65,7 @@ export const useGetSummaryStreamData = (url: string) => {
         isLoading,
         pausePositionSync,
         gridBotStatus,
+        predictionBotStatus,
         spread,
         pairStatus,
         primaryAction,

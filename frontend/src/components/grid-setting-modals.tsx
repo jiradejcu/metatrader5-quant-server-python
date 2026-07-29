@@ -93,11 +93,11 @@ export const GridSettingModal = (
     
 
     return (
-        <div className='mb-4'>
+        <div className="flex-1">
             {/* Main Trigger Button */}
             <button
                 onClick={() => setIsOpen(true)}
-                className="px-6 py-2 bg-blue-600 text-blue rounded-md font-bold hover:bg-blue-700 transition-all shadow-lg active:scale-95"
+                className="w-full px-6 py-2 bg-blue-600 text-white rounded-md font-bold hover:bg-blue-700 transition-all shadow-lg active:scale-95"
                 type="button"
             >
                 Configure Grid Settings
