@@ -77,6 +77,9 @@ def _resolve_effective_settings(primary_symbol, hedge_symbol, settings):
 
     minutes_left = minutes_until_next_session(primary_symbol, hedge_symbol)
     if minutes_left is None or minutes_left > threshold:
+        logger.debug(
+            f"[Prediction] Escalation check: minutes_left={minutes_left} threshold={threshold} — not escalating"
+        )
         return settings
 
     logger.info(
@@ -215,9 +218,13 @@ def _handle_holding_or_closing(primary_symbol, position_amt, position, open_orde
     entry_price = float((position or {}).get('entryPrice', 0) or 0)
     ticker = get_ticker(primary_symbol)
     if not ticker or not entry_price:
+        logger.debug(
+            f"[Prediction] Holding/closing check skipped on {primary_symbol}: "
+            f"ticker={'ok' if ticker else 'missing'} entry_price={entry_price}"
+        )
         return
 
-    profit_usd = ticker['best_bid'] - entry_price
+    profit_usd = float(ticker['best_bid']) - entry_price
     target_met = profit_usd >= settings['profit_target_usd']
 
     if not target_met:
@@ -261,13 +268,18 @@ def _handle_reacquire(primary_symbol, open_orders, settings, qty):
         if open_orders:
             logger.info("[Prediction] No position but open order(s) found — cancelling")
             cancel_all_open_orders(primary_symbol)
+        else:
+            logger.debug(
+                f"[Prediction] Reacquire skipped on {primary_symbol}: "
+                f"entry_price={entry_price} qty={qty} tolerance={tolerance}"
+            )
         return
 
     ticker = get_ticker(primary_symbol)
     if not ticker:
         return
 
-    ask = ticker['best_ask']
+    ask = float(ticker['best_ask'])
     back_at_entry = ask <= entry_price + tolerance
 
     if not back_at_entry:
@@ -319,6 +331,7 @@ def _process_tick(primary_symbol, settings):
     """
     position = get_position(primary_symbol)
     position_amt = float((position or {}).get('positionAmt', 0) or 0)
+    logger.debug(f"[Prediction] Tick: {primary_symbol} position_amt={position_amt} settings={settings}")
 
     if position_amt < 0:
         logger.warning(
@@ -397,11 +410,18 @@ def handle_prediction_flow(pubsub, settings_channel, primary_symbol, hedge_symbo
             # configured session window, so prediction_bot trades only
             # outside it — both can be left "active" at once without
             # colliding.
-            if (
-                get_active_status()
+            active_status = get_active_status()
+            gate_ok = (
+                active_status
                 and latest_prediction_settings is not None
                 and not in_trading_session
-            ):
+            )
+            logger.debug(
+                f"[Prediction] Tick gate: active={bool(active_status)} "
+                f"settings_loaded={latest_prediction_settings is not None} "
+                f"in_trading_session={in_trading_session} -> {'run' if gate_ok else 'skip'}"
+            )
+            if gate_ok:
                 effective_settings = _resolve_effective_settings(
                     primary_symbol, hedge_symbol, latest_prediction_settings
                 )
