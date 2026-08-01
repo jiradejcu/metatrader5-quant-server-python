@@ -122,7 +122,7 @@ def handle_toggle_grid_bot():
                 "is_active": False
             }), 200
 
-        redis_conn.set(redis_key, 'ACTIVE')
+        redis_conn.set(redis_key, 1)
         return jsonify({
             "message": "Grid bot is now ACTIVE.",
             "is_active": True
@@ -302,7 +302,7 @@ def handle_toggle_prediction_bot():
                 "is_active": False
             }), 200
 
-        redis_conn.set(redis_key, 'ACTIVE')
+        redis_conn.set(redis_key, 1)
         return jsonify({
             "message": "Prediction bot is now ACTIVE.",
             "is_active": True

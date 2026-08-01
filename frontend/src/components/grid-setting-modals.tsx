@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { IDokcerAPIBtnProps } from '../interfaces/ button-docker.interface';
 import PauseGridBotBtn from './pause-grid-btn';
+import { LedIndicator } from './led-indicator';
 import { FloatingLabelInput } from './float-input';
 import { SECOND } from '../constant/time';
 import { useMutation } from '@tanstack/react-query';
@@ -148,14 +149,8 @@ export const GridSettingModal = (
                                             Bid Diff: <span className="text-blue-600">{bid_diff || '0.00'}</span>
                                         </p>
                                         
-                                        <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">
-                                            Enabled: <span className={gridBotEnabled?.toLowerCase() === 'active' ? 'text-green-600' : 'text-red-500'}>
-                                                {gridBotEnabled || 'UNKNOWN'}
-                                            </span>
-                                            <span className="mx-2 text-slate-300">|</span>
-                                            Active: <span className={gridBotActive?.toLowerCase() === 'active' ? 'text-green-600' : 'text-slate-500'}>
-                                                {gridBotActive || 'UNKNOWN'}
-                                            </span>
+                                        <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap flex items-center justify-center">
+                                            <LedIndicator active={gridBotActive?.toLowerCase() === 'active'} label="Active" />
                                         </p>
                                         <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">
                                             {time_update || '0000-00-00 00:00:00'}

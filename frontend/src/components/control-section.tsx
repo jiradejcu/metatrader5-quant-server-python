@@ -7,6 +7,9 @@ import { GridSettingModal } from "./grid-setting-modals";
 import { PredictionSettingModal } from "./prediction-setting-modal";
 import { TradingSessionsModal } from "./trading-sessions-modal";
 import PausePositionBtn from "./pause-btn";
+import PauseGridBotBtn from "./pause-grid-btn";
+import PausePredictionBotBtn from "./pause-prediction-btn";
+import { LedIndicator } from "./led-indicator";
 import RestartBotContainerBtn from "./restart-container-btn";
 // import StopBotContainerBtn from "./stop-container-btn";
 
@@ -55,7 +58,13 @@ export const ControlSection = (arg: ICardSection) => {
 
     return (
         <div>
-            <h3 className="text-base font-semibold text-[#705A5A] dark:text-[#c49a9a] mb-4">{activeUser?.name}</h3>
+            <div className="flex items-start justify-between mb-4">
+              <h3 className="text-base font-semibold text-[#705A5A] dark:text-[#c49a9a]">{activeUser?.name}</h3>
+              {/* trading session schedule, tucked in the corner to save space */}
+              <TradingSessionsModal
+                url={apiUrl}
+              />
+            </div>
             {/* grid + prediction bot settings */}
             <div className="flex gap-3 mb-4">
               <GridSettingModal
@@ -67,30 +76,15 @@ export const ControlSection = (arg: ICardSection) => {
               />
             </div>
 
-            {/* trading session schedule */}
-            <TradingSessionsModal
-              url={apiUrl}
-            />
+            <div className="flex items-center justify-between mb-2">
+              <PauseGridBotBtn url={apiUrl} gridBotEnabled={gridBotEnabled} />
+              <LedIndicator active={gridBotActive === 'Active'} label="Active" />
+            </div>
 
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Grid bot enabled: <span className={`font-bold ${gridBotEnabled === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
-                    {gridBotEnabled}
-                  </span>
-                  <span className="mx-2 text-gray-300 dark:text-gray-600">|</span>
-                  active: <span className={`font-bold ${gridBotActive === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
-                    {gridBotActive}
-                  </span>
-                </p>
-
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Prediction bot enabled: <span className={`font-bold ${predictionBotEnabled === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
-                    {predictionBotEnabled}
-                  </span>
-                  <span className="mx-2 text-gray-300 dark:text-gray-600">|</span>
-                  active: <span className={`font-bold ${predictionBotActive === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
-                    {predictionBotActive}
-                  </span>
-                </p>
+            <div className="flex items-center justify-between mb-2">
+              <PausePredictionBotBtn url={apiUrl} predictionBotEnabled={predictionBotEnabled} />
+              <LedIndicator active={predictionBotActive === 'Active'} label="Active" />
+            </div>
 
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Position sync bot status: <span className={`font-bold ${pausePositionSync === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>

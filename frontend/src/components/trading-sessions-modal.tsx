@@ -128,16 +128,21 @@ export const TradingSessionsModal = ({ url }: IDokcerAPIBtnProps) => {
     };
 
     return (
-        <div className="mb-4">
+        <div className="flex flex-col items-end">
             <button
                 onClick={() => setIsOpen(true)}
-                className="px-6 py-2 bg-indigo-600 text-white rounded-md font-bold hover:bg-indigo-700 transition-all shadow-lg active:scale-95"
+                title="Trading Sessions"
+                className="flex items-center gap-1 px-2.5 py-1 bg-indigo-600 text-white rounded-md text-xs font-bold hover:bg-indigo-700 transition-all shadow active:scale-95"
                 type="button"
             >
-                Trading Sessions
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 7v5l3 3" />
+                </svg>
+                Sessions
             </button>
             {sessionStatus && (
-                <p className={`text-xs mt-1 font-medium ${isFetchError ? 'text-red-500' : 'text-green-600'}`}>
+                <p className={`text-[11px] mt-1 font-medium text-right max-w-[10rem] ${isFetchError ? 'text-red-500' : 'text-green-600'}`}>
                     {sessionStatus}
                 </p>
             )}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { IDokcerAPIBtnProps } from '../interfaces/ button-docker.interface';
 import PausePredictionBotBtn from './pause-prediction-btn';
+import { LedIndicator } from './led-indicator';
 import { FloatingLabelInput } from './float-input';
 import { SECOND } from '../constant/time';
 import { useGetSummaryStreamData } from '../hooks/summary';
@@ -129,14 +130,8 @@ export const PredictionSettingModal = (
                     <div className="bg-white p-8 rounded-2xl shadow-2xl w-full border border-slate-200 max-h-[80vh] overflow-y-auto">
                         <div className="mb-6 text-center">
                             <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Prediction Bot Settings</h2>
-                            <p className="text-xs text-slate-500 mt-1">
-                                Enabled: <span className={predictionBotEnabled?.toLowerCase() === 'active' ? 'text-green-600 font-bold' : 'text-slate-500 font-bold'}>
-                                    {predictionBotEnabled || 'UNKNOWN'}
-                                </span>
-                                <span className="mx-2 text-slate-300">|</span>
-                                Active: <span className={predictionBotActive?.toLowerCase() === 'active' ? 'text-green-600 font-bold' : 'text-slate-500 font-bold'}>
-                                    {predictionBotActive || 'UNKNOWN'}
-                                </span>
+                            <p className="text-xs text-slate-500 mt-1 flex items-center justify-center">
+                                <LedIndicator active={predictionBotActive?.toLowerCase() === 'active'} label="Active" />
                             </p>
                         </div>
 
