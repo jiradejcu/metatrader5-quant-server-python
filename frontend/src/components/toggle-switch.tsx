@@ -3,12 +3,13 @@ interface ToggleSwitchProps {
   onChange: () => void;
   disabled?: boolean;
   label?: string;
+  labelClassName?: string;
 }
 
-export function ToggleSwitch({ checked, onChange, disabled, label }: ToggleSwitchProps) {
+export function ToggleSwitch({ checked, onChange, disabled, label, labelClassName }: ToggleSwitchProps) {
   return (
     <label className={`inline-flex items-center gap-2 ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
-      {label && <span className="text-xs font-bold uppercase text-slate-600 dark:text-slate-300">{label}</span>}
+      {label && <span className={`text-xs font-bold uppercase ${labelClassName ?? 'text-slate-600 dark:text-slate-300'}`}>{label}</span>}
       <span
         role="switch"
         aria-checked={checked}

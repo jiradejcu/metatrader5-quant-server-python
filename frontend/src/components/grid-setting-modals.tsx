@@ -120,9 +120,8 @@ export const GridSettingModal = (
                 }`}
                 >
                     {/* Action Header */}
-                    <div className="w-full flex justify-between items-center mb-4">
-                        <PauseGridBotBtn url={url} gridBotEnabled={gridBotEnabled} />
-                        <button 
+                    <div className="w-full flex justify-end items-center mb-4">
+                        <button
                         onClick={() => setIsOpen(false)}
                         className="bg-white/20 hover:bg-white/40 text-blue px-3 py-1 rounded-md text-sm transition-colors border border-white/30"
                         >
@@ -134,6 +133,10 @@ export const GridSettingModal = (
                     <div className="bg-white p-8 rounded-2xl shadow-2xl w-full border border-slate-200">
                         <div className="mb-6 text-center">
                             <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Grid Bot Settings</h2>
+                            <div className="flex items-center justify-between mt-4 mb-1">
+                                <PauseGridBotBtn url={url} gridBotEnabled={gridBotEnabled} label="Enable" />
+                                <LedIndicator active={gridBotActive?.toLowerCase() === 'active'} label="Active" />
+                            </div>
                             {isLoading ? (
                                 <p className="text-xs text-blue-600 animate-pulse mt-1 font-bold">Syncing data...</p>
                             ) : (
@@ -149,9 +152,6 @@ export const GridSettingModal = (
                                             Bid Diff: <span className="text-blue-600">{bid_diff || '0.00'}</span>
                                         </p>
                                         
-                                        <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap flex items-center justify-center">
-                                            <LedIndicator active={gridBotActive?.toLowerCase() === 'active'} label="Active" />
-                                        </p>
                                         <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">
                                             {time_update || '0000-00-00 00:00:00'}
                                         </p>

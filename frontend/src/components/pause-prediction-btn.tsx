@@ -4,7 +4,12 @@ import { togglePredictionBot } from '../query/apis';
 import { SECOND } from '../constant/time';
 import { ToggleSwitch } from './toggle-switch';
 
-function PausePredictionBotBtn ({ url, predictionBotEnabled }: IDokcerAPIBtnProps) {
+interface PausePredictionBotBtnProps extends IDokcerAPIBtnProps {
+  labelClassName?: string;
+  label?: string;
+}
+
+function PausePredictionBotBtn ({ url, predictionBotEnabled, labelClassName, label }: PausePredictionBotBtnProps) {
     const queryClient = useQueryClient();
     const pauseMutation = useMutation({
         mutationFn: (url: string) => togglePredictionBot(url),
@@ -31,7 +36,7 @@ function PausePredictionBotBtn ({ url, predictionBotEnabled }: IDokcerAPIBtnProp
       const isEnabled = predictionBotEnabled?.toLowerCase() === 'active';
 
       let message = "";
-      let messageClass = "mt-1 h-4 text-xs font-semibold ";
+      let messageClass = "absolute top-full left-0 mt-1 text-xs font-semibold whitespace-nowrap ";
 
       if (pauseMutation.isPending) {
         message = "Sending request...";
@@ -45,16 +50,15 @@ function PausePredictionBotBtn ({ url, predictionBotEnabled }: IDokcerAPIBtnProp
       }
 
       return (
-        <div className="mb-2">
+        <div className="relative inline-flex items-center">
           <ToggleSwitch
-            label="Prediction Bot"
+            label={label ?? "Prediction Bot"}
+            labelClassName={labelClassName}
             checked={isEnabled}
             onChange={handleToggle}
             disabled={pauseMutation.isPending}
           />
-          <p className={messageClass}>
-            {message}
-          </p>
+          {message && <p className={messageClass}>{message}</p>}
         </div>
       );
 }

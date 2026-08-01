@@ -5,7 +5,12 @@ import { toggleGridBot } from '../query/apis';
 import { SECOND } from '../constant/time';
 import { ToggleSwitch } from './toggle-switch';
 
-function PauseGridBotBtn ({ url, gridBotEnabled }: IDokcerAPIBtnProps) {
+interface PauseGridBotBtnProps extends IDokcerAPIBtnProps {
+  labelClassName?: string;
+  label?: string;
+}
+
+function PauseGridBotBtn ({ url, gridBotEnabled, labelClassName, label }: PauseGridBotBtnProps) {
     const queryClient = useQueryClient();
     const pauseMutation = useMutation({
         mutationFn: (url: string) => toggleGridBot(url),
@@ -32,7 +37,7 @@ function PauseGridBotBtn ({ url, gridBotEnabled }: IDokcerAPIBtnProps) {
       const isEnabled = gridBotEnabled?.toLowerCase() === 'active';
 
       let message = "";
-      let messageClass = "mt-1 h-4 text-xs font-semibold ";
+      let messageClass = "absolute top-full left-0 mt-1 text-xs font-semibold whitespace-nowrap ";
 
       if (pauseMutation.isPending) {
         message = "Sending request...";
@@ -46,16 +51,15 @@ function PauseGridBotBtn ({ url, gridBotEnabled }: IDokcerAPIBtnProps) {
       }
 
       return (
-        <div className="mb-2">
+        <div className="relative inline-flex items-center">
           <ToggleSwitch
-            label="Grid Bot"
+            label={label ?? "Grid Bot"}
+            labelClassName={labelClassName}
             checked={isEnabled}
             onChange={handleToggle}
             disabled={pauseMutation.isPending}
           />
-          <p className={messageClass}>
-            {message}
-          </p>
+          {message && <p className={messageClass}>{message}</p>}
         </div>
       );
 }

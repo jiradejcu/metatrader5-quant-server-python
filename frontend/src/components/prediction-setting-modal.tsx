@@ -117,8 +117,7 @@ export const PredictionSettingModal = (
                     isOpen ? "scale-100" : "scale-95"
                 }`}
                 >
-                    <div className="w-full flex justify-between items-center mb-4">
-                        <PausePredictionBotBtn url={url} predictionBotEnabled={predictionBotEnabled} />
+                    <div className="w-full flex justify-end items-center mb-4">
                         <button
                         onClick={() => setIsOpen(false)}
                         className="bg-white/20 hover:bg-white/40 text-white px-3 py-1 rounded-md text-sm transition-colors border border-white/30"
@@ -130,9 +129,10 @@ export const PredictionSettingModal = (
                     <div className="bg-white p-8 rounded-2xl shadow-2xl w-full border border-slate-200 max-h-[80vh] overflow-y-auto">
                         <div className="mb-6 text-center">
                             <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Prediction Bot Settings</h2>
-                            <p className="text-xs text-slate-500 mt-1 flex items-center justify-center">
+                            <div className="flex items-center justify-between mt-4 mb-1">
+                                <PausePredictionBotBtn url={url} predictionBotEnabled={predictionBotEnabled} label="Enable" />
                                 <LedIndicator active={predictionBotActive?.toLowerCase() === 'active'} label="Active" />
-                            </p>
+                            </div>
                         </div>
 
                         {isFetchError && (

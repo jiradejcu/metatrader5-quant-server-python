@@ -1,9 +1,10 @@
 interface LedIndicatorProps {
   active: boolean;
   label?: string;
+  inactiveLabelClassName?: string;
 }
 
-export function LedIndicator({ active, label }: LedIndicatorProps) {
+export function LedIndicator({ active, label, inactiveLabelClassName }: LedIndicatorProps) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <span
@@ -14,7 +15,7 @@ export function LedIndicator({ active, label }: LedIndicatorProps) {
         }`}
       />
       {label && (
-        <span className={`text-xs font-bold uppercase ${active ? 'text-green-600' : 'text-gray-400 dark:text-gray-500'}`}>
+        <span className={`text-xs font-bold uppercase ${active ? 'text-green-600' : inactiveLabelClassName ?? 'text-gray-400 dark:text-gray-500'}`}>
           {label}
         </span>
       )}
