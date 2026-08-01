@@ -19,26 +19,25 @@ latest_prediction_settings = None
 
 QTY_PRECISION = int(os.getenv('PREDICTION_QTY_PRECISION', '3'))
 
-# "passive" chases a post-only best-ask SELL (same order style grid_bot uses
-# to enter) — zero slippage, but only fills if the market comes to it.
-# "aggressive" crosses the book with a reduce-only IOC SELL bounded by
-# max_slippage_usd — guarantees getting flat (or as close as the book
-# allows) at the cost of paying the spread/slippage. Meant for e.g. forcing
-# the position closed before the trading session reopens and grid_bot
-# resumes.
+# Not user-configurable — an internal execution state driven entirely by
+# _closing_aggressiveness_factor and the session-reopen escalation below.
+# AGGRESSIVENESS_AGGRESSIVE forces full urgency: cross the book with a
+# reduce-only IOC SELL up to the full max_slippage_usd. Otherwise, once the
+# profit target is met, _closing_aggressiveness_factor decides continuously
+# how much of max_slippage_usd to spend based on how far profit has
+# overshot the target — at zero overshoot that's a post-only best-ask SELL
+# (same order style grid_bot uses to enter, zero slippage but only fills if
+# the market comes to it); as overshoot grows it blends toward the full IOC
+# cross, easing back down again if price gives back toward the target.
 AGGRESSIVENESS_PASSIVE = "passive"
 AGGRESSIVENESS_AGGRESSIVE = "aggressive"
 
 
 def _parse_prediction_settings(settings_dict):
-    aggressiveness = str(settings_dict.get('aggressiveness', AGGRESSIVENESS_PASSIVE)).strip().lower()
-    if aggressiveness not in (AGGRESSIVENESS_PASSIVE, AGGRESSIVENESS_AGGRESSIVE):
-        aggressiveness = AGGRESSIVENESS_PASSIVE
-
     return {
         "profit_target_usd": float(settings_dict.get('profit_target_usd', 0.0)),
         "max_slippage_usd": float(settings_dict.get('max_slippage_usd', 0.0)),
-        "aggressiveness": aggressiveness,
+        "aggressiveness": AGGRESSIVENESS_PASSIVE,
         "reentry_tolerance_usd": float(settings_dict.get('reentry_tolerance_usd', 0.0)),
         # Caps how much of the position a single close order can target, so a
         # large position gets closed in clips instead of one order. <= 0
@@ -53,6 +52,24 @@ def _parse_prediction_settings(settings_dict):
             settings_dict.get('force_aggressive_minutes_before_reopen', 0.0)
         ),
     }
+
+
+def _closing_aggressiveness_factor(profit_usd, profit_target_usd):
+    """Continuous 0..1 dial for how much of max_slippage_usd to spend closing,
+    based on how far profit has overshot the target — a sigmoid in the
+    overshoot, scaled by profit_target_usd itself so there's no extra
+    parameter to tune: factor hits 0.5 once profit has overshot by another
+    full target's worth on top of the target, and keeps easing toward 1 as
+    the overshoot grows further. Recomputed fresh from live profit every
+    tick (no memory of a prior peak), so it eases back down toward 0 just as
+    readily as it ramps up if price gives back toward the target.
+    """
+    overshoot = max(0.0, profit_usd - profit_target_usd)
+    if overshoot <= 0:
+        return 0.0
+    if profit_target_usd <= 0:
+        return 1.0
+    return overshoot / (overshoot + profit_target_usd)
 
 
 def _capped_close_qty(position_amt, max_close_size):
@@ -255,13 +272,28 @@ def _handle_holding_or_closing(primary_symbol, position_amt, position, open_orde
             )
         return
 
+    # Manually forced aggressive (including the session-reopen escalation in
+    # _resolve_effective_settings) spends the full budget immediately;
+    # otherwise the overshoot sigmoid decides how much of it to spend.
     if settings['aggressiveness'] == AGGRESSIVENESS_AGGRESSIVE:
-        _close_aggressive(
-            primary_symbol, position_amt, open_orders,
-            settings['max_slippage_usd'], settings['max_close_size'],
-        )
+        factor = 1.0
     else:
+        factor = _closing_aggressiveness_factor(profit_usd, settings['profit_target_usd'])
+
+    if factor <= 0:
         _close_passive(primary_symbol, position_amt, open_orders, settings['max_close_size'])
+        return
+
+    effective_slippage_budget = factor * settings['max_slippage_usd']
+    logger.debug(
+        f"[Prediction] Closing aggressiveness factor={factor:.3f} "
+        f"(profit={profit_usd:.2f} target={settings['profit_target_usd']:.2f}) -> "
+        f"slippage_budget={effective_slippage_budget:.2f}/{settings['max_slippage_usd']:.2f}"
+    )
+    _close_aggressive(
+        primary_symbol, position_amt, open_orders,
+        effective_slippage_budget, settings['max_close_size'],
+    )
 
 
 def _handle_reacquire(primary_symbol, open_orders, settings, qty):

@@ -12,7 +12,6 @@ import type { PredictionSettings } from '../query/apis';
 const DEFAULT_SETTINGS: PredictionSettings = {
     profit_target_usd: 0,
     max_slippage_usd: 0,
-    aggressiveness: 'passive',
     reentry_tolerance_usd: 0,
     max_close_size: 0,
     force_aggressive_minutes_before_reopen: 0,
@@ -83,13 +82,6 @@ export const PredictionSettingModal = (
         }));
     };
 
-    const handleAggressivenessChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        setFormData((prevData) => ({
-            ...prevData,
-            aggressiveness: e.target.value as PredictionSettings['aggressiveness'],
-        }));
-    };
-
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         setupPredictionMutation.mutate(url);
@@ -154,19 +146,6 @@ export const PredictionSettingModal = (
 
                             <div className="grid grid-cols-2 gap-4 items-start">
                                 <FloatingLabelInput label="Force Aggressive (min)" name="force_aggressive_minutes_before_reopen" value={formData.force_aggressive_minutes_before_reopen} onChange={handleChange} step="1" />
-
-                                <div className="w-full mb-4">
-                                    <label className="block text-xs text-slate-500 font-bold uppercase mb-1">Aggressiveness</label>
-                                    <select
-                                        name="aggressiveness"
-                                        value={formData.aggressiveness}
-                                        onChange={handleAggressivenessChange}
-                                        className="w-full bg-white text-slate-900 text-sm border-2 border-slate-200 rounded-lg px-3 py-2.5 transition-all focus:outline-none focus:border-purple-600 hover:border-slate-300 shadow-sm"
-                                    >
-                                        <option value="passive">Passive</option>
-                                        <option value="aggressive">Aggressive</option>
-                                    </select>
-                                </div>
                             </div>
 
                             {notification && (

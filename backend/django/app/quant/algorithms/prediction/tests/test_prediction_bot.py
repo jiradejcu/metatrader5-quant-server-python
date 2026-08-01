@@ -113,7 +113,6 @@ class TestParsePredictionSettings:
         raw = {
             "profit_target_usd": "3",
             "max_slippage_usd": "1.5",
-            "aggressiveness": "aggressive",
             "reentry_tolerance_usd": "0.5",
             "max_close_size": "0.25",
             "force_aggressive_minutes_before_reopen": "15",
@@ -122,7 +121,7 @@ class TestParsePredictionSettings:
         assert parsed == {
             "profit_target_usd": 3.0,
             "max_slippage_usd": 1.5,
-            "aggressiveness": "aggressive",
+            "aggressiveness": "passive",
             "reentry_tolerance_usd": 0.5,
             "max_close_size": 0.25,
             "force_aggressive_minutes_before_reopen": 15.0,
@@ -138,12 +137,11 @@ class TestParsePredictionSettings:
             "force_aggressive_minutes_before_reopen": 0.0,
         }
 
-    def test_normalizes_case_and_whitespace(self):
-        parsed = _pb._parse_prediction_settings({"aggressiveness": " Aggressive "})
-        assert parsed["aggressiveness"] == "aggressive"
-
-    def test_falls_back_to_passive_on_unrecognized_value(self):
-        parsed = _pb._parse_prediction_settings({"aggressiveness": "yolo"})
+    def test_ignores_user_supplied_aggressiveness(self):
+        # No longer user-configurable — it's driven entirely by
+        # _closing_aggressiveness_factor and the session-reopen escalation,
+        # so any input value (even a bogus one) is ignored.
+        parsed = _pb._parse_prediction_settings({"aggressiveness": "aggressive"})
         assert parsed["aggressiveness"] == "passive"
 
 
@@ -238,11 +236,13 @@ class TestProcessTickHolding:
             mock_chase.assert_not_called()
 
     def test_places_close_order_when_profit_target_hit(self):
+        # profit == target exactly → zero overshoot → sigmoid factor is 0 →
+        # stays fully passive.
         with patch.object(_pb, "get_position", return_value=_position("1.0", "100.0")), \
              patch.object(_pb, "get_open_orders", return_value=[]), \
-             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 105.0, "best_ask": 105.5}), \
              patch.object(_pb, "chase_order") as mock_chase:
-            _pb._process_tick("BTCUSDT", DEFAULT_SETTINGS)  # profit=6 >= target=5
+            _pb._process_tick("BTCUSDT", DEFAULT_SETTINGS)  # profit=5 >= target=5
             mock_chase.assert_called_once_with("BTCUSDT", 1.0, "SELL", order_id=None)
 
     def test_skips_unexpected_short_position(self):
@@ -261,9 +261,9 @@ class TestProcessTickClosing:
         order = _open_order(side="SELL", orig_qty=1.0, order_id=42)
         with patch.object(_pb, "get_position", return_value=_position("1.0", "100.0")), \
              patch.object(_pb, "get_open_orders", return_value=[order]), \
-             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 105.0, "best_ask": 105.5}), \
              patch.object(_pb, "chase_order") as mock_chase:
-            _pb._process_tick("BTCUSDT", DEFAULT_SETTINGS)  # profit=6 >= target=5
+            _pb._process_tick("BTCUSDT", DEFAULT_SETTINGS)  # profit=5 >= target=5, zero overshoot
             mock_chase.assert_called_once_with("BTCUSDT", 1.0, "SELL", order_id=42)
 
     def test_cancels_when_target_no_longer_met(self):
@@ -420,10 +420,10 @@ class TestFullCloseThenReacquireCycle:
     def test_remembers_entry_price_on_close_and_reacquires_on_dip(self):
         settings = dict(DEFAULT_SETTINGS, reentry_tolerance_usd=1.0)
 
-        # Holding, profit target hit → closes and remembers entry/qty.
+        # Holding, profit target hit exactly (zero overshoot, stays passive) → closes and remembers entry/qty.
         with patch.object(_pb, "get_position", return_value=_position("1.0", "100.0")), \
              patch.object(_pb, "get_open_orders", return_value=[]), \
-             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 105.0, "best_ask": 105.5}), \
              patch.object(_pb, "chase_order") as mock_chase_close:
             _pb._process_tick("BTCUSDT", settings)
             mock_chase_close.assert_called_once_with("BTCUSDT", 1.0, "SELL", order_id=None)
@@ -446,16 +446,16 @@ class TestMaxCloseSize:
         settings = dict(DEFAULT_SETTINGS, max_close_size=0.4)
         with patch.object(_pb, "get_position", return_value=_position("1.0", "100.0")), \
              patch.object(_pb, "get_open_orders", return_value=[]), \
-             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 105.0, "best_ask": 105.5}), \
              patch.object(_pb, "chase_order") as mock_chase:
-            _pb._process_tick("BTCUSDT", settings)  # profit=6 >= target=5
+            _pb._process_tick("BTCUSDT", settings)  # profit=5 >= target=5, zero overshoot
             mock_chase.assert_called_once_with("BTCUSDT", 0.4, "SELL", order_id=None)
 
     def test_passive_close_uncapped_when_position_smaller_than_cap(self):
         settings = dict(DEFAULT_SETTINGS, max_close_size=5.0)
         with patch.object(_pb, "get_position", return_value=_position("1.0", "100.0")), \
              patch.object(_pb, "get_open_orders", return_value=[]), \
-             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 105.0, "best_ask": 105.5}), \
              patch.object(_pb, "chase_order") as mock_chase:
             _pb._process_tick("BTCUSDT", settings)
             mock_chase.assert_called_once_with("BTCUSDT", 1.0, "SELL", order_id=None)
@@ -479,7 +479,7 @@ class TestMaxCloseSize:
 
         with patch.object(_pb, "get_position", return_value=_position("1.0", "100.0")), \
              patch.object(_pb, "get_open_orders", return_value=[]), \
-             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 105.0, "best_ask": 105.5}), \
              patch.object(_pb, "chase_order") as mock_chase:
             _pb._process_tick("BTCUSDT", settings)
             mock_chase.assert_called_once_with("BTCUSDT", 0.4, "SELL", order_id=None)
@@ -487,7 +487,7 @@ class TestMaxCloseSize:
 
         with patch.object(_pb, "get_position", return_value=_position("0.6", "100.0")), \
              patch.object(_pb, "get_open_orders", return_value=[]), \
-             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 105.0, "best_ask": 105.5}), \
              patch.object(_pb, "chase_order") as mock_chase:
             _pb._process_tick("BTCUSDT", settings)
             mock_chase.assert_called_once_with("BTCUSDT", 0.4, "SELL", order_id=None)
@@ -495,7 +495,7 @@ class TestMaxCloseSize:
 
         with patch.object(_pb, "get_position", return_value=_position("0.2", "100.0")), \
              patch.object(_pb, "get_open_orders", return_value=[]), \
-             patch.object(_pb, "get_ticker", return_value={"best_bid": 106.0, "best_ask": 106.5}), \
+             patch.object(_pb, "get_ticker", return_value={"best_bid": 105.0, "best_ask": 105.5}), \
              patch.object(_pb, "chase_order") as mock_chase:
             _pb._process_tick("BTCUSDT", settings)
             mock_chase.assert_called_once_with("BTCUSDT", 0.2, "SELL", order_id=None)

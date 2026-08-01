@@ -322,7 +322,6 @@ def _prediction_settings_key():
 _PREDICTION_SETTINGS_DEFAULTS = {
     "profit_target_usd": 0.0,
     "max_slippage_usd": 0.0,
-    "aggressiveness": "passive",
     "reentry_tolerance_usd": 0.0,
     "max_close_size": 0.0,
     "force_aggressive_minutes_before_reopen": 0.0,
@@ -371,13 +370,6 @@ def set_prediction_settings():
                     'message': f'Attribute "{field}" must be numeric!'
                 }), 400
 
-        aggressiveness = str(data.get('aggressiveness', 'passive')).strip().lower()
-        if aggressiveness not in ('passive', 'aggressive'):
-            return jsonify({
-                'status': 'error',
-                'message': 'Attribute "aggressiveness" must be "passive" or "aggressive"!'
-            }), 400
-
         profit_target_usd = float(data['profit_target_usd'])
         max_slippage_usd = float(data['max_slippage_usd'])
         reentry_tolerance_usd = float(data['reentry_tolerance_usd'])
@@ -407,7 +399,6 @@ def set_prediction_settings():
         prediction_channel = {
             "profit_target_usd": profit_target_usd,
             "max_slippage_usd": max_slippage_usd,
-            "aggressiveness": aggressiveness,
             "reentry_tolerance_usd": reentry_tolerance_usd,
             "max_close_size": max_close_size,
             "force_aggressive_minutes_before_reopen": force_aggressive_minutes_before_reopen,

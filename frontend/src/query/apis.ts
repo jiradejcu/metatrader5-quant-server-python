@@ -184,7 +184,6 @@ export async function togglePredictionBot(API_BASE_URL: string): Promise<Respons
 export type PredictionSettings = {
   profit_target_usd: number;
   max_slippage_usd: number;
-  aggressiveness: 'passive' | 'aggressive';
   reentry_tolerance_usd: number;
   max_close_size: number;
   force_aggressive_minutes_before_reopen: number;
