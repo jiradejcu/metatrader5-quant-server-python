@@ -12,16 +12,15 @@ export function ToggleSwitch({ checked, onChange, disabled, label }: ToggleSwitc
       <span
         role="switch"
         aria-checked={checked}
+        aria-disabled={disabled}
         onClick={() => !disabled && onChange()}
-        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+        className={`relative inline-flex flex-shrink-0 h-6 w-11 items-center rounded-full border-2 border-transparent transition-colors duration-200 ${
           checked ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
         } ${disabled ? '' : 'hover:opacity-90'}`}
       >
         <span
-          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
-            checked ? 'translate-x-4.5' : 'translate-x-1'
-          }`}
-          style={{ transform: checked ? 'translateX(18px)' : 'translateX(4px)' }}
+          className="inline-block h-5 w-5 rounded-full bg-white shadow-md transition-transform duration-200"
+          style={{ transform: checked ? 'translateX(20px)' : 'translateX(0px)' }}
         />
       </span>
     </label>

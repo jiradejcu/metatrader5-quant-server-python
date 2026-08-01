@@ -76,12 +76,12 @@ export const ControlSection = (arg: ICardSection) => {
               />
             </div>
 
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-4 mb-2">
               <PauseGridBotBtn url={apiUrl} gridBotEnabled={gridBotEnabled} />
               <LedIndicator active={gridBotActive === 'Active'} label="Active" />
             </div>
 
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-4 mb-2">
               <PausePredictionBotBtn url={apiUrl} predictionBotEnabled={predictionBotEnabled} />
               <LedIndicator active={predictionBotActive === 'Active'} label="Active" />
             </div>
