@@ -37,7 +37,7 @@ function PauseGridBotBtn ({ url, gridBotEnabled, labelClassName, label }: PauseG
       const isEnabled = gridBotEnabled?.toLowerCase() === 'active';
 
       let message = "";
-      let messageClass = "absolute top-full left-0 mt-1 text-xs font-semibold whitespace-nowrap ";
+      let messageClass = "mt-1 text-xs font-semibold whitespace-nowrap ";
 
       if (pauseMutation.isPending) {
         message = "Sending request...";
@@ -51,7 +51,7 @@ function PauseGridBotBtn ({ url, gridBotEnabled, labelClassName, label }: PauseG
       }
 
       return (
-        <div className="relative inline-flex items-center">
+        <div className="inline-flex flex-col items-start">
           <ToggleSwitch
             label={label ?? "Grid Bot"}
             labelClassName={labelClassName}

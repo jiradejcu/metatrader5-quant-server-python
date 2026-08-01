@@ -36,7 +36,7 @@ function PausePredictionBotBtn ({ url, predictionBotEnabled, labelClassName, lab
       const isEnabled = predictionBotEnabled?.toLowerCase() === 'active';
 
       let message = "";
-      let messageClass = "absolute top-full left-0 mt-1 text-xs font-semibold whitespace-nowrap ";
+      let messageClass = "mt-1 text-xs font-semibold whitespace-nowrap ";
 
       if (pauseMutation.isPending) {
         message = "Sending request...";
@@ -50,7 +50,7 @@ function PausePredictionBotBtn ({ url, predictionBotEnabled, labelClassName, lab
       }
 
       return (
-        <div className="relative inline-flex items-center">
+        <div className="inline-flex flex-col items-start">
           <ToggleSwitch
             label={label ?? "Prediction Bot"}
             labelClassName={labelClassName}
