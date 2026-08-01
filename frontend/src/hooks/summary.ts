@@ -21,8 +21,10 @@ interface IArbitrageSummary {
   primarySymbol?: string;
   hedgeSymbol?: string;
   price_diff_percent?: number;
-  gridBotStatus?: string;
-  predictionBotStatus?: string;
+  gridBotEnabled?: string;
+  gridBotActive?: string;
+  predictionBotEnabled?: string;
+  predictionBotActive?: string;
   ask_diff?: number;
   bid_diff?: number;
 }
@@ -37,8 +39,10 @@ export const useGetSummaryStreamData = (url: string) => {
   // Destructuring and set dafault values
     const {
         pausePositionSync = 'Active',
-        gridBotStatus = 'Inactive',
-        predictionBotStatus = 'Inactive',
+        gridBotEnabled = 'Inactive',
+        gridBotActive = 'Inactive',
+        predictionBotEnabled = 'Inactive',
+        predictionBotActive = 'Inactive',
         spread = 0,
         pairStatus = 'Idle',
         primaryAction = 'N/A',
@@ -64,8 +68,10 @@ export const useGetSummaryStreamData = (url: string) => {
     return {
         isLoading,
         pausePositionSync,
-        gridBotStatus,
-        predictionBotStatus,
+        gridBotEnabled,
+        gridBotActive,
+        predictionBotEnabled,
+        predictionBotActive,
         spread,
         pairStatus,
         primaryAction,

@@ -26,7 +26,7 @@ export const PredictionSettingModal = (
     const hasInitialized = useRef(false);
     const queryClient = useQueryClient();
 
-    const { predictionBotStatus } = useGetSummaryStreamData(url);
+    const { predictionBotEnabled, predictionBotActive } = useGetSummaryStreamData(url);
 
     const { data: fetched, isError: isFetchError } = useQuery<PredictionSettings>({
         queryKey: ['prediction', 'settings', url],
@@ -117,7 +117,7 @@ export const PredictionSettingModal = (
                 }`}
                 >
                     <div className="w-full flex justify-between items-center mb-4">
-                        <PausePredictionBotBtn url={url} predictionBotStatus={predictionBotStatus} />
+                        <PausePredictionBotBtn url={url} predictionBotEnabled={predictionBotEnabled} />
                         <button
                         onClick={() => setIsOpen(false)}
                         className="bg-white/20 hover:bg-white/40 text-white px-3 py-1 rounded-md text-sm transition-colors border border-white/30"
@@ -130,8 +130,12 @@ export const PredictionSettingModal = (
                         <div className="mb-6 text-center">
                             <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Prediction Bot Settings</h2>
                             <p className="text-xs text-slate-500 mt-1">
-                                Status: <span className={predictionBotStatus?.toLowerCase() === 'active' ? 'text-green-600 font-bold' : 'text-slate-500 font-bold'}>
-                                    {predictionBotStatus || 'UNKNOWN'}
+                                Enabled: <span className={predictionBotEnabled?.toLowerCase() === 'active' ? 'text-green-600 font-bold' : 'text-slate-500 font-bold'}>
+                                    {predictionBotEnabled || 'UNKNOWN'}
+                                </span>
+                                <span className="mx-2 text-slate-300">|</span>
+                                Active: <span className={predictionBotActive?.toLowerCase() === 'active' ? 'text-green-600 font-bold' : 'text-slate-500 font-bold'}>
+                                    {predictionBotActive || 'UNKNOWN'}
                                 </span>
                             </p>
                         </div>

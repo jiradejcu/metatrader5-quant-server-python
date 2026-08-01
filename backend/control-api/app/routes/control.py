@@ -111,7 +111,7 @@ def handle_pause_position_sync():
 @control_bp.route('/toggle-grid-bot', methods=['POST'])
 def handle_toggle_grid_bot():
     try:
-        redis_key = "grid_bot_active_flag"
+        redis_key = "grid_bot_enabled_flag"
         redis_conn = get_redis_connection()
         is_active = redis_conn.exists(redis_key)
 
@@ -291,7 +291,7 @@ def _trading_sessions_key():
 @control_bp.route('/toggle-prediction-bot', methods=['POST'])
 def handle_toggle_prediction_bot():
     try:
-        redis_key = "prediction_bot_active_flag"
+        redis_key = "prediction_bot_enabled_flag"
         redis_conn = get_redis_connection()
         is_active = redis_conn.exists(redis_key)
 

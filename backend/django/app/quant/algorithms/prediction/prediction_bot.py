@@ -134,8 +134,23 @@ def _round_down(value, decimals=QTY_PRECISION):
     return math.floor(value * factor) / factor
 
 
-def get_active_status():
-    return get_redis_connection().get("prediction_bot_active_flag")
+def get_enable_status():
+    return get_redis_connection().get("prediction_bot_enabled_flag")
+
+
+_COMPUTED_ACTIVE_FLAG = "prediction_bot_computed_active_flag"
+# Set inline on every loop iteration (poll_interval cadence), doubling as a
+# liveness heartbeat: if the tick loop dies, the flag expires and status
+# correctly reads inactive instead of staying stuck.
+_COMPUTED_ACTIVE_TTL = 5
+
+
+def _set_computed_active(is_active):
+    redis_conn = get_redis_connection()
+    if is_active:
+        redis_conn.set(_COMPUTED_ACTIVE_FLAG, "1", ex=_COMPUTED_ACTIVE_TTL)
+    else:
+        redis_conn.delete(_COMPUTED_ACTIVE_FLAG)
 
 
 # Remembers the entry price/size of the position last seen open, so that once
@@ -410,12 +425,13 @@ def handle_prediction_flow(pubsub, settings_channel, primary_symbol, hedge_symbo
             # configured session window, so prediction_bot trades only
             # outside it — both can be left "active" at once without
             # colliding.
-            active_status = get_active_status()
+            active_status = get_enable_status()
             gate_ok = (
                 active_status
                 and latest_prediction_settings is not None
                 and not in_trading_session
             )
+            _set_computed_active(bool(gate_ok))
             logger.debug(
                 f"[Prediction] Tick gate: active={bool(active_status)} "
                 f"settings_loaded={latest_prediction_settings is not None} "

@@ -225,8 +225,15 @@ def _process_tick(primary_symbol, short_upper, short_lower, long_upper, long_low
     _reconcile(primary_symbol, target, position_amt, open_orders, sync_pending=bool(sync_pending))
 
 
-def get_active_status():
-    return get_redis_connection().get("grid_bot_active_flag")
+_COMPUTED_ACTIVE_FLAG = "grid_bot_computed_active_flag"
+# Set inline on every tick (ticks are event-driven off price-diff arrival, so
+# this doubles as a liveness heartbeat: if the price feed stalls, the flag
+# expires and status correctly reads inactive instead of staying stuck).
+_COMPUTED_ACTIVE_TTL = 5
+
+
+def get_enable_status():
+    return get_redis_connection().get("grid_bot_enabled_flag")
 
 
 def get_position_sync_ok():
@@ -235,6 +242,14 @@ def get_position_sync_ok():
 
 def get_sync_pending():
     return get_redis_connection().get("sync_pending_flag")
+
+
+def _set_computed_active(is_active):
+    redis_conn = get_redis_connection()
+    if is_active:
+        redis_conn.set(_COMPUTED_ACTIVE_FLAG, "1", ex=_COMPUTED_ACTIVE_TTL)
+    else:
+        redis_conn.delete(_COMPUTED_ACTIVE_FLAG)
 
 
 def handle_grid_flow(pubsub, price_diff_key, grid_range_key, hedge_symbol):
@@ -268,7 +283,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key, hedge_symbol):
             _new_price_event.wait()
             _new_price_event.clear()
             try:
-                active = get_active_status()
+                active = get_enable_status()
                 sync_ok = get_position_sync_ok()
                 allow_place_orders = (
                     latest_grid_settings is not None
@@ -277,6 +292,8 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key, hedge_symbol):
                     and active
                     and sync_ok
                 )
+                in_session = is_within_trading_session(primary_symbol, hedge_symbol)
+                _set_computed_active(allow_place_orders and in_session)
 
                 if not allow_place_orders:
                     logger.debug(
@@ -286,7 +303,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key, hedge_symbol):
                         f"position_sync_ok={bool(sync_ok)} "
                         f"active={bool(active)}"
                     )
-                elif not is_within_trading_session(primary_symbol, hedge_symbol):
+                elif not in_session:
                     logger.debug("[Grid] Outside trading session — skipping tick")
                 else:
                     short_upper = latest_grid_settings['short_upper']

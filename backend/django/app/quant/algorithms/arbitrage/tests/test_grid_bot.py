@@ -983,7 +983,7 @@ def _run_handle_grid_flow_with_messages(messages, env_overrides=None):
 
     with patch.dict("os.environ", env), \
          patch.object(_gb, "get_redis_connection", return_value=redis_mock), \
-         patch.object(_gb, "get_active_status", return_value=None), \
+         patch.object(_gb, "get_enable_status", return_value=None), \
          patch.object(_gb, "_process_tick"):
         try:
             _gb.handle_grid_flow(pubsub, price_key, grid_key)
@@ -1113,7 +1113,7 @@ def _run_handle_grid_flow_active(messages):
 
     with patch.dict("os.environ", {"PAIR_INDEX": "0"}), \
          patch.object(_gb, "get_redis_connection", return_value=redis_mock), \
-         patch.object(_gb, "get_active_status", return_value=b"1"), \
+         patch.object(_gb, "get_enable_status", return_value=b"1"), \
          patch.object(_gb, "_process_tick", side_effect=mock_process_tick):
         try:
             _gb.handle_grid_flow(pubsub, price_key, grid_key)

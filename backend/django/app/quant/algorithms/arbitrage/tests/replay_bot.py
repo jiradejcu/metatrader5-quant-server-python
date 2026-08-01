@@ -215,7 +215,7 @@ def patch_grid_bot(fake_redis):
     # Point the bot's own Redis lookups (initial settings fetch) at our fake.
     grid_bot.get_redis_connection = lambda: fake_redis
     # Gates that would otherwise depend on live Redis flags / wall-clock session.
-    grid_bot.get_active_status = lambda: True
+    grid_bot.get_enable_status = lambda: True
     grid_bot.get_position_sync_ok = lambda: True
     grid_bot.get_sync_pending = lambda: False
     grid_bot.is_within_trading_session = lambda *a, **k: True

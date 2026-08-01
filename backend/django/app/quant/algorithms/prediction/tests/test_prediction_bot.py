@@ -618,7 +618,7 @@ def _run_handle_prediction_flow_for_sessions(session_values):
     session_iter = iter(session_values)
 
     with patch.object(_pb, "get_redis_connection", return_value=redis_mock), \
-         patch.object(_pb, "get_active_status", return_value=True), \
+         patch.object(_pb, "get_enable_status", return_value=True), \
          patch.object(_pb, "is_within_trading_session", side_effect=lambda *a, **k: next(session_iter)), \
          patch.object(_pb, "time") as mock_time, \
          patch.object(_pb, "_reset_position_tracking") as mock_reset, \
@@ -663,7 +663,7 @@ class TestHandleFlowAppliesEffectiveSettings:
         escalated = dict(DEFAULT_SETTINGS, aggressiveness="aggressive")
 
         with patch.object(_pb, "get_redis_connection", return_value=redis_mock), \
-             patch.object(_pb, "get_active_status", return_value=True), \
+             patch.object(_pb, "get_enable_status", return_value=True), \
              patch.object(_pb, "is_within_trading_session", return_value=False), \
              patch.object(_pb, "_resolve_effective_settings", return_value=escalated) as mock_resolve, \
              patch.object(_pb, "time") as mock_time, \

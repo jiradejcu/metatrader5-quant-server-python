@@ -34,7 +34,14 @@ export const ControlSection = (arg: ICardSection) => {
     const {isLoading: isLoadingStreamMaster } = useStreamQuantMaster(apiUrl)
 
     // Calling SSE hook to keep the data updated
-    const { isLoading, pausePositionSync, gridBotStatus, predictionBotStatus } = useGetSummaryStreamData(apiUrl)
+    const {
+        isLoading,
+        pausePositionSync,
+        gridBotEnabled,
+        gridBotActive,
+        predictionBotEnabled,
+        predictionBotActive,
+    } = useGetSummaryStreamData(apiUrl)
 
     if (isLoadingStreamMaster) {
       return <div className="flex justify-center mt-20 font-medium text-gray-600">SSE Connection with host {apiUrl} ...</div>;
@@ -66,14 +73,22 @@ export const ControlSection = (arg: ICardSection) => {
             />
 
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Grid bot status: <span className={`font-bold ${gridBotStatus === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
-                    {gridBotStatus}
+                  Grid bot enabled: <span className={`font-bold ${gridBotEnabled === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
+                    {gridBotEnabled}
+                  </span>
+                  <span className="mx-2 text-gray-300 dark:text-gray-600">|</span>
+                  active: <span className={`font-bold ${gridBotActive === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
+                    {gridBotActive}
                   </span>
                 </p>
 
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Prediction bot status: <span className={`font-bold ${predictionBotStatus === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
-                    {predictionBotStatus}
+                  Prediction bot enabled: <span className={`font-bold ${predictionBotEnabled === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
+                    {predictionBotEnabled}
+                  </span>
+                  <span className="mx-2 text-gray-300 dark:text-gray-600">|</span>
+                  active: <span className={`font-bold ${predictionBotActive === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
+                    {predictionBotActive}
                   </span>
                 </p>
 

@@ -23,11 +23,12 @@ export const GridSettingModal = (
         max_position_size: 0,
         order_size: 0,
     });
-    const { 
-        isLoading, 
-        ask_diff, 
-        bid_diff, 
-        gridBotStatus, 
+    const {
+        isLoading,
+        ask_diff,
+        bid_diff,
+        gridBotEnabled,
+        gridBotActive,
         time_update_primary: time_update,
         primarySymbol
     } = useGetSummaryStreamData(url)
@@ -119,7 +120,7 @@ export const GridSettingModal = (
                 >
                     {/* Action Header */}
                     <div className="w-full flex justify-between items-center mb-4">
-                        <PauseGridBotBtn url={url} gridBotStatus={gridBotStatus} />
+                        <PauseGridBotBtn url={url} gridBotEnabled={gridBotEnabled} />
                         <button 
                         onClick={() => setIsOpen(false)}
                         className="bg-white/20 hover:bg-white/40 text-blue px-3 py-1 rounded-md text-sm transition-colors border border-white/30"
@@ -148,10 +149,15 @@ export const GridSettingModal = (
                                         </p>
                                         
                                         <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">
-                                            Status: <span className={gridBotStatus?.toLowerCase() === 'pause' ? 'text-red-500' : 'text-green-600'}>
-                                                {gridBotStatus || 'UNKNOWN'}
+                                            Enabled: <span className={gridBotEnabled?.toLowerCase() === 'active' ? 'text-green-600' : 'text-red-500'}>
+                                                {gridBotEnabled || 'UNKNOWN'}
                                             </span>
                                             <span className="mx-2 text-slate-300">|</span>
+                                            Active: <span className={gridBotActive?.toLowerCase() === 'active' ? 'text-green-600' : 'text-slate-500'}>
+                                                {gridBotActive || 'UNKNOWN'}
+                                            </span>
+                                        </p>
+                                        <p className="text-[11px] text-slate-600 font-bold font-mono uppercase whitespace-nowrap">
                                             {time_update || '0000-00-00 00:00:00'}
                                         </p>
                                     </div>

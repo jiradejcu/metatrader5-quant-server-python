@@ -4,7 +4,7 @@ import type { IDokcerAPIBtnProps } from '../interfaces/ button-docker.interface'
 import { togglePredictionBot } from '../query/apis';
 import { SECOND } from '../constant/time';
 
-function PausePredictionBotBtn ({ url, predictionBotStatus }: IDokcerAPIBtnProps) {
+function PausePredictionBotBtn ({ url, predictionBotEnabled }: IDokcerAPIBtnProps) {
     const queryClient = useQueryClient();
     const pauseMutation = useMutation({
         mutationFn: (url: string) => togglePredictionBot(url),
@@ -30,7 +30,7 @@ function PausePredictionBotBtn ({ url, predictionBotStatus }: IDokcerAPIBtnProps
       };
 
       // Derive all UI states directly from the mutation object
-      const isPaused = predictionBotStatus?.toLowerCase() !== 'active';
+      const isPaused = predictionBotEnabled?.toLowerCase() !== 'active';
       const idleLabel = isPaused ? 'Resume Prediction Bot' : 'Pause Prediction Bot';
       let btnText = idleLabel;
       let btnClasses = "mb-4 font-semibold py-2 px-4 rounded transition duration-200 border ";

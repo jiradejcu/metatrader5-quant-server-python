@@ -50,7 +50,7 @@ def _stop_grid_bot(reason: str):
     try:
         redis_conn = get_redis_connection()
         redis_conn.delete(_POSITION_SYNC_OK_FLAG)
-        redis_conn.delete("grid_bot_active_flag")
+        redis_conn.delete("grid_bot_enabled_flag")
         logger.error("[PositionSync] Stopping grid bot: %s", reason)
     except Exception:
         pass

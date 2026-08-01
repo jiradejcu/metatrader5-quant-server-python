@@ -28,8 +28,14 @@ def get_arbitrage_summary():
         primary_key = f"position:{primary_exchange}:{primary_symbol}"
         hedge_key = f"position:{hedge_exchange}:{hedge_symbol}"
         pause_position_key = "position_sync_paused_flag"
-        grid_bot_active_key = "grid_bot_active_flag"
-        prediction_bot_active_key = "prediction_bot_active_flag"
+        grid_bot_enabled_key = "grid_bot_enabled_flag"
+        prediction_bot_enabled_key = "prediction_bot_enabled_flag"
+        # Computed-active flags are a heartbeat written by the django bot
+        # tick loops (grid_bot.py / prediction_bot.py): true "active" means
+        # enabled AND currently passing all other gating (trading session,
+        # position sync, settings loaded) — not just the raw enable flag.
+        grid_bot_active_key = "grid_bot_computed_active_flag"
+        prediction_bot_active_key = "prediction_bot_computed_active_flag"
 
         redis_conn = get_redis_connection()
 
@@ -40,8 +46,10 @@ def get_arbitrage_summary():
         price_diff_data = prepare_json(redis_conn.get(f"price_diff:{primary_symbol}:{hedge_symbol}"), {})
 
         pause_position = 'Active'
-        grid_bot_status = 'Inactive'
-        prediction_bot_status = 'Inactive'
+        grid_bot_enabled = 'Inactive'
+        grid_bot_active = 'Inactive'
+        prediction_bot_enabled = 'Inactive'
+        prediction_bot_active = 'Inactive'
         pairStatus = 'Warning'
 
         primary_size = float(primary_result.get('positionAmt', 0))
@@ -51,11 +59,17 @@ def get_arbitrage_summary():
         if redis_conn.get(pause_position_key):
             pause_position = 'Pause'
 
+        if redis_conn.get(grid_bot_enabled_key):
+            grid_bot_enabled = 'Active'
+
         if redis_conn.get(grid_bot_active_key):
-            grid_bot_status = 'Active'
+            grid_bot_active = 'Active'
+
+        if redis_conn.get(prediction_bot_enabled_key):
+            prediction_bot_enabled = 'Active'
 
         if redis_conn.get(prediction_bot_active_key):
-            prediction_bot_status = 'Active'
+            prediction_bot_active = 'Active'
 
         now = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S") # use UTC(+7) Thailand time zone
         primary_mark_price = float(primary_result.get('markPrice', 0))
@@ -82,8 +96,10 @@ def get_arbitrage_summary():
             'primarySize': primary_size,
             'hedgeSize': hedge_size,
             'pausePositionSync': pause_position,
-            'gridBotStatus': grid_bot_status,
-            'predictionBotStatus': prediction_bot_status,
+            'gridBotEnabled': grid_bot_enabled,
+            'gridBotActive': grid_bot_active,
+            'predictionBotEnabled': prediction_bot_enabled,
+            'predictionBotActive': prediction_bot_active,
             'time_update_hedge': now,
             'time_update_primary': now,
             'primarySymbol': primary_symbol,

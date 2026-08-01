@@ -1,5 +1,5 @@
 export interface IDokcerAPIBtnProps {
   url: string;
-  gridBotStatus?: string;
-  predictionBotStatus?: string;
+  gridBotEnabled?: string;
+  predictionBotEnabled?: string;
 }
