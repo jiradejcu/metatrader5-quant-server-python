@@ -425,15 +425,15 @@ def handle_prediction_flow(pubsub, settings_channel, primary_symbol, hedge_symbo
             # configured session window, so prediction_bot trades only
             # outside it — both can be left "active" at once without
             # colliding.
-            active_status = get_enable_status()
+            enable = get_enable_status()
             gate_ok = (
-                active_status
+                enable
                 and latest_prediction_settings is not None
                 and not in_trading_session
             )
             _set_computed_active(bool(gate_ok))
             logger.debug(
-                f"[Prediction] Tick gate: active={bool(active_status)} "
+                f"[Prediction] Enable flag: {bool(enable)} "
                 f"settings_loaded={latest_prediction_settings is not None} "
                 f"in_trading_session={in_trading_session} -> {'run' if gate_ok else 'skip'}"
             )

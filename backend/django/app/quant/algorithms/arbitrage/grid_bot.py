@@ -283,29 +283,27 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key, hedge_symbol):
             _new_price_event.wait()
             _new_price_event.clear()
             try:
-                active = get_enable_status()
+                enable = get_enable_status()
                 sync_ok = get_position_sync_ok()
+                in_session = is_within_trading_session(primary_symbol, hedge_symbol)
                 allow_place_orders = (
                     latest_grid_settings is not None
                     and latest_ask_diff is not None
                     and latest_bid_diff is not None
-                    and active
+                    and enable
                     and sync_ok
+                    and in_session
                 )
-                in_session = is_within_trading_session(primary_symbol, hedge_symbol)
-                _set_computed_active(allow_place_orders and in_session)
+                _set_computed_active(allow_place_orders)
+                logger.debug(
+                    f"[Grid] Enable flag: {bool(enable)} "
+                    f"has_settings={latest_grid_settings is not None} "
+                    f"has_price_diff={latest_ask_diff is not None and latest_bid_diff is not None} "
+                    f"position_sync_ok={bool(sync_ok)} "
+                    f"in_trading_session={in_session} -> {'run' if allow_place_orders else 'skip'}"
+                )
 
-                if not allow_place_orders:
-                    logger.debug(
-                        f"[Grid] Orders blocked: "
-                        f"has_settings={latest_grid_settings is not None} "
-                        f"has_price_diff={latest_ask_diff is not None and latest_bid_diff is not None} "
-                        f"position_sync_ok={bool(sync_ok)} "
-                        f"active={bool(active)}"
-                    )
-                elif not in_session:
-                    logger.debug("[Grid] Outside trading session — skipping tick")
-                else:
+                if allow_place_orders:
                     short_upper = latest_grid_settings['short_upper']
                     short_lower = latest_grid_settings['short_lower']
                     long_upper = latest_grid_settings['long_upper']
