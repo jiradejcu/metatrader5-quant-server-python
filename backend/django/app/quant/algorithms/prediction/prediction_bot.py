@@ -172,19 +172,11 @@ def _set_computed_active(is_active):
         redis_conn.delete(_COMPUTED_ACTIVE_FLAG)
 
 
-# Remembers the size of the position last seen open, so that once it's
-# closed we know how much to reacquire. qty here is always _session_original_qty
-# — the position size grid_bot left at the start of this non-trading session —
-# not whatever's left after any max_close_size closing, so a reacquire always
-# targets the full original session size. Valid to rely on unconditionally
-# because max_close_size is expected to stay below the original position size,
-# so the position never fully closes out from under this tracking.
-_last_position = {"qty": None}
-
 # Size of the position the first time it was observed this whole non-trading
 # session (i.e. whatever grid_bot left it at when the session closed). Reset
 # only at the session boundary (_reset_position_tracking) — not on a flat
-# tick — so max_close_size's total-closed budget holds for the whole session.
+# tick — so max_close_size's total-closed budget holds for the whole session,
+# and reacquisition always targets back up to this full original size.
 _session_original_qty = {"value": None}
 
 # Market price (mid of best_bid/best_ask) the first time it was observed this
@@ -206,7 +198,6 @@ def _reset_position_tracking():
     """
     _session_original_qty['value'] = None
     _session_anchor_price['value'] = None
-    _last_position['qty'] = None
 
 
 def _remaining_close_budget(position_amt, max_close_size):
@@ -462,13 +453,11 @@ def _process_tick(primary_symbol, settings):
 
     if position_amt > 0:
         entry_price = float((position or {}).get('entryPrice', 0) or 0)
-        if entry_price > 0:
-            if _session_original_qty['value'] is None:
-                _session_original_qty['value'] = position_amt
-            _last_position['qty'] = _session_original_qty['value']
+        if entry_price > 0 and _session_original_qty['value'] is None:
+            _session_original_qty['value'] = position_amt
         _handle_holding_or_closing(primary_symbol, position_amt, anchor_price, close_orders, settings)
 
-    missing_qty = _round_down((_last_position['qty'] or 0) - position_amt)
+    missing_qty = _round_down((_session_original_qty['value'] or 0) - position_amt)
     _handle_reacquire(primary_symbol, reacquire_orders, settings, missing_qty, anchor_price)
 
 
