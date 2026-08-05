@@ -39,9 +39,11 @@ def _parse_prediction_settings(settings_dict):
         "max_slippage_usd": float(settings_dict.get('max_slippage_usd', 0.0)),
         "aggressiveness": AGGRESSIVENESS_PASSIVE,
         "reentry_tolerance_usd": float(settings_dict.get('reentry_tolerance_usd', 0.0)),
-        # Caps how much of the position a single close order can target, so a
-        # large position gets closed in clips instead of one order. <= 0
-        # means uncapped — close the full position at once.
+        # Caps how much of the *original* session position can ever be closed
+        # in total across the whole non-trading session (e.g. original=100,
+        # max_close_size=10 -> the bot closes down to 90 and then stops
+        # closing, only waiting on reacquisition from then on). <= 0 means
+        # uncapped — close the full position.
         "max_close_size": float(settings_dict.get('max_close_size', 0.0)),
         # Once this many minutes (or fewer) remain before the trading
         # session reopens, force aggressive closing regardless of the
@@ -72,9 +74,9 @@ def _closing_aggressiveness_factor(profit_usd, profit_target_usd):
     return overshoot / (overshoot + profit_target_usd)
 
 
-def _capped_close_qty(position_amt, max_close_size):
-    if max_close_size and max_close_size > 0:
-        return min(position_amt, max_close_size)
+def _capped_close_qty(position_amt, close_budget):
+    if close_budget and close_budget > 0:
+        return min(position_amt, close_budget)
     return position_amt
 
 
@@ -170,17 +172,30 @@ def _set_computed_active(is_active):
         redis_conn.delete(_COMPUTED_ACTIVE_FLAG)
 
 
-# Remembers the entry price/size of the position last seen open, so that once
-# it's closed we know what "back to entry" means for reacquiring it. qty here
-# is always the *original* size the position had when this holding cycle
-# began — not whatever's left after any max_close_size clips — so a
-# reacquire always targets the full original size.
-_last_position = {"entry_price": None, "qty": None}
+# Remembers the size of the position last seen open, so that once it's
+# closed we know how much to reacquire. qty here is always _session_original_qty
+# — the position size grid_bot left at the start of this non-trading session —
+# not whatever's left after any max_close_size closing, so a reacquire always
+# targets the full original session size. Valid to rely on unconditionally
+# because max_close_size is expected to stay below the original position size,
+# so the position never fully closes out from under this tracking.
+_last_position = {"qty": None}
 
-# Size of the position the first time it was observed since it last went
-# flat. Reset to None on every flat tick, then set once on the next non-zero
-# tick; stays fixed afterward so partial closes don't shrink it.
-_original_position_qty = {"value": None}
+# Size of the position the first time it was observed this whole non-trading
+# session (i.e. whatever grid_bot left it at when the session closed). Reset
+# only at the session boundary (_reset_position_tracking) — not on a flat
+# tick — so max_close_size's total-closed budget holds for the whole session.
+_session_original_qty = {"value": None}
+
+# Market price (mid of best_bid/best_ask) the first time it was observed this
+# whole non-trading session — i.e. roughly where the market was when grid_bot
+# stopped trading. Both the profit/closing check and the reacquire check
+# measure against this instead of the position's actual entryPrice, so
+# "profit" here means "extra gained since the session started", independent
+# of whatever basis grid_bot happened to leave the position at. Set once per
+# session (first successful ticker fetch after the boundary) and held fixed
+# until the next session boundary resets it.
+_session_anchor_price = {"value": None}
 
 
 def _reset_position_tracking():
@@ -189,15 +204,33 @@ def _reset_position_tracking():
     fresh reference point, instead of carrying over stale state from an
     earlier window the position may never have gone flat within.
     """
-    _original_position_qty['value'] = None
-    _last_position['entry_price'] = None
+    _session_original_qty['value'] = None
+    _session_anchor_price['value'] = None
     _last_position['qty'] = None
 
 
-def _close_passive(primary_symbol, position_amt, open_orders, max_close_size):
+def _remaining_close_budget(position_amt, max_close_size):
+    """How much more can still be closed this session under max_close_size.
+
+    Budget is against _session_original_qty (fixed for the whole non-trading
+    session) — so once the total closed since the session started reaches
+    max_close_size, this returns 0 and stays 0 for the rest of the session.
+    """
+    if max_close_size <= 0:
+        return position_amt
+
+    session_qty = _session_original_qty['value']
+    if session_qty is None:
+        return position_amt
+
+    already_closed = max(0.0, session_qty - position_amt)
+    return max(0.0, max_close_size - already_closed)
+
+
+def _close_passive(primary_symbol, position_amt, open_orders, close_budget):
     """Chase a post-only best-ask SELL, same order style as grid_bot's entries."""
     if not open_orders:
-        qty = _capped_close_qty(position_amt, max_close_size)
+        qty = _capped_close_qty(position_amt, close_budget)
         logger.info(
             f"[Prediction] Placing passive best-ask SELL for {qty}/{position_amt} on {primary_symbol}"
         )
@@ -217,7 +250,7 @@ def _close_passive(primary_symbol, position_amt, open_orders, max_close_size):
     chase_order(primary_symbol, qty, 'SELL', order_id=order_id)
 
 
-def _close_aggressive(primary_symbol, position_amt, open_orders, max_slippage_usd, max_close_size):
+def _close_aggressive(primary_symbol, position_amt, open_orders, max_slippage_usd, close_budget):
     """Cross the book with a reduce-only IOC SELL bounded by max_slippage_usd."""
     if open_orders:
         # A resting passive order can only get here if aggressiveness was just
@@ -226,7 +259,7 @@ def _close_aggressive(primary_symbol, position_amt, open_orders, max_slippage_us
         cancel_all_open_orders(primary_symbol)
         return
 
-    target_qty = _capped_close_qty(position_amt, max_close_size)
+    target_qty = _capped_close_qty(position_amt, close_budget)
     order_book = get_order_book(primary_symbol)
     bids = (order_book or {}).get('bids', [])
     close_qty, worst_price = _max_closeable_qty(bids, target_qty, max_slippage_usd)
@@ -246,17 +279,16 @@ def _close_aggressive(primary_symbol, position_amt, open_orders, max_slippage_us
     close_order(primary_symbol, close_qty, 'SELL', worst_price)
 
 
-def _handle_holding_or_closing(primary_symbol, position_amt, position, open_orders, settings):
-    entry_price = float((position or {}).get('entryPrice', 0) or 0)
+def _handle_holding_or_closing(primary_symbol, position_amt, anchor_price, open_orders, settings):
     ticker = get_ticker(primary_symbol)
-    if not ticker or not entry_price:
+    if not ticker or not anchor_price:
         logger.debug(
             f"[Prediction] Holding/closing check skipped on {primary_symbol}: "
-            f"ticker={'ok' if ticker else 'missing'} entry_price={entry_price}"
+            f"ticker={'ok' if ticker else 'missing'} anchor_price={anchor_price}"
         )
         return
 
-    profit_usd = float(ticker['best_bid']) - entry_price
+    profit_usd = float(ticker['best_bid']) - anchor_price
     target_met = profit_usd >= settings['profit_target_usd']
 
     if not target_met:
@@ -272,6 +304,21 @@ def _handle_holding_or_closing(primary_symbol, position_amt, position, open_orde
             )
         return
 
+    close_budget = _remaining_close_budget(position_amt, settings['max_close_size'])
+    if close_budget <= 0:
+        if open_orders:
+            logger.info(
+                f"[Prediction] max_close_size budget exhausted for this session — "
+                f"cancelling resting close order and waiting on reacquisition"
+            )
+            cancel_all_open_orders(primary_symbol)
+        else:
+            logger.debug(
+                f"[Prediction] Holding {position_amt} {primary_symbol}: max_close_size budget "
+                f"exhausted this session — no further closing"
+            )
+        return
+
     # Manually forced aggressive (including the session-reopen escalation in
     # _resolve_effective_settings) spends the full budget immediately;
     # otherwise the overshoot sigmoid decides how much of it to spend.
@@ -281,7 +328,7 @@ def _handle_holding_or_closing(primary_symbol, position_amt, position, open_orde
         factor = _closing_aggressiveness_factor(profit_usd, settings['profit_target_usd'])
 
     if factor <= 0:
-        _close_passive(primary_symbol, position_amt, open_orders, settings['max_close_size'])
+        _close_passive(primary_symbol, position_amt, open_orders, close_budget)
         return
 
     effective_slippage_budget = factor * settings['max_slippage_usd']
@@ -292,33 +339,33 @@ def _handle_holding_or_closing(primary_symbol, position_amt, position, open_orde
     )
     _close_aggressive(
         primary_symbol, position_amt, open_orders,
-        effective_slippage_budget, settings['max_close_size'],
+        effective_slippage_budget, close_budget,
     )
 
 
-def _handle_reacquire(primary_symbol, open_orders, settings, qty):
+def _handle_reacquire(primary_symbol, open_orders, settings, qty, anchor_price):
     """Buy back whatever portion of the last-tracked position is still
     missing (qty) once price falls to within reentry_tolerance_usd of the
-    price it was originally entered at — i.e. the run-up got given back, so
-    re-enter at (roughly) the same basis. Runs regardless of whether the
-    position is fully flat or only partially closed; `qty` is the gap
-    between the original size and whatever's currently held.
+    price observed when this non-trading session began — i.e. the run-up got
+    given back, so re-enter near where the market was at session start. Runs
+    regardless of whether the position is fully flat or only partially
+    closed; `qty` is the gap between the original size and whatever's
+    currently held.
 
     Uses the same passive chase-at-best-price style as grid_bot's entries.
     Disabled (falls through to plain stray-order cleanup) when there's no
-    remembered position yet, nothing missing, or reentry_tolerance_usd is 0.
+    session anchor price yet, nothing missing, or reentry_tolerance_usd is 0.
     """
-    entry_price = _last_position['entry_price']
     tolerance = settings['reentry_tolerance_usd']
 
-    if not entry_price or not qty or qty <= 0 or tolerance <= 0:
+    if not anchor_price or not qty or qty <= 0 or tolerance <= 0:
         if open_orders:
             logger.info("[Prediction] No position but open order(s) found — cancelling")
             cancel_all_open_orders(primary_symbol)
         else:
             logger.debug(
                 f"[Prediction] Reacquire skipped on {primary_symbol}: "
-                f"entry_price={entry_price} qty={qty} tolerance={tolerance}"
+                f"anchor_price={anchor_price} qty={qty} tolerance={tolerance}"
             )
         return
 
@@ -327,25 +374,25 @@ def _handle_reacquire(primary_symbol, open_orders, settings, qty):
         return
 
     ask = float(ticker['best_ask'])
-    back_at_entry = ask <= entry_price + tolerance
+    back_at_anchor = ask <= anchor_price + tolerance
 
-    if not back_at_entry:
+    if not back_at_anchor:
         if open_orders:
             logger.info(
                 f"[Prediction] Price {ask:.2f} back above reentry band "
-                f"(entry={entry_price:.2f} + tolerance={tolerance:.2f}) — cancelling"
+                f"(anchor={anchor_price:.2f} + tolerance={tolerance:.2f}) — cancelling"
             )
             cancel_all_open_orders(primary_symbol)
         else:
             logger.debug(
                 f"[Prediction] Flat on {primary_symbol}, waiting for price to fall back to "
-                f"entry={entry_price:.2f} (+tolerance {tolerance:.2f}); ask={ask:.2f}"
+                f"anchor={anchor_price:.2f} (+tolerance {tolerance:.2f}); ask={ask:.2f}"
             )
         return
 
     if not open_orders:
         logger.info(
-            f"[Prediction] Price {ask:.2f} back near entry={entry_price:.2f} — "
+            f"[Prediction] Price {ask:.2f} back near anchor={anchor_price:.2f} — "
             f"reacquiring {qty} on {primary_symbol}"
         )
         chase_order(primary_symbol, qty, 'BUY', order_id=None)
@@ -364,18 +411,40 @@ def _handle_reacquire(primary_symbol, open_orders, settings, qty):
     chase_order(primary_symbol, order_qty, 'BUY', order_id=order_id)
 
 
+def _ensure_session_anchor_price(primary_symbol):
+    """Snapshot the market price once per non-trading session (first
+    successful ticker fetch after the session boundary), so the rest of the
+    tick has a fixed reference for "extra profit gained since the session
+    started" regardless of the position's actual cost basis.
+    """
+    if _session_anchor_price['value'] is not None:
+        return
+
+    ticker = get_ticker(primary_symbol)
+    if not ticker:
+        return
+
+    anchor = (float(ticker['best_bid']) + float(ticker['best_ask'])) / 2
+    _session_anchor_price['value'] = anchor
+    logger.info(f"[Prediction] Session anchor price set to {anchor:.2f} on {primary_symbol}")
+
+
 def _process_tick(primary_symbol, settings):
     """Execute one prediction-bot decision. This bot never opens a *new*
     position — the grid bot is responsible for entries. It watches an
-    existing long and closes it once the profit target is met (passive or
-    aggressive per settings['aggressiveness']), and — independently, on the
-    same tick — will buy back any portion of the original size that's
-    currently missing (whether fully flat or only partially closed) once
-    price falls back to within reentry_tolerance_usd of where it was
-    originally entered. Under normal settings (profit_target_usd >
-    reentry_tolerance_usd) the two zones don't overlap, so at most one side
-    ever has a resting order at a time.
+    existing long and closes it once it's up settings['profit_target_usd']
+    versus the price the market was at when this non-trading session began
+    (passive or aggressive per settings['aggressiveness']), and —
+    independently, on the same tick — will buy back any portion of the
+    original size that's currently missing (whether fully flat or only
+    partially closed) once price falls back to within reentry_tolerance_usd
+    of that same session-start price. Under normal settings
+    (profit_target_usd > reentry_tolerance_usd) the two zones don't overlap,
+    so at most one side ever has a resting order at a time.
     """
+    _ensure_session_anchor_price(primary_symbol)
+    anchor_price = _session_anchor_price['value']
+
     position = get_position(primary_symbol)
     position_amt = float((position or {}).get('positionAmt', 0) or 0)
     logger.debug(f"[Prediction] Tick: {primary_symbol} position_amt={position_amt} settings={settings}")
@@ -394,16 +463,13 @@ def _process_tick(primary_symbol, settings):
     if position_amt > 0:
         entry_price = float((position or {}).get('entryPrice', 0) or 0)
         if entry_price > 0:
-            if _original_position_qty['value'] is None:
-                _original_position_qty['value'] = position_amt
-            _last_position['entry_price'] = entry_price
-            _last_position['qty'] = _original_position_qty['value']
-        _handle_holding_or_closing(primary_symbol, position_amt, position, close_orders, settings)
-    else:
-        _original_position_qty['value'] = None
+            if _session_original_qty['value'] is None:
+                _session_original_qty['value'] = position_amt
+            _last_position['qty'] = _session_original_qty['value']
+        _handle_holding_or_closing(primary_symbol, position_amt, anchor_price, close_orders, settings)
 
     missing_qty = _round_down((_last_position['qty'] or 0) - position_amt)
-    _handle_reacquire(primary_symbol, reacquire_orders, settings, missing_qty)
+    _handle_reacquire(primary_symbol, reacquire_orders, settings, missing_qty, anchor_price)
 
 
 def handle_prediction_flow(pubsub, settings_channel, primary_symbol, hedge_symbol, poll_interval=2.0):
