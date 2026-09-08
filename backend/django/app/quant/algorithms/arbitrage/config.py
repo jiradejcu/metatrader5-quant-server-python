@@ -23,5 +23,11 @@ PAIRS = [
         'contract_size': 100,
         'minimum_trade_amount': 1,
         'timezone_offset_hours': 3,
-    },
+},
+    {
+        'primary': {'exchange': 'binance', 'symbol': 'XAUUSDT'},
+        'hedge': {'exchange': 'mt5',     'symbol': 'XAUUSD247'},
+        'contract_size': 100,
+        'minimum_trade_amount': 1,
+},
 ]
