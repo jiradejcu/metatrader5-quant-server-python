@@ -67,7 +67,7 @@ LOGGING = {
             'class': 'logging.handlers.TimedRotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs/quant.log'),
             'when': 'midnight',       # rotate at midnight every day
-            'backupCount': 10,        # keep 10 rotated files, delete older ones
+            'backupCount': int(os.getenv('QUANT_LOG_BACKUP_COUNT', 10)),  # keep N rotated files, delete older ones
             'encoding': 'utf-8',
             'formatter': 'verbose',
         },
