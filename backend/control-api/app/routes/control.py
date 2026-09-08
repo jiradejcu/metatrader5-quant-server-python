@@ -12,7 +12,6 @@ from events.services.quant import get_arbitrage_summary as _get_arbitrage_summar
 
 load_dotenv()
 MT5_URL = os.getenv('API_DOMAIN')
-BINANCE_KEY = os.getenv('API_KEY_BINANCE')
 HOLDER_NAME = os.getenv('HOLDER_NAME')
 PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
 
@@ -145,7 +144,6 @@ def get_active_user_info():
             'login': data['login'],
             'server': data['server'],
             'name': data['name'],
-            'binance_key': BINANCE_KEY,
             'binance_account_name': HOLDER_NAME
         }), 200
     except Exception as e:

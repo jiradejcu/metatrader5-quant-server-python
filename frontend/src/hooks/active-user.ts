@@ -9,7 +9,6 @@ export const useGetActiveUser = (url: string) => {
         const json = await response.json()
 
         return {
-            binance_key: json.binance_key,
             login: json.login,
             name: json.name,
             server: json.server,
