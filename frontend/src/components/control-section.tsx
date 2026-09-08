@@ -34,7 +34,7 @@ export const ControlSection = (arg: ICardSection) => {
 
     const { botServer } = useGetBotStatus(apiUrl)
     const { activeUser } = useGetActiveUser(apiUrl)
-    const {isLoading: isLoadingStreamMaster } = useStreamQuantMaster(apiUrl)
+    const {isLoading: isLoadingStreamMaster, isConnected } = useStreamQuantMaster(apiUrl)
 
     // Calling SSE hook to keep the data updated
     const {
@@ -87,8 +87,8 @@ export const ControlSection = (arg: ICardSection) => {
             </div>
 
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Position sync bot status: <span className={`font-bold ${pausePositionSync === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
-                    {pausePositionSync}
+                  Position sync bot status: <span className={`font-bold ${!isConnected ? 'text-red-600' : pausePositionSync === 'Active' ? 'text-green-600' : 'text-gray-500'}`}>
+                    {isConnected ? pausePositionSync : 'Disconnected'}
                   </span>
                 </p>
                 <PausePositionBtn

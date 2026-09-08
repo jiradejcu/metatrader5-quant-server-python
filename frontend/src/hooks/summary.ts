@@ -38,7 +38,7 @@ export const useGetSummaryStreamData = (url: string) => {
 
   // Destructuring and set dafault values
     const {
-        pausePositionSync = 'Active',
+        pausePositionSync = 'Unknown',
         gridBotEnabled = 'Inactive',
         gridBotActive = 'Inactive',
         predictionBotEnabled = 'Inactive',
