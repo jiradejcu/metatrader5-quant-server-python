@@ -61,11 +61,27 @@ def get_account_info():
         if account_info is None:
             return jsonify({'status': 'error', 'reason': 'Failed to get account info'}), 500
         account_info = account_info._asdict()
+        terminal_info = mt5.terminal_info()
+        terminal_info = terminal_info._asdict() if terminal_info else {}
         return jsonify({
             'status': 'successful',
             'login': account_info['login'],
             'server': account_info['server'],
-            'name': account_info['name']
+            'name': account_info['name'],
+            # trade_allowed here is the account-level permission; terminal_info's
+            # trade_allowed is the client terminal's AutoTrading button (retcode 10027).
+            # trade_expert is the server-side EA/algo-trading permission — this is the
+            # flag behind "AutoTrading disabled by server" (retcode 10026).
+            'account_trade_allowed': account_info['trade_allowed'],
+            'account_trade_expert': account_info['trade_expert'],
+            'terminal_trade_allowed': terminal_info.get('trade_allowed'),
+            'trade_mode': account_info['trade_mode'],
+            'margin_level': account_info['margin_level'],
+            'margin_so_call': account_info['margin_so_call'],
+            'margin_so_so': account_info['margin_so_so'],
+            'equity': account_info['equity'],
+            'balance': account_info['balance'],
+            'credit': account_info['credit'],
         }), 200
     except Exception as e:
         return jsonify({

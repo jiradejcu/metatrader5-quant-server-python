@@ -144,7 +144,16 @@ def get_active_user_info():
             'login': data['login'],
             'server': data['server'],
             'name': data['name'],
-            'binance_account_name': HOLDER_NAME
+            'binance_account_name': HOLDER_NAME,
+            'account_trade_allowed': data.get('account_trade_allowed'),
+            'account_trade_expert': data.get('account_trade_expert'),
+            'terminal_trade_allowed': data.get('terminal_trade_allowed'),
+            'margin_level': data.get('margin_level'),
+            'margin_so_call': data.get('margin_so_call'),
+            'margin_so_so': data.get('margin_so_so'),
+            'equity': data.get('equity'),
+            'balance': data.get('balance'),
+            'credit': data.get('credit'),
         }), 200
     except Exception as e:
         logger.error(f"Get user info error: {e}")

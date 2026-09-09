@@ -12,7 +12,16 @@ export const useGetActiveUser = (url: string) => {
             login: json.login,
             name: json.name,
             server: json.server,
-            binance_account_name: json.binance_account_name
+            binance_account_name: json.binance_account_name,
+            account_trade_allowed: json.account_trade_allowed,
+            account_trade_expert: json.account_trade_expert,
+            terminal_trade_allowed: json.terminal_trade_allowed,
+            margin_level: json.margin_level,
+            margin_so_call: json.margin_so_call,
+            margin_so_so: json.margin_so_so,
+            equity: json.equity,
+            balance: json.balance,
+            credit: json.credit
         }
         },
     })
