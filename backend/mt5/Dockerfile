@@ -20,12 +20,23 @@ RUN sed -i '/bullseye-backports/s/^/#/' /etc/apt/sources.list /etc/apt/sources.l
 # valid-until check so stale-but-still-served metadata doesn't hard-fail the build.
 RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until
 
-# Bullseye's security repo is mid-decommission: its Packages index still lists
-# point-releases whose .deb files have already been pruned from the mirror, so a
-# full `apt-get upgrade` 404s on packages we don't even use. --fix-missing can't
-# help here (it only covers locally missing/corrupt files, not remote 404s), and
-# a full base-image upgrade isn't needed for the handful of packages installed
-# below, so just refresh the index and skip upgrading the rest of the image.
+# Bullseye's security repo is mid-decommission: security.debian.org's
+# Packages index lists point-releases whose .deb files 404 on every CDN
+# backend we've hit (a handful, like these python3.9/wget builds, are gone
+# for good; many others are just inconsistently synced across backends and
+# 404 nondeterministically from request to request). Point the security
+# source at a fixed snapshot.debian.org timestamp instead: it's an immutable
+# mirror of the whole archive as it stood on that date, so it doesn't suffer
+# either problem.
+RUN sed -i '/security.debian.org/s/^/#/' /etc/apt/sources.list /etc/apt/sources.list.d/*.list || true && \
+    echo 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20250601T000000Z/ bullseye-security main contrib non-free' > /etc/apt/sources.list.d/security-snapshot.list
+
+# The snapshot doesn't have these exact python3.9/wget point-release builds
+# either (they appear to have never made it into the pool at all), so pin
+# them away from the security snapshot and let apt fall back to the regular
+# archive's (older) version of the same package.
+RUN printf 'Package: wget libpython3.9 libpython3.9-dev libpython3.9-stdlib python3.9 python3.9-dev python3.9-minimal libpython3.9-minimal\nPin: origin "snapshot.debian.org"\nPin-Priority: -1\n' > /etc/apt/preferences.d/99-avoid-broken-security-pkgs
+
 RUN apt-get update
 
 # Install required packages
