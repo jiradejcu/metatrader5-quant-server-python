@@ -20,8 +20,13 @@ RUN sed -i '/bullseye-backports/s/^/#/' /etc/apt/sources.list /etc/apt/sources.l
 # valid-until check so stale-but-still-served metadata doesn't hard-fail the build.
 RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until
 
-# Update package lists and upgrade packages (--fix-missing handles EOL Bullseye security repo gaps)
-RUN apt-get update && apt-get upgrade -y --fix-missing
+# Bullseye's security repo is mid-decommission: its Packages index still lists
+# point-releases whose .deb files have already been pruned from the mirror, so a
+# full `apt-get upgrade` 404s on packages we don't even use. --fix-missing can't
+# help here (it only covers locally missing/corrupt files, not remote 404s), and
+# a full base-image upgrade isn't needed for the handful of packages installed
+# below, so just refresh the index and skip upgrading the rest of the image.
+RUN apt-get update
 
 # Install required packages
 RUN apt-get install -y \
