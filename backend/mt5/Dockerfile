@@ -15,6 +15,11 @@ RUN mkdir -p /config/.wine && \
 RUN sed -i '/bullseye-backports/s/^/#/' /etc/apt/sources.list /etc/apt/sources.list.d/*.list || true && \
     rm -f /etc/apt/sources.list.d/nodesource.list
 
+# Bullseye is EOL: security.debian.org's Release file expires faster than this
+# image gets rebuilt, which makes apt-get update fail outright. Skip the
+# valid-until check so stale-but-still-served metadata doesn't hard-fail the build.
+RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until
+
 # Update package lists and upgrade packages (--fix-missing handles EOL Bullseye security repo gaps)
 RUN apt-get update && apt-get upgrade -y --fix-missing
 
