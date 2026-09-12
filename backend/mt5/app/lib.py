@@ -188,6 +188,179 @@ def get_deal_from_ticket(ticket, from_date=None, to_date=None):
         return None
 
 
+_RETCODE_MESSAGES = {
+    getattr(mt5, 'TRADE_RETCODE_REQUOTE', 10004): "Requote.",
+    getattr(mt5, 'TRADE_RETCODE_REJECT', 10006): "Request rejected by the trade server.",
+    getattr(mt5, 'TRADE_RETCODE_CANCEL', 10007): "Request canceled by trader.",
+    getattr(mt5, 'TRADE_RETCODE_PLACED', 10008): "Order placed.",
+    getattr(mt5, 'TRADE_RETCODE_DONE', 10009): "Request completed.",
+    getattr(mt5, 'TRADE_RETCODE_DONE_PARTIAL', 10010): "Request completed partially.",
+    getattr(mt5, 'TRADE_RETCODE_ERROR', 10011): "Request processing error.",
+    getattr(mt5, 'TRADE_RETCODE_TIMEOUT', 10012): "Request canceled by timeout.",
+    getattr(mt5, 'TRADE_RETCODE_INVALID', 10013): "Invalid request.",
+    getattr(mt5, 'TRADE_RETCODE_INVALID_VOLUME', 10014): "Invalid volume for the order.",
+    getattr(mt5, 'TRADE_RETCODE_INVALID_PRICE', 10015): "Invalid price in the request.",
+    getattr(mt5, 'TRADE_RETCODE_INVALID_STOPS', 10016): "Invalid SL/TP levels in the request.",
+    getattr(mt5, 'TRADE_RETCODE_TRADE_DISABLED', 10017): "Trading is disabled for this account or symbol.",
+    getattr(mt5, 'TRADE_RETCODE_MARKET_CLOSED', 10018): "Market is closed for this symbol.",
+    getattr(mt5, 'TRADE_RETCODE_NO_MONEY', 10019): "Not enough money to complete the request.",
+    getattr(mt5, 'TRADE_RETCODE_PRICE_CHANGED', 10020): "Price changed.",
+    getattr(mt5, 'TRADE_RETCODE_PRICE_OFF', 10021): "No quotes to process the request.",
+    getattr(mt5, 'TRADE_RETCODE_INVALID_EXPIRATION', 10022): "Invalid order expiration date in the request.",
+    getattr(mt5, 'TRADE_RETCODE_ORDER_CHANGED', 10023): "Order state changed.",
+    getattr(mt5, 'TRADE_RETCODE_TOO_MANY_REQUESTS', 10024): "Too many requests.",
+    getattr(mt5, 'TRADE_RETCODE_NO_CHANGES', 10025): "No changes in request.",
+    getattr(mt5, 'TRADE_RETCODE_SERVER_DISABLES_AT', 10026): "Autotrading disabled by server.",
+    getattr(mt5, 'TRADE_RETCODE_CLIENT_DISABLES_AT', 10027): "Autotrading disabled by client terminal.",
+    getattr(mt5, 'TRADE_RETCODE_LOCKED', 10028): "Request locked for processing.",
+    getattr(mt5, 'TRADE_RETCODE_FROZEN', 10029): "Order or position frozen.",
+    getattr(mt5, 'TRADE_RETCODE_INVALID_FILL', 10030): "Invalid order filling type.",
+    getattr(mt5, 'TRADE_RETCODE_CONNECTION', 10031): "No connection with the trade server.",
+    getattr(mt5, 'TRADE_RETCODE_ONLY_REAL', 10032): "Operation allowed only for live accounts.",
+    getattr(mt5, 'TRADE_RETCODE_LIMIT_ORDERS', 10033): "Pending orders limit reached.",
+    getattr(mt5, 'TRADE_RETCODE_LIMIT_VOLUME', 10034): "Volume limit for symbol/order type reached.",
+    getattr(mt5, 'TRADE_RETCODE_INVALID_ORDER', 10035): "Invalid or prohibited order type.",
+    getattr(mt5, 'TRADE_RETCODE_POSITION_CLOSED', 10036): "Position already closed.",
+    getattr(mt5, 'TRADE_RETCODE_INVALID_CLOSE_VOLUME', 10038): "Invalid close volume.",
+    getattr(mt5, 'TRADE_RETCODE_CLOSE_ORDER_EXIST', 10039): "Close order already exists for the position.",
+    getattr(mt5, 'TRADE_RETCODE_LIMIT_POSITIONS', 10040): "Open positions/orders limit reached.",
+    getattr(mt5, 'TRADE_RETCODE_REJECT_CANCEL', 10041): "Pending order activation rejected, order canceled.",
+    getattr(mt5, 'TRADE_RETCODE_LONG_ONLY', 10042): "Only long positions allowed for this symbol.",
+    getattr(mt5, 'TRADE_RETCODE_SHORT_ONLY', 10043): "Only short positions allowed for this symbol.",
+    getattr(mt5, 'TRADE_RETCODE_CLOSE_ONLY', 10044): "Only position closing allowed for this symbol.",
+    getattr(mt5, 'TRADE_RETCODE_FIFO_CLOSE', 10045): "Positions must be closed FIFO (First-In-First-Out).",
+    getattr(mt5, 'TRADE_RETCODE_HEDGE_PROHIBITED', 10046): "Hedging prohibited; opposite positions not allowed.",
+}
+
+_ORDER_TYPE_ALIASES = {
+    'BUY': 'ORDER_TYPE_BUY',
+    'SELL': 'ORDER_TYPE_SELL',
+}
+
+
+def validate_order(symbol, order_type, volume, sl=None, tp=None,
+                    deviation=20, magic=0, type_filling=None):
+    """
+    Dry-run a market order via mt5.order_check() without sending it.
+
+    Args:
+        symbol: Trading symbol, e.g. 'EURUSD'.
+        order_type: 'BUY'/'SELL' (case-insensitive) or an mt5.ORDER_TYPE_* constant.
+        volume: Order volume in lots.
+        sl: Optional stop loss price.
+        tp: Optional take profit price.
+        deviation: Max price deviation in points (default 20).
+        magic: Magic number to tag the request (default 0).
+        type_filling: Optional mt5.ORDER_FILLING_* constant; defaults to ORDER_FILLING_IOC.
+
+    Returns:
+        dict with keys: ok, retcode, comment, margin_required, free_margin_after, raw_result.
+        No order is sent; this only calls mt5.order_check().
+    """
+    result_template = {
+        "ok": False,
+        "retcode": None,
+        "comment": None,
+        "margin_required": None,
+        "free_margin_after": None,
+        "raw_result": None,
+    }
+
+    # Resolve order type (accept 'BUY'/'SELL' strings or raw mt5 constants)
+    if isinstance(order_type, str):
+        alias = _ORDER_TYPE_ALIASES.get(order_type.upper())
+        if alias is None:
+            logger.error(f"validate_order: invalid order_type '{order_type}'. Expected 'BUY' or 'SELL'.")
+            result_template["comment"] = f"Invalid order_type: '{order_type}'. Expected 'BUY' or 'SELL'."
+            return result_template
+        resolved_type = getattr(mt5, alias)
+    else:
+        resolved_type = order_type
+
+    logger.info(
+        f"validate_order: checking symbol={symbol} order_type={order_type} "
+        f"volume={volume} sl={sl} tp={tp}"
+    )
+
+    symbol_info = mt5.symbol_info(symbol)
+    if symbol_info is None:
+        error_code, error_str = mt5.last_error()
+        logger.error(f"validate_order: unknown symbol '{symbol}' ({error_str}).")
+        result_template["comment"] = f"Unknown symbol: '{symbol}' ({error_str})."
+        return result_template
+
+    if not symbol_info.visible:
+        if not mt5.symbol_select(symbol, True):
+            error_code, error_str = mt5.last_error()
+            logger.error(f"validate_order: could not select symbol '{symbol}' ({error_str}).")
+            result_template["comment"] = f"Symbol '{symbol}' not visible/selectable ({error_str})."
+            return result_template
+
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is None or (tick.bid == 0.0 and tick.ask == 0.0):
+        error_code, error_str = mt5.last_error()
+        logger.error(f"validate_order: failed to get tick data for '{symbol}' ({error_str}).")
+        result_template["comment"] = f"No tick data available for '{symbol}' ({error_str})."
+        return result_template
+
+    if resolved_type == mt5.ORDER_TYPE_BUY:
+        price = tick.ask
+    elif resolved_type == mt5.ORDER_TYPE_SELL:
+        price = tick.bid
+    else:
+        logger.error(f"validate_order: unsupported order_type '{order_type}' for a market order check.")
+        result_template["comment"] = f"Unsupported order_type for market order: '{order_type}'."
+        return result_template
+
+    request = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": symbol,
+        "volume": float(volume),
+        "type": resolved_type,
+        "price": price,
+        "deviation": deviation,
+        "magic": magic,
+        "comment": "validate_order dry-run",
+        "type_time": mt5.ORDER_TIME_GTC,
+        "type_filling": type_filling if type_filling is not None else mt5.ORDER_FILLING_IOC,
+    }
+    if sl is not None:
+        request["sl"] = sl
+    if tp is not None:
+        request["tp"] = tp
+
+    logger.info(f"validate_order: order_check request={request}")
+
+    check_result = mt5.order_check(request)
+    if check_result is None:
+        error_code, error_str = mt5.last_error()
+        logger.error(f"validate_order: order_check() returned None ({error_str}).")
+        result_template["comment"] = f"order_check() failed to return a result ({error_str})."
+        return result_template
+
+    result_dict = check_result._asdict()
+    retcode = result_dict.get("retcode")
+    ok = retcode == mt5.TRADE_RETCODE_DONE
+
+    readable_comment = _RETCODE_MESSAGES.get(retcode, result_dict.get("comment"))
+    outcome = {
+        "ok": ok,
+        "retcode": retcode,
+        "comment": readable_comment,
+        "margin_required": result_dict.get("margin"),
+        "free_margin_after": result_dict.get("margin_free"),
+        "raw_result": result_dict,
+    }
+
+    logger.info(
+        f"validate_order: result ok={outcome['ok']} retcode={outcome['retcode']} "
+        f"comment='{outcome['comment']}' margin_required={outcome['margin_required']} "
+        f"free_margin_after={outcome['free_margin_after']}"
+    )
+
+    return outcome
+
+
 def get_order_from_ticket(ticket):
     if not isinstance(ticket, int):
         logger.error("Ticket must be an integer.")
