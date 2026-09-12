@@ -3,6 +3,7 @@ import MetaTrader5 as mt5
 import logging
 from flasgger import swag_from
 import state
+from lib import validate_order
 
 order_bp = Blueprint('order', __name__)
 logger = logging.getLogger(__name__)
@@ -151,4 +152,92 @@ def send_market_order_endpoint():
 
     except Exception as e:
         logger.error(f"Error in send_market_order: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@order_bp.route('/validate_order', methods=['POST'])
+@swag_from({
+    'tags': ['Order'],
+    'parameters': [
+        {
+            'name': 'body',
+            'in': 'body',
+            'required': True,
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'symbol': {'type': 'string'},
+                    'volume': {'type': 'number'},
+                    'type': {'type': 'string', 'enum': ['BUY', 'SELL']},
+                    'deviation': {'type': 'integer', 'default': 20},
+                    'magic': {'type': 'integer', 'default': 0},
+                    'type_filling': {'type': 'string', 'enum': ['ORDER_FILLING_IOC', 'ORDER_FILLING_FOK', 'ORDER_FILLING_RETURN']},
+                    'sl': {'type': 'number'},
+                    'tp': {'type': 'number'}
+                },
+                'required': ['symbol', 'volume', 'type']
+            }
+        }
+    ],
+    'responses': {
+        200: {
+            'description': 'Dry-run check completed (see "ok" for whether the order would succeed).',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'ok': {'type': 'boolean'},
+                    'retcode': {'type': 'integer'},
+                    'comment': {'type': 'string'},
+                    'margin_required': {'type': 'number'},
+                    'free_margin_after': {'type': 'number'},
+                }
+            }
+        },
+        400: {
+            'description': 'Bad request.'
+        },
+        500: {
+            'description': 'Internal server error.'
+        }
+    }
+})
+def validate_order_endpoint():
+    """
+    Validate Order (dry-run)
+    ---
+    description: Check whether a market order would succeed via mt5.order_check(), without sending it.
+    """
+    if state.poll_age() > state.WATCHDOG_TIMEOUT:
+        return jsonify({"error": "MT5 unavailable"}), 503
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Order data is required"}), 400
+
+        required_fields = ['symbol', 'volume', 'type']
+        if not all(field in data for field in required_fields):
+            return jsonify({"error": "Missing required fields"}), 400
+
+        acquired = state.mt5_lock.acquire(timeout=state.LOCK_TIMEOUT)
+        if not acquired:
+            return jsonify({"error": "MT5 busy, try again"}), 503
+        try:
+            result = validate_order(
+                symbol=data['symbol'],
+                order_type=data['type'],
+                volume=data['volume'],
+                sl=data.get('sl'),
+                tp=data.get('tp'),
+                deviation=data.get('deviation', 20),
+                magic=data.get('magic', 0),
+                type_filling=data.get('type_filling'),
+            )
+        finally:
+            state.mt5_lock.release()
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Error in validate_order_endpoint: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500

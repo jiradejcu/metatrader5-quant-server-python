@@ -91,6 +91,62 @@ def send_market_order(symbol: str, volume: float = None, order_type: str = None,
 
 def close_by(symbol: str, ticket: int, ticket_by: int) -> Dict:
     return send_market_order(symbol=symbol, position=ticket, position_by=ticket_by)
+
+def validate_order(symbol: str, order_type: str, volume: float, sl: float = None, tp: float = None) -> Dict:
+    """Dry-run a market order against MT5 (mt5.order_check()) without sending it.
+
+    Returns {ok, retcode, comment, margin_required, free_margin_after} on success.
+    On any transport/API failure returns {ok: False, comment: <reason>} so callers
+    can treat unreachable MT5 the same as a failed check and skip placing the order.
+    """
+    order_type_str = order_type if isinstance(order_type, str) else order_type.name
+    if order_type_str not in ['BUY', 'SELL']:
+        error_msg = f"Invalid order type: {order_type_str}. Must be 'BUY' or 'SELL'"
+        logger.error(error_msg)
+        return {"ok": False, "comment": error_msg}
+
+    request = {
+        "symbol": symbol,
+        "volume": float(volume),
+        "type": order_type_str,
+    }
+    if sl is not None:
+        request["sl"] = float(sl)
+    if tp is not None:
+        request["tp"] = float(tp)
+
+    try:
+        url = f"{BASE_URL}/validate_order"
+        response = requests.post(url, json=request, timeout=10)
+        response.raise_for_status()
+        result = response.json()
+
+        if 'ok' not in result:
+            error_msg = result.get('error', 'Unknown error')
+            logger.error(f"Validate order failed for {symbol}: {error_msg}")
+            return {"ok": False, "comment": error_msg}
+
+        if not result.get('ok'):
+            logger.warning(f"Validate order rejected for {symbol}: {result.get('comment')}")
+        else:
+            logger.info(f"Validate order passed for {symbol}: {result}")
+
+        return result
+
+    except requests.exceptions.HTTPError as e:
+        error_msg = f"HTTP error validating order for {symbol}: {e.response.text}"
+        logger.error(error_msg)
+        return {"ok": False, "comment": error_msg}
+
+    except requests.exceptions.Timeout:
+        error_msg = f"Timeout validating order for {symbol}"
+        logger.error(error_msg)
+        return {"ok": False, "comment": error_msg}
+
+    except Exception as e:
+        error_msg = f"Exception validating order for {symbol}: {str(e)}\n{traceback.format_exc()}"
+        logger.error(error_msg)
+        return {"ok": False, "comment": error_msg}
     
 def modify_sl_tp(position, sl: float, tp: float = None) -> Dict:
     try:

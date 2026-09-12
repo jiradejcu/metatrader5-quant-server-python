@@ -37,6 +37,7 @@ if "app.connectors.binance.api" not in sys.modules:
 # --- leaf-level stubs: MagicMock is fine here ---
 for _name in [
     "app.utils.redis_client",
+    "app.utils.api.order",
     "app.connectors.binance.api.order",
     "app.connectors.binance.api.ticker",
     "app.connectors.binance.api.position",
