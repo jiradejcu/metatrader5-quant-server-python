@@ -6,6 +6,7 @@ chase_order) are patched on the loaded module object.
 """
 import json
 import logging
+import os
 import sys
 import time
 import types
@@ -137,6 +138,19 @@ def reset_globals():
     _gb._prev_bid_diff_for_atr = None
     _state_mod.force_fetch = False
     yield
+
+
+@pytest.fixture(autouse=True)
+def mock_hedge_check():
+    """Default the MT5 hedge pre-check to a pass.
+
+    Without this, _reconcile's new-order path would call the real
+    validate_mt5_order (a network call to the MT5 service) in every test
+    that places an order. Tests exercising the gate itself override the
+    return value or assert on the call directly via this fixture.
+    """
+    with patch.object(_gb, "validate_mt5_order", return_value={"ok": True}) as mock_validate:
+        yield mock_validate
 
 
 # ---------------------------------------------------------------------------
@@ -673,6 +687,47 @@ class TestReconcile:
             _gb._reconcile(SYMBOL, -1.0, 0.0, [buy_order], sync_pending=True)
         mock_cancel.assert_called_once_with(SYMBOL)
         mock_chase.assert_not_called()
+
+    def test_hedge_check_blocks_new_order(self, mock_hedge_check):
+        """MT5 hedge leg wouldn't go through → don't place the primary order either."""
+        mock_hedge_check.return_value = {"ok": False, "comment": "No money"}
+        with patch.object(_gb, "chase_order") as mock_chase:
+            _gb._reconcile(SYMBOL, 1.0, 0.0, [])
+        mock_chase.assert_not_called()
+
+    def test_hedge_check_passes_opposite_side_and_converted_volume(self, mock_hedge_check):
+        """The hedge check must use the opposite side and volume/contract_size lots."""
+        pair = _real_config.PAIRS[int(os.getenv('PAIR_INDEX', '0'))]
+        with patch.object(_gb, "chase_order"):
+            _gb._reconcile(SYMBOL, 1.0, 0.0, [])  # primary BUY, size 1.0
+        mock_hedge_check.assert_called_once_with(
+            symbol=pair['hedge']['symbol'],
+            order_type='SELL',
+            volume=1.0 / pair['contract_size'],
+        )
+
+    def test_hedge_check_not_called_when_chasing_existing_order(self, mock_hedge_check):
+        """Chasing (re-pricing) a resting order is not a new placement — no hedge check."""
+        sell_order = _open_order(side='SELL', orig_qty=1.0, order_id=42)
+        with patch.object(_gb, "chase_order"):
+            _gb._reconcile(SYMBOL, -1.0, 0.0, [sell_order])
+        mock_hedge_check.assert_not_called()
+
+    def test_hedge_check_not_called_when_cancelling(self, mock_hedge_check):
+        buy_order = _open_order(side='BUY')
+        with patch.object(_gb, "cancel_all_open_orders"):
+            _gb._reconcile(SYMBOL, -1.0, 0.0, [buy_order])
+        mock_hedge_check.assert_not_called()
+
+    def test_hedge_check_not_called_when_at_target(self, mock_hedge_check):
+        with patch.object(_gb, "cancel_all_open_orders"):
+            _gb._reconcile(SYMBOL, 0.0, 0.0, [_open_order()])
+        mock_hedge_check.assert_not_called()
+
+    def test_hedge_check_not_called_when_sync_pending(self, mock_hedge_check):
+        with patch.object(_gb, "chase_order"):
+            _gb._reconcile(SYMBOL, 1.0, 0.0, [], sync_pending=True)
+        mock_hedge_check.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
