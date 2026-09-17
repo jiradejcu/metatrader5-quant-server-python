@@ -193,13 +193,16 @@ services:
       context: backend/django
       dockerfile: Dockerfile
     container_name: django
-    command: sh -c "python manage.py runserver 0.0.0.0:8000"
+    # Uses the Dockerfile's gunicorn CMD (production WSGI server). Do not
+    # override with `manage.py runserver` here — Django's dev server is
+    # unsuited for internet-facing traffic.
     volumes:
       - static_volume:/app/staticfiles
       - ${LOG_VOLUME}:/app/logs
     restart: unless-stopped
-    ports:
-      - 8000:8000
+    # NOTE: no host port publish here on purpose. Publishing 8000:8000
+    # exposed Django directly over plaintext HTTP, bypassing Traefik's
+    # TLS/https-redirect. Access is via the django-https Traefik router only.
     env_file:
       - .env
     depends_on:

@@ -25,10 +25,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-%j5tpuhd$lvp23tt+bszj2(xc=b(0o#@h4#r5ty1i5tog8=cmu'
+# This fallback is a placeholder for local/dev use only — it was previously
+# hardcoded here and committed to a public repo, so it must be treated as
+# burned. Set DJANGO_SECRET_KEY in your real .env to a freshly generated,
+# private value before deploying.
+SECRET_KEY = os.getenv(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-%j5tpuhd$lvp23tt+bszj2(xc=b(0o#@h4#r5ty1i5tog8=cmu',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = [os.getenv('DJANGO_DOMAIN'), 'localhost', '127.0.0.1', 'example.com', 'django']
 
@@ -122,7 +129,17 @@ REST_FRAMEWORK = {
         'rest_framework.filters.OrderingFilter',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 100
+    'PAGE_SIZE': 100,
+    # Require auth by default. Views that were relying on the implicit
+    # AllowAny default (TradeViewSet, PriceAlertView) previously exposed
+    # trade history and an unauthenticated task-queue endpoint publicly.
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.BasicAuthentication',
+    ],
 }
 
 MIDDLEWARE = [
@@ -138,7 +155,15 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
 ]
 
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS_ALLOW_ALL_ORIGINS previously let any website make credentialed
+# cross-origin requests to this API. Restrict to the known frontend/domain.
+CORS_ALLOWED_ORIGINS = [
+    origin for origin in [
+        f"https://{os.getenv('FRONTEND_DOMAIN')}" if os.getenv('FRONTEND_DOMAIN') else None,
+        f"https://{os.getenv('DJANGO_DOMAIN')}" if os.getenv('DJANGO_DOMAIN') else None,
+    ] if origin
+]
+CORS_ALLOW_ALL_ORIGINS = DEBUG
 
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
