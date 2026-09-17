@@ -11,7 +11,7 @@ from events.master import event_quants_master_data
 from events.services.quant import get_arbitrage_summary as _get_arbitrage_summary
 
 load_dotenv()
-MT5_URL = os.getenv('API_DOMAIN')
+MT5_API_URL = os.getenv('MT5_API_URL')
 HOLDER_NAME = os.getenv('HOLDER_NAME')
 PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
 
@@ -134,7 +134,7 @@ def handle_toggle_grid_bot():
 @control_bp.route('/user-info', methods=['GET'])
 def get_active_user_info():
     try:
-        api_url = 'https://' + MT5_URL + '/account_info'
+        api_url = MT5_API_URL + '/account_info'
         response = requests.get(api_url)
         data = response.json()
         print(data)
