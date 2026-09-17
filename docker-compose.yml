@@ -101,18 +101,12 @@ services:
 
       traefik.http.services.vnc-mt5-service.loadbalancer.server.port: 3000
 
-      # Router for api.mt5.${domain} (Port 5001)
-      traefik.http.routers.api-mt5-http.rule: Host(`${API_DOMAIN}`)
-      traefik.http.routers.api-mt5-http.entrypoints: http
-      traefik.http.routers.api-mt5-http.middlewares: https-redirect
-
-      traefik.http.routers.api-mt5-https.rule: Host(`${API_DOMAIN}`)
-      traefik.http.routers.api-mt5-https.entrypoints: https
-      traefik.http.routers.api-mt5-https.tls: true
-      traefik.http.routers.api-mt5-https.tls.certresolver: le
-      traefik.http.routers.api-mt5-https.service: api-mt5-service
-
-      traefik.http.services.api-mt5-service.loadbalancer.server.port: 5001
+      # NOTE: the api.mt5.${domain} router (port 5001) was intentionally removed.
+      # The MT5 Flask API has no authentication of its own (order/withdraw/position
+      # routes were reachable by anyone who found the domain). It is no longer
+      # routed through Traefik and is unreachable from the public internet.
+      # Other containers can still reach it internally via http://mt5:5001
+      # (see MT5_API_URL in .env) since they share the "default" docker network.
     logging: *default-logging
     depends_on:
       - traefik
