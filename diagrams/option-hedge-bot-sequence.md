@@ -1,20 +1,19 @@
 # Option-Hedge Bot — Sequence Diagram
 
-Flow for a bot that opens an MT5 market position on an incoming signal, hedges it
-with a YLG fixed-time option, streams live PnL to the frontend, and closes out
-either on manual command, on a configured loss limit, or on option expiry via an
-internally tracked stop loss.
+Flow for a bot that opens an MT5 market position on a signal from the frontend,
+hedges it with a YLG fixed-time option, streams live PnL back to the frontend,
+and closes out either on manual command, on a configured loss limit, or on
+option expiry via an internally tracked stop loss.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Signal as Signal Source
+    actor FE as Frontend
     participant Bot as Bot Engine
     participant YLG as YLG API
     participant MT5 as MT5 API
-    participant FE as Frontend
 
-    Signal->>Bot: POST /signal (buy | sell)
+    FE->>Bot: POST /signal (buy | sell)
     activate Bot
 
     Bot->>YLG: loadmp(direction = opposite(signal), duration = X seconds)
