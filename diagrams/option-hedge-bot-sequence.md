@@ -79,7 +79,7 @@ sequenceDiagram
         loop every tick while HEDGED
             Bot->>MT5: get current position price
             MT5-->>Bot: position price
-            Bot->>Bot: compute price diff (position price vs. option price)
+            Bot->>Bot: compute price diff (position price vs. option price from loadmp)
             Bot->>FE: push tick (position price, option price, price diff)
 
             alt user closes position (hedged)
