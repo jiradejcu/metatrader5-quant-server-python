@@ -38,50 +38,43 @@ sequenceDiagram
 
     Note over Bot: State = EXPOSED — MT5 position live,<br/>YLG side is only a reserved quote
 
-    loop every tick while EXPOSED
+    loop every tick until closed
         Bot->>MT5: get current position price
         MT5-->>Bot: position price
         Bot->>Bot: compute price diff (position price vs. option price from loadmp)
         Bot->>FE: push tick (position price, option price, price diff)
 
-        alt user closes position (still exposed)
-            FE->>Bot: close position command
-            Bot->>MT5: close position
-            MT5-->>Bot: position closed
-            Bot->>YLG: let quote lapse (never executed)
-            Bot->>FE: closed (manual, exposure only)
-        else user executes option (only before quote expiry)
-            FE->>Bot: execute option command
-            Bot->>YLG: confirm open order (execute option)
-            YLG-->>Bot: option order confirmed (hedge live)
-            Note over Bot: State -> HEDGED
-        else MT5 price reaches loss limit (only before quote expiry)
-            Bot->>Bot: detect loss limit breach (config threshold)
-            Bot->>YLG: confirm open order (auto-execute option)
-            YLG-->>Bot: option order confirmed (hedge live)
-            Note over Bot: State -> HEDGED (auto, to cap further exposure)
-        else quote nearing expiry AND MT5 position is at a loss
-            Bot->>Bot: detect near-expiry window + unrealized loss
-            Bot->>YLG: confirm open order (auto-execute option)
-            YLG-->>Bot: option order confirmed (hedge live)
-            Note over Bot: State -> HEDGED (auto, don't let a losing<br/>position expire unhedged)
-        else quote expires (X seconds elapsed, never executed) — one-time
-            Bot->>Bot: compute & store internal stop loss price
-            Note right of Bot: only reached if position was flat/in profit<br/>at expiry. Stop loss is tracked internally only,<br/>not sent to MT5 as an order. Execute/loss-limit<br/>branches above no longer apply.
-        else internal stop loss hit (only after quote expiry)
-            Bot->>MT5: close position
-            MT5-->>Bot: position closed
-            Bot->>FE: close position command (stop loss hit, exposure only)
-        end
-    end
-
-    opt state reached HEDGED
-        loop every tick while HEDGED
-            Bot->>MT5: get current position price
-            MT5-->>Bot: position price
-            Bot->>Bot: compute price diff (position price vs. option price from loadmp)
-            Bot->>FE: push tick (position price, option price, price diff)
-
+        alt state == EXPOSED
+            alt user closes position (still exposed)
+                FE->>Bot: close position command
+                Bot->>MT5: close position
+                MT5-->>Bot: position closed
+                Bot->>YLG: let quote lapse (never executed)
+                Bot->>FE: closed (manual, exposure only)
+            else user executes option (only before quote expiry)
+                FE->>Bot: execute option command
+                Bot->>YLG: confirm open order (execute option)
+                YLG-->>Bot: option order confirmed (hedge live)
+                Note over Bot: State -> HEDGED
+            else MT5 price reaches loss limit (only before quote expiry)
+                Bot->>Bot: detect loss limit breach (config threshold)
+                Bot->>YLG: confirm open order (auto-execute option)
+                YLG-->>Bot: option order confirmed (hedge live)
+                Note over Bot: State -> HEDGED (auto, to cap further exposure)
+            else quote nearing expiry AND MT5 position is at a loss
+                Bot->>Bot: detect near-expiry window + unrealized loss
+                Bot->>YLG: confirm open order (auto-execute option)
+                YLG-->>Bot: option order confirmed (hedge live)
+                Note over Bot: State -> HEDGED (auto, don't let a losing<br/>position expire unhedged)
+            else quote expires (X seconds elapsed, never executed) — one-time
+                Bot->>Bot: compute & store internal stop loss price
+                Note right of Bot: only reached if position was flat/in profit<br/>at expiry. Stop loss is tracked internally only,<br/>not sent to MT5 as an order. Execute/loss-limit<br/>branches above no longer apply.
+            else internal stop loss hit (only after quote expiry)
+                Bot->>MT5: close position
+                MT5-->>Bot: position closed
+                Bot->>FE: close position command (stop loss hit, exposure only)
+            end
+        else state == HEDGED
             alt user closes position (hedged)
                 FE->>Bot: close position command
                 Bot->>Bot: pick close moment/price that minimizes YLG profit
@@ -119,13 +112,18 @@ sequenceDiagram
   option price, and the diff between them. The option price is never
   re-fetched — it's held from the original `loadmp` response and stays fixed
   for the life of the option (including after expiry).
-- **Expiry is a one-time transition within EXPOSED, not a new loop.** If the
+- **There's a single tick loop for the whole position lifetime**, not one
+  loop per state. Fetching the position price, computing the diff, and
+  pushing the tick to the frontend are identical regardless of state, so
+  they happen once per iteration; only the `alt` branch underneath switches
+  between the EXPOSED menu of actions and the HEDGED one.
+- **Expiry is a one-time transition within the EXPOSED branch.** If the
   position is still flat or in profit as the quote nears expiry, it's
-  allowed to lapse unused; the bot computes an internal stop loss and keeps
-  ticking in the same tick loop — the execute/loss-limit branches stop
-  applying, and an internal-stop-loss-hit branch becomes reachable instead.
-  If instead the position is at a loss as the quote nears expiry, the bot
-  auto-executes the option before it can lapse, going straight to HEDGED
+  allowed to lapse unused; the bot computes an internal stop loss and stays
+  in the EXPOSED branch — the execute/loss-limit branches stop applying, and
+  an internal-stop-loss-hit branch becomes reachable instead. If instead the
+  position is at a loss as the quote nears expiry, the bot auto-executes the
+  option before it can lapse, switching straight to the HEDGED branch
   instead of ever reaching the expiry/internal-stop-loss path.
 - **Closing differs by state**:
   - While **EXPOSED**, closing (manual command, or the internal stop loss
