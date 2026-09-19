@@ -36,7 +36,7 @@ sequenceDiagram
         MT5-->>Bot: current price
         deactivate MT5
 
-        alt price is on our side (buy: MT5 price < option price;<br/>sell: MT5 price > option price)
+        alt price is on our side (buy: MT5 price cheaper than option;<br/>sell: MT5 price higher than option)
             Bot->>MT5: send market order (direction)
             activate MT5
             MT5-->>Bot: position opened (entry price)
