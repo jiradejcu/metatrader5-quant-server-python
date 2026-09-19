@@ -32,9 +32,7 @@ sequenceDiagram
     loop every tick until closed/expired
         Bot->>MT5: get current position price
         MT5-->>Bot: position price
-        Bot->>YLG: get current option price
-        YLG-->>Bot: option price
-        Bot->>Bot: compute price diff
+        Bot->>Bot: compute price diff (position price vs. option price from loadmp)
         Bot->>FE: push tick (position price, option price, price diff)
 
         alt user closes position
@@ -64,7 +62,7 @@ sequenceDiagram
             loop until stop loss hit
                 Bot->>MT5: get current position price
                 MT5-->>Bot: position price
-                Bot->>FE: push tick (position price, option price = expired, price diff)
+                Bot->>FE: push tick (position price, option price from loadmp, price diff)
             end
             Bot->>Bot: position price reaches internal stop loss
             Bot->>MT5: close position
@@ -86,7 +84,9 @@ sequenceDiagram
 - The YLG option runs for that fixed duration (`X` seconds) in the opposite
   direction of the MT5 position, acting as a hedge.
 - Every tick, the bot pushes three values to the frontend: position price,
-  option price, and the diff between them.
+  option price, and the diff between them. The option price is never
+  re-fetched — it's held from the original `loadmp` response and stays fixed
+  for the life of the option (including after expiry).
 - Three ways out of a live position/option pair:
   1. **Manual close** — user sends a close position command.
   2. **Manual/auto option execution** — user confirms opening the order at
