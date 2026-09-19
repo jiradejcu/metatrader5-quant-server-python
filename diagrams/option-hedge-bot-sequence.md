@@ -17,20 +17,15 @@ sequenceDiagram
     Signal->>Bot: POST /signal (buy | sell)
     activate Bot
 
-    Bot->>YLG: loadmp(direction = opposite(signal))
+    Bot->>YLG: loadmp(direction = opposite(signal), duration = X seconds)
     activate YLG
-    YLG-->>Bot: price confirmed
+    YLG-->>Bot: price confirmed & option opened (option price, expiry = now + X s)
     deactivate YLG
 
     Bot->>MT5: send market order (signal direction)
     activate MT5
     MT5-->>Bot: position opened (entry price)
     deactivate MT5
-
-    Bot->>YLG: open fixed-time option (X seconds, opposite direction)
-    activate YLG
-    YLG-->>Bot: option opened (option price, expiry = now + X s)
-    deactivate YLG
 
     Bot->>Bot: start tick loop (position price, option price, price diff)
 
@@ -83,9 +78,12 @@ sequenceDiagram
 
 ## Notes
 
-- **loadmp** is called against the *opposite* direction of the incoming signal,
-  and its price must be confirmed before the bot fires the MT5 market order.
-- The YLG option is opened for a fixed duration (`X` seconds) in the opposite
+- **loadmp** is called against the *opposite* direction of the incoming signal
+  with a fixed duration (`X` seconds). A successful `loadmp` call *is* the
+  fixed-time option being opened — there is no separate "open option" step;
+  price confirmation and the hedge going live happen in the same call, and
+  must complete before the bot fires the MT5 market order.
+- The YLG option runs for that fixed duration (`X` seconds) in the opposite
   direction of the MT5 position, acting as a hedge.
 - Every tick, the bot pushes three values to the frontend: position price,
   option price, and the diff between them.
