@@ -60,9 +60,14 @@ sequenceDiagram
             Bot->>YLG: confirm open order (auto-execute option)
             YLG-->>Bot: option order confirmed (hedge live)
             Note over Bot: State -> HEDGED (auto, to cap further exposure)
+        else quote nearing expiry AND MT5 position is at a loss
+            Bot->>Bot: detect near-expiry window + unrealized loss
+            Bot->>YLG: confirm open order (auto-execute option)
+            YLG-->>Bot: option order confirmed (hedge live)
+            Note over Bot: State -> HEDGED (auto, don't let a losing<br/>position expire unhedged)
         else quote expires (X seconds elapsed, never executed) — one-time
             Bot->>Bot: compute & store internal stop loss price
-            Note right of Bot: stop loss is tracked internally only,<br/>not sent to MT5 as an order.<br/>Execute/loss-limit branches above no longer apply.
+            Note right of Bot: only reached if position was flat/in profit<br/>at expiry. Stop loss is tracked internally only,<br/>not sent to MT5 as an order. Execute/loss-limit<br/>branches above no longer apply.
         else internal stop loss hit (only after quote expiry)
             Bot->>MT5: close position
             MT5-->>Bot: position closed
@@ -105,17 +110,23 @@ sequenceDiagram
 - **State = EXPOSED**: right after the MT5 order fills, only the MT5 side is
   a live risk position. The bot is naked until the option is executed.
 - **State = HEDGED**: only reached once the option order is *confirmed* at
-  YLG — via a manual "execute option" command, or automatically when the MT5
-  loss limit is breached. From this point, MT5 position and YLG option are
-  both live, offsetting legs.
+  YLG — via a manual "execute option" command, automatically when the MT5
+  loss limit is breached, or automatically when the quote is about to expire
+  while the MT5 position is sitting at a loss (auto-hedge rather than let a
+  losing position expire unhedged). From this point, MT5 position and YLG
+  option are both live, offsetting legs.
 - Every tick, the bot pushes three values to the frontend: position price,
   option price, and the diff between them. The option price is never
   re-fetched — it's held from the original `loadmp` response and stays fixed
   for the life of the option (including after expiry).
-- **Expiry is a one-time transition within EXPOSED, not a new loop.** Once the
-  quote lapses unused, the bot computes an internal stop loss and keeps
+- **Expiry is a one-time transition within EXPOSED, not a new loop.** If the
+  position is still flat or in profit as the quote nears expiry, it's
+  allowed to lapse unused; the bot computes an internal stop loss and keeps
   ticking in the same tick loop — the execute/loss-limit branches stop
   applying, and an internal-stop-loss-hit branch becomes reachable instead.
+  If instead the position is at a loss as the quote nears expiry, the bot
+  auto-executes the option before it can lapse, going straight to HEDGED
+  instead of ever reaching the expiry/internal-stop-loss path.
 - **Closing differs by state**:
   - While **EXPOSED**, closing (manual command, or the internal stop loss
     firing after the quote expires unused) only touches the MT5 leg — there
