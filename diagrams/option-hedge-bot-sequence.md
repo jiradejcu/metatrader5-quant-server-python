@@ -144,3 +144,22 @@ sequenceDiagram
 - **Only two real exits, both from EXPOSED**: a manual close command, or the
   internal stop loss firing after a quote expires unused. Either way, only
   the MT5 leg ever needed closing — there's no YLG position to unwind.
+
+## Worked examples
+
+Illustrative only — a gold (XAUUSD) buy signal, with example parameter
+values `OPTION_DURATION_SEC = 60`, `TICK_INTERVAL_SEC = 1`,
+`LOSS_LIMIT = $5.00`, `NEAR_EXPIRY_WINDOW_SEC = 10`,
+`STOP_LOSS_OFFSET = $3.00`. Rows 3–8 are alternate continuations from the
+same entry (rows 1–2) — only one of them happens per cycle.
+
+| # | Scenario | Example | Outcome |
+| --- | --- | --- | --- |
+| 1 | Pre-trade check **fails** | `loadmp(sell, 60s)` → option price `2650.00`. MT5 ask `2650.30` — not cheaper than the option. | No order sent. Bot returns an error to the frontend. Cycle ends, no restart. |
+| 2 | Pre-trade check **passes** | `loadmp(sell, 60s)` → option price `2650.00`. MT5 ask `2649.70` — cheaper, so buy is on our side. | Market order fills at `2649.70`. State → **EXPOSED**. |
+| 3 | Manual close (EXPOSED) | `t=12s`: position price `2651.10` (diff `+1.40`). Frontend sends close. | MT5 closes at `2651.10`, +$1.40/oz. Quote (48s left) lapses unused. Done, no restart. |
+| 4 | Manual execute option | `t=25s`: position price `2647.90` (diff `-1.80`). Frontend sends execute. | YLG order confirmed. **Hedged** → restart whole sequence with `sell` as the new direction. |
+| 5 | `LOSS_LIMIT` auto-execute | `t=33s`: position price `2644.60`. Loss = `2649.70 − 2644.60 = 5.10`, ≥ `LOSS_LIMIT` (`$5.00`). | Bot auto-confirms the YLG order — no user input. **Hedged** → restart with `sell`. |
+| 6 | Near-expiry + loss auto-execute | `t=52s`: 8s left (`60 − 52 = 8` ≤ `NEAR_EXPIRY_WINDOW_SEC` `10`). Position price `2648.80` (diff `-0.90`, a loss but under `LOSS_LIMIT`). | Bot auto-confirms the YLG order rather than risk the quote expiring unhedged. **Hedged** → restart with `sell`. |
+| 7 | Quote expires unused | `t=60s`: `OPTION_DURATION_SEC` elapsed. Position price `2650.90` (diff `+1.20` — flat/profit, so it was allowed to lapse). | Bot computes internal stop loss = `2650.90 − STOP_LOSS_OFFSET ($3.00) = 2647.90`. Not sent to MT5. Bot keeps ticking, execute/loss-limit branches no longer apply. |
+| 8 | Internal stop loss hit | `t=95s` (continuing from row 7): position price drifts down to `2647.90`, matching the internal stop loss. | MT5 closes at `2647.90`. Done, no restart — there was never a YLG position to unwind. |
