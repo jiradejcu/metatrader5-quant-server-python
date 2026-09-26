@@ -481,15 +481,15 @@ class TestComputeTargetOppositeDirection:
         # max(+170-10, -0.0) = max(+160, 0) = +160 → incremental 10-lot SELL. (was correct)
         assert _gb._compute_target('SELL', 170.0, 10.0, max_pos=0.0) == 160
 
-    def test_short_buy_clamps_at_positive_max_pos(self):
-        # position=-10, order_size=20, max_pos=5 → raw=+10 overshoots.
-        # min(+10, 5) = 5; diff = 5-(-10) = 15-lot BUY (capped).
-        assert _gb._compute_target('BUY', -10.0, 20.0, max_pos=5.0) == 5
+    def test_short_buy_flipping_side_clamps_to_zero(self):
+        # position=-10, order_size=20 → raw=+10 would flip to long.
+        # Flipping the side is clamped to 0; diff = 0-(-10) = 10-lot BUY.
+        assert _gb._compute_target('BUY', -10.0, 20.0, max_pos=5.0) == 0
 
-    def test_long_sell_clamps_at_negative_max_pos(self):
-        # position=+10, order_size=20, max_pos=5 → raw=-10 overshoots.
-        # max(-10, -5) = -5; diff = -5-(+10) = 15-lot SELL (capped).
-        assert _gb._compute_target('SELL', 10.0, 20.0, max_pos=5.0) == -5
+    def test_long_sell_flipping_side_clamps_to_zero(self):
+        # position=+10, order_size=20 → raw=-10 would flip to short.
+        # Flipping the side is clamped to 0; diff = 0-(+10) = 10-lot SELL.
+        assert _gb._compute_target('SELL', 10.0, 20.0, max_pos=5.0) == 0
 
     def test_short_buy_exactly_crosses_zero_clamps_to_zero(self):
         # position=-5, order_size=10, max_pos=0 → raw=+5, clamp to min(5, 0)=0.
@@ -562,7 +562,7 @@ class TestProcessTickMockEntryPosition:
                 SYMBOL,
                 short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=0.01,
-                ask_diff=0.0, bid_diff=-6.0,  # BUY zone
+                ask_diff=0.0, bid_diff=-11.0,  # BUY zone
             )
         mock_chase.assert_called_once_with(SYMBOL, pytest.approx(0.01), "BUY", order_id=None)
 
@@ -578,7 +578,7 @@ class TestProcessTickMockEntryPosition:
                 SYMBOL,
                 short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=0.012,
-                ask_diff=0.0, bid_diff=-6.0,  # BUY zone
+                ask_diff=0.0, bid_diff=-11.0,  # BUY zone
             )
         mock_chase.assert_called_once_with(SYMBOL, pytest.approx(0.01), "BUY", order_id=None)
 
@@ -594,7 +594,7 @@ class TestProcessTickMockEntryPosition:
                 SYMBOL,
                 short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=0.012,
-                ask_diff=6.0, bid_diff=0.0,  # SELL zone
+                ask_diff=11.0, bid_diff=0.0,  # SELL zone
             )
         mock_chase.assert_called_once_with(SYMBOL, pytest.approx(0.01), "SELL", order_id=None)
 
@@ -610,7 +610,7 @@ class TestProcessTickMockEntryPosition:
                 SYMBOL,
                 short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
-                ask_diff=0.0, bid_diff=-6.0,  # BUY zone
+                ask_diff=0.0, bid_diff=-11.0,  # BUY zone
             )
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "BUY", order_id=None)
 
@@ -761,7 +761,7 @@ class TestProcessTick:
                 SYMBOL,
                 short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
-                ask_diff=6.0, bid_diff=0.0,
+                ask_diff=11.0, bid_diff=0.0,
             )
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
 
@@ -775,7 +775,7 @@ class TestProcessTick:
                 SYMBOL,
                 short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
-                ask_diff=0.0, bid_diff=-6.0,
+                ask_diff=0.0, bid_diff=-11.0,
             )
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "BUY", order_id=None)
 
@@ -789,7 +789,7 @@ class TestProcessTick:
                 SYMBOL,
                 short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
-                ask_diff=6.0, bid_diff=0.0,  # SELL zone, no open order
+                ask_diff=11.0, bid_diff=0.0,  # SELL zone, no open order
             )
         mock_chase.assert_not_called()
 
@@ -802,7 +802,7 @@ class TestProcessTick:
                 SYMBOL,
                 short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
-                ask_diff=6.0, bid_diff=0.0,
+                ask_diff=11.0, bid_diff=0.0,
             )
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=77)
 
@@ -815,7 +815,7 @@ class TestProcessTick:
                 SYMBOL,
                 short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
-                ask_diff=0.0, bid_diff=-6.0,
+                ask_diff=0.0, bid_diff=-11.0,
             )
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "BUY", order_id=88)
 
@@ -829,7 +829,7 @@ class TestProcessTick:
                 SYMBOL,
                 short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
-                ask_diff=6.0, bid_diff=0.0,
+                ask_diff=11.0, bid_diff=0.0,
             )
         mock_cancel.assert_called_once_with(SYMBOL)
         mock_chase.assert_not_called()
@@ -844,7 +844,7 @@ class TestProcessTick:
                 SYMBOL,
                 short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
-                ask_diff=6.0, bid_diff=0.0,
+                ask_diff=11.0, bid_diff=0.0,
             )
         mock_cancel.assert_called_once_with(SYMBOL)
 
@@ -859,7 +859,7 @@ class TestProcessTick:
                 SYMBOL,
                 short_upper=10.0, short_lower=-5.0, long_upper=5.0, long_lower=-10.0,
                 max_pos=5.0, order_size=1.0,
-                ask_diff=6.0, bid_diff=0.0,
+                ask_diff=11.0, bid_diff=0.0,
             )
         mock_cancel.assert_not_called()
         mock_chase.assert_called_once_with(SYMBOL, 5.0, "BUY", order_id=99)
@@ -920,7 +920,7 @@ class TestProcessTick:
              patch.object(_gb, "get_position", return_value=_position(0.0)), \
              patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
-            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 3.0, 1.0, 6.0, 0.0)
+            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 3.0, 1.0, 11.0, 0.0)
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
 
         # Step 2: pos=-1 → target=-2 → place SELL 1
@@ -928,7 +928,7 @@ class TestProcessTick:
              patch.object(_gb, "get_position", return_value=_position(-1.0)), \
              patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
-            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 3.0, 1.0, 6.0, 0.0)
+            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 3.0, 1.0, 11.0, 0.0)
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
 
         # Step 3: pos=-2 → target=-3 → place SELL 1
@@ -936,7 +936,7 @@ class TestProcessTick:
              patch.object(_gb, "get_position", return_value=_position(-2.0)), \
              patch.object(_gb, "get_sync_pending", return_value=None), \
              patch.object(_gb, "chase_order", return_value=mock_resp) as mock_chase:
-            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 3.0, 1.0, 6.0, 0.0)
+            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 3.0, 1.0, 11.0, 0.0)
         mock_chase.assert_called_once_with(SYMBOL, 1.0, "SELL", order_id=None)
 
         # Step 4: pos=-3 → capacity=0 → target=pos → no open order → nothing
@@ -944,7 +944,7 @@ class TestProcessTick:
              patch.object(_gb, "get_position", return_value=_position(-3.0)), \
              patch.object(_gb, "chase_order") as mock_chase, \
              patch.object(_gb, "cancel_all_open_orders") as mock_cancel:
-            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 3.0, 1.0, 6.0, 0.0)
+            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 3.0, 1.0, 11.0, 0.0)
         mock_chase.assert_not_called()
         mock_cancel.assert_not_called()
 
@@ -1041,7 +1041,7 @@ def _run_handle_grid_flow_with_messages(messages, env_overrides=None):
          patch.object(_gb, "get_enable_status", return_value=None), \
          patch.object(_gb, "_process_tick"):
         try:
-            _gb.handle_grid_flow(pubsub, price_key, grid_key)
+            _gb.handle_grid_flow(pubsub, price_key, grid_key, "XAUUSD")
         except _StopLoop:
             pass
 
@@ -1171,7 +1171,7 @@ def _run_handle_grid_flow_active(messages):
          patch.object(_gb, "get_enable_status", return_value=b"1"), \
          patch.object(_gb, "_process_tick", side_effect=mock_process_tick):
         try:
-            _gb.handle_grid_flow(pubsub, price_key, grid_key)
+            _gb.handle_grid_flow(pubsub, price_key, grid_key, "XAUUSD")
         except _StopLoop:
             time.sleep(0.25)  # let tick_worker run while patch is still active
 
@@ -1187,36 +1187,57 @@ class TestATRVolatilityGate:
         assert _run_handle_grid_flow_active([msg1, msg2]) is True
 
     def test_process_tick_blocked_when_atr_high(self):
-        """1.56→4.29 spike raises ATR above threshold → _process_tick is NOT called."""
+        """1.56→4.29 spike raises ATR above threshold → _process_tick places no order."""
         msg1 = make_price_message(PRICE_CH, 1.56, 1.69, ts=time.time())
         msg2 = make_price_message(PRICE_CH, 4.29, 4.41, ts=time.time())  # ATR ≈ 0.6825
-        assert _run_handle_grid_flow_active([msg1, msg2]) is False
+        _run_handle_grid_flow_with_messages([msg1, msg2])
+        assert _gb.latest_atr > _gb.ATR_HIGH_THRESHOLD
+
+        # The gate lives in _process_tick: with high ATR it must not place an
+        # order even in a clear BUY zone.
+        with patch.object(_gb, "get_open_orders", return_value=[]), \
+             patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "get_sync_pending", return_value=None), \
+             patch.object(_gb, "chase_order") as mock_chase:
+            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 5.0, 1.0, 0.0, -11.0)
+        mock_chase.assert_not_called()
+
+    def test_process_tick_blocked_cancels_open_order_when_atr_high(self):
+        _gb.latest_atr = _gb.ATR_HIGH_THRESHOLD + 0.1
+        with patch.object(_gb, "get_open_orders", return_value=[_open_order()]), \
+             patch.object(_gb, "get_position", return_value=_position(0.0)), \
+             patch.object(_gb, "get_sync_pending", return_value=None), \
+             patch.object(_gb, "cancel_all_open_orders") as mock_cancel, \
+             patch.object(_gb, "chase_order") as mock_chase:
+            _gb._process_tick(SYMBOL, 10.0, -5.0, 5.0, -10.0, 5.0, 1.0, 0.0, -11.0)
+        mock_cancel.assert_called_once_with(SYMBOL)
+        mock_chase.assert_not_called()
 
     def test_atr_decay_is_slow_after_spike(self):
-        """
-        Asymmetric EMA (period=7 up, period_down=28 down): ATR rises fast on a
-        spike but decays slowly afterward, so the guard stays blocked well
-        beyond the first calm tick.
-          spike        → ATR≈0.683  blocked
-          spike+calm×1 → ATR≈0.636  still blocked
-          spike+calm×2 → ATR≈0.593  still blocked
+        """ATR stays above the threshold for calm ticks after a spike (slow release).
+
+          spike        → ATR≈0.683
+          spike+calm×1 → ATR≈0.636
+          spike+calm×2 → ATR≈0.593
         Each call replays from scratch so ATR is built fresh from the message sequence.
         Messages omit ts to avoid the stale-price-diff filter across the sequential calls.
         """
-        def msgs(*price_pairs):
-            return [make_price_message(PRICE_CH, ask, bid) for ask, bid in price_pairs]
+        def atr_after(*price_pairs):
+            _run_handle_grid_flow_with_messages(
+                [make_price_message(PRICE_CH, ask, bid) for ask, bid in price_pairs]
+            )
+            return _gb.latest_atr
 
-        # (ask, bid) sequence: baseline → spike → calm ticks
         baseline = (1.56, 1.69)
-        spike    = (4.29, 4.41)  # Δ=2.73 → ATR≈0.683
-        calm1    = (4.30, 4.42)  # Δ=0.01 → ATR≈0.636
-        calm2    = (4.31, 4.43)  # Δ=0.01 → ATR≈0.593
+        spike    = (4.29, 4.41)  # Δ=2.73
+        calm1    = (4.30, 4.42)  # Δ=0.01
+        calm2    = (4.31, 4.43)  # Δ=0.01
 
-        assert _run_handle_grid_flow_active(msgs(baseline, spike)) is False, \
+        assert atr_after(baseline, spike) > _gb.ATR_HIGH_THRESHOLD, \
             "spike should block immediately"
-        assert _run_handle_grid_flow_active(msgs(baseline, spike, calm1)) is False, \
+        assert atr_after(baseline, spike, calm1) > _gb.ATR_HIGH_THRESHOLD, \
             "slow-release alpha means one calm tick barely reduces ATR"
-        assert _run_handle_grid_flow_active(msgs(baseline, spike, calm1, calm2)) is False, \
+        assert atr_after(baseline, spike, calm1, calm2) > _gb.ATR_HIGH_THRESHOLD, \
             "two calm ticks still aren't enough to drop ATR below threshold"
 
 
