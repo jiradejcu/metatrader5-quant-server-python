@@ -1,0 +1,28 @@
+meta {
+  name: Validate unknown symbol (expect ok=false)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/validate_order
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "symbol": "NOSUCHSYMBOL",
+    "volume": 0.01,
+    "type": "BUY"
+  }
+}
+
+tests {
+  test("returns 200", function () {
+    expect(res.status).to.equal(200);
+  });
+  test("ok is false", function () {
+    expect(res.body.ok).to.equal(false);
+  });
+}

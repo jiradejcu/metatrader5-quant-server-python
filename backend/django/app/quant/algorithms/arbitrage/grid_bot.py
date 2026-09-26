@@ -9,6 +9,7 @@ from app.utils.redis_client import get_redis_connection
 from app.connectors.binance.api.order import get_open_orders, cancel_all_open_orders, chase_order
 from app.connectors.binance.api.position import get_position
 from app.connectors.binance.api.user_data_stream import watch_user_data_stream
+from app.utils.api.order import validate_order as validate_mt5_order
 from .price_diff import PRICE_DIFF_MAX_AGE_MS
 from . import state
 from ..trading_sessions import is_within_trading_session
@@ -114,6 +115,31 @@ def _compute_target(zone, position_amt, order_size, max_pos, net_pending=0):
     return _trunc(position_amt)
 
 
+def _check_hedge_leg(primary_side, primary_size):
+    """Dry-run the MT5 hedge leg for a new primary order before it is placed.
+
+    The strategy always hedges the primary fill with an opposite-side MT5
+    order sized by contract_size (see position_sync.handle_position_update).
+    If that hedge couldn't go through (no money, market closed, invalid
+    stops, ...) placing the primary order would leave an unhedgeable,
+    naked position — so the caller should skip it.
+    """
+    pair = config.PAIRS[int(os.getenv('PAIR_INDEX', '0'))]
+    hedge_symbol = pair['hedge']['symbol']
+    contract_size = pair['contract_size']
+
+    hedge_side = 'SELL' if primary_side == 'BUY' else 'BUY'
+    hedge_volume = float(primary_size) / float(contract_size)
+
+    result = validate_mt5_order(symbol=hedge_symbol, order_type=hedge_side, volume=hedge_volume)
+    if not result.get('ok'):
+        logger.warning(
+            f"[Reconcile] MT5 hedge check failed for {hedge_symbol} {hedge_side} "
+            f"size={hedge_volume}: {result.get('comment')} — skipping primary order"
+        )
+    return result.get('ok', False)
+
+
 def _reconcile(primary_symbol, target, position_amt, open_orders, sync_pending=False):
     """Take the minimal action to reach the target position."""
     if target is None:
@@ -136,6 +162,8 @@ def _reconcile(primary_symbol, target, position_amt, open_orders, sync_pending=F
     if not open_orders:
         if sync_pending:
             logger.info(f"[Reconcile] Sync pending — holding off on new {side} order")
+            return
+        if not _check_hedge_leg(side, size):
             return
         logger.info(f"[Reconcile] No open order → placing {side}, size={size}")
         chase_order(primary_symbol, float(size), side, order_id=None)

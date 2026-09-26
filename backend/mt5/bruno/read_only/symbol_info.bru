@@ -1,0 +1,17 @@
+meta {
+  name: Symbol info
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/symbol_info/{{symbol}}
+  body: none
+  auth: none
+}
+
+tests {
+  test("returns 200", function () {
+    expect(res.status).to.equal(200);
+  });
+}

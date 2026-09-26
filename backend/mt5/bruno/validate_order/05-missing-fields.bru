@@ -1,0 +1,23 @@
+meta {
+  name: Validate missing fields (expect 400)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/validate_order
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "symbol": "{{symbol}}"
+  }
+}
+
+tests {
+  test("returns 400", function () {
+    expect(res.status).to.equal(400);
+  });
+}

@@ -1,0 +1,33 @@
+meta {
+  name: Validate SELL 0.01 (expect ok)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/validate_order
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "symbol": "{{symbol}}",
+    "volume": 0.01,
+    "type": "SELL"
+  }
+}
+
+tests {
+  test("returns 200", function () {
+    expect(res.status).to.equal(200);
+  });
+  test("ok is true", function () {
+    expect(res.body.ok).to.equal(true);
+  });
+  test("reports market checks and info", function () {
+    expect(res.body.checks).to.be.an("array");
+    expect(res.body.market).to.have.property("spread_points");
+    expect(res.body.market).to.have.property("tick_age_s");
+  });
+}

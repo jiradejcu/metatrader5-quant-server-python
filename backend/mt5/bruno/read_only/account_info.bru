@@ -1,0 +1,17 @@
+meta {
+  name: Account info
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/account_info
+  body: none
+  auth: none
+}
+
+tests {
+  test("returns 200", function () {
+    expect(res.status).to.equal(200);
+  });
+}
