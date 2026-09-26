@@ -25,4 +25,9 @@ tests {
   test("ok is true", function () {
     expect(res.body.ok).to.equal(true);
   });
+  test("reports market checks and info", function () {
+    expect(res.body.checks).to.be.an("array");
+    expect(res.body.market).to.have.property("spread_points");
+    expect(res.body.market).to.have.property("tick_age_s");
+  });
 }

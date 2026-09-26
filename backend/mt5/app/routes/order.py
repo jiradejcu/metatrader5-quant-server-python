@@ -190,6 +190,19 @@ def send_market_order_endpoint():
                     'comment': {'type': 'string'},
                     'margin_required': {'type': 'number'},
                     'free_margin_after': {'type': 'number'},
+                    'checks': {
+                        'type': 'array',
+                        'description': 'Market-condition gates run on top of order_check().',
+                        'items': {'type': 'object', 'properties': {
+                            'name': {'type': 'string'},
+                            'ok': {'type': 'boolean'},
+                            'enforced': {'type': 'boolean', 'description': 'False = informational, never fails the order.'},
+                            'detail': {'type': 'string'},
+                        }},
+                    },
+                    'failed_checks': {'type': 'array', 'items': {'type': 'string'}},
+                    'market': {'type': 'object', 'description': 'Tick age, spread, symbol volume limits and depth-of-market sample.'},
+                    'raw_result': {'type': 'object'},
                 }
             }
         },
@@ -205,7 +218,7 @@ def validate_order_endpoint():
     """
     Validate Order (dry-run)
     ---
-    description: Check whether a market order would succeed via mt5.order_check(), without sending it.
+    description: Check whether a market order would succeed via mt5.order_check(), plus market-state gates (tick freshness, spread, algo trading, depth of market), without sending it.
     """
     if state.poll_age() > state.WATCHDOG_TIMEOUT:
         return jsonify({"error": "MT5 unavailable"}), 503

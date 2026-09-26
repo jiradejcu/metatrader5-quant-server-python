@@ -1,3 +1,5 @@
+import os
+import time
 import MetaTrader5 as mt5
 from datetime import datetime, timedelta
 from typing import List, Dict
@@ -238,6 +240,201 @@ _ORDER_TYPE_ALIASES = {
 }
 
 
+# ---------------------------------------------------------------------------
+# validate_order market-condition checks
+#
+# mt5.order_check() only validates volume/margin/stops/permissions against data
+# cached in the terminal. It says nothing about whether the market is open,
+# whether the spread is sane or whether anyone can fill the order, so
+# validate_order() layers the checks below on top of it.
+#
+# Tunables (env vars, read on every call):
+#   MT5_MAX_TICK_AGE_S       reject if the last tick is older than this many
+#                            seconds, i.e. market closed/feed frozen (default 60, 0 = off)
+#   MT5_SERVER_UTC_OFFSET_H  hours the broker's tick timestamps are ahead of UTC (default 0)
+#   MT5_MAX_SPREAD_POINTS    reject if spread exceeds this many points (default 0 = report only)
+#   MT5_CHECK_ORDER_BOOK     'true'/'false': read depth of market and require enough
+#                            volume within `deviation` of the price. Skipped, never
+#                            failed, when the broker provides no book (default true)
+#   MT5_ORDER_BOOK_WAIT_S    max seconds to wait for the book to populate (default 0.3)
+# ---------------------------------------------------------------------------
+
+def _env_float(name, default):
+    try:
+        return float(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _check(name, ok, detail, enforced=True):
+    return {"name": name, "ok": bool(ok), "enforced": enforced, "detail": detail}
+
+
+def _read_order_book(symbol, order_type, price, volume, deviation, point):
+    """Sample the depth of market on the side this order would consume.
+
+    BUY lifts asks (BOOK_TYPE_SELL*), SELL hits bids (BOOK_TYPE_BUY*). Returns a
+    dict with available=False and a reason when the broker gives no usable book.
+    """
+    book_info = {"available": False, "reason": None}
+
+    if not mt5.market_book_add(symbol):
+        error_code, error_str = mt5.last_error()
+        book_info["reason"] = f"market_book_add failed ({error_str})"
+        return book_info
+
+    entries = None
+    try:
+        deadline = time.monotonic() + _env_float('MT5_ORDER_BOOK_WAIT_S', 0.3)
+        while True:
+            entries = mt5.market_book_get(symbol)
+            if entries or time.monotonic() >= deadline:
+                break
+            time.sleep(0.05)
+    finally:
+        mt5.market_book_release(symbol)
+
+    if not entries:
+        book_info["reason"] = "broker provides no market depth for this symbol"
+        return book_info
+
+    is_buy = order_type == mt5.ORDER_TYPE_BUY
+    side_types = {
+        getattr(mt5, 'BOOK_TYPE_SELL', 1), getattr(mt5, 'BOOK_TYPE_SELL_MARKET', 3)
+    } if is_buy else {
+        getattr(mt5, 'BOOK_TYPE_BUY', 2), getattr(mt5, 'BOOK_TYPE_BUY_MARKET', 4)
+    }
+
+    levels = []
+    for entry in entries:
+        if entry.type not in side_types:
+            continue
+        level_volume = getattr(entry, 'volume_dbl', 0.0) or float(entry.volume or 0)
+        if level_volume > 0:
+            levels.append((float(entry.price), float(level_volume)))
+    if not levels:
+        book_info["reason"] = "market depth has no volume on the relevant side"
+        return book_info
+
+    levels.sort(key=lambda lv: lv[0], reverse=not is_buy)  # best price first
+
+    limit = price + deviation * point if is_buy else price - deviation * point
+    within = sum(v for p, v in levels if (p <= limit if is_buy else p >= limit))
+
+    remaining, cost, worst = float(volume), 0.0, None
+    for level_price, level_volume in levels:
+        take = min(level_volume, remaining)
+        cost += take * level_price
+        worst = level_price
+        remaining -= take
+        if remaining <= 1e-12:
+            break
+    filled = float(volume) - max(remaining, 0.0)
+
+    book_info.update({
+        "available": True,
+        "reason": None,
+        "side": "ask" if is_buy else "bid",
+        "levels": len(levels),
+        "best_price": levels[0][0],
+        "requested_volume": float(volume),
+        "total_volume": sum(v for _, v in levels),
+        "volume_within_deviation": within,
+        "fillable_volume": filled,
+        "vwap": cost / filled if filled > 0 else None,
+        "worst_price": worst,
+    })
+    return book_info
+
+
+def _market_checks(symbol, symbol_info, tick, order_type, price, volume, deviation):
+    """Return (checks, market) — pre-trade liquidity/market-state gates plus raw context."""
+    point = symbol_info.point or 0.0
+    checks = []
+    is_buy = order_type == mt5.ORDER_TYPE_BUY
+
+    # Terminal / account permissions (algo trading switches).
+    terminal = mt5.terminal_info()
+    if terminal is not None:
+        checks.append(_check(
+            "terminal_connected", terminal.connected,
+            "terminal connected to broker" if terminal.connected else "terminal not connected to the trade server"))
+        checks.append(_check(
+            "algo_trading_enabled", terminal.trade_allowed,
+            "algo trading enabled in terminal" if terminal.trade_allowed else "algo trading disabled in the terminal"))
+    account = mt5.account_info()
+    if account is not None:
+        checks.append(_check(
+            "account_trade_allowed", account.trade_allowed and account.trade_expert,
+            "trading and expert advisors allowed on account"
+            if account.trade_allowed and account.trade_expert
+            else "trading or expert advisors not allowed on this account"))
+
+    # Symbol trade mode (static permission, not the live session).
+    trade_mode = symbol_info.trade_mode
+    disabled = getattr(mt5, 'SYMBOL_TRADE_MODE_DISABLED', 0)
+    checks.append(_check(
+        "symbol_trading_enabled", trade_mode != disabled,
+        f"symbol trade_mode={trade_mode}" if trade_mode != disabled else "trading is disabled for this symbol"))
+
+    # Freshness: a stale tick means the market is closed or the feed is frozen.
+    tick_time = getattr(tick, 'time_msc', 0) / 1000.0 or float(tick.time)
+    offset_s = _env_float('MT5_SERVER_UTC_OFFSET_H', 0) * 3600
+    tick_age = time.time() - (tick_time - offset_s)
+    max_age = _env_float('MT5_MAX_TICK_AGE_S', 60)
+    if max_age > 0:
+        # Negative age means the server offset is misconfigured; don't block on that.
+        fresh = tick_age <= max_age
+        checks.append(_check(
+            "tick_fresh", fresh,
+            f"last tick {tick_age:.0f}s old (max {max_age:.0f}s)" if fresh
+            else f"market closed or feed stale: last tick {tick_age:.0f}s old (max {max_age:.0f}s)"))
+    else:
+        checks.append(_check("tick_fresh", True, f"last tick {tick_age:.0f}s old (check disabled)", enforced=False))
+
+    # Spread.
+    spread_points = (tick.ask - tick.bid) / point if point else float(symbol_info.spread)
+    max_spread = _env_float('MT5_MAX_SPREAD_POINTS', 0)
+    if max_spread > 0:
+        checks.append(_check(
+            "spread_ok", spread_points <= max_spread,
+            f"spread {spread_points:.0f} pts (max {max_spread:.0f})" if spread_points <= max_spread
+            else f"spread too wide: {spread_points:.0f} pts (max {max_spread:.0f})"))
+    else:
+        checks.append(_check("spread_ok", True, f"spread {spread_points:.0f} pts (no limit set)", enforced=False))
+
+    # Depth of market.
+    book = {"available": False, "reason": "disabled (MT5_CHECK_ORDER_BOOK=false)"}
+    if os.getenv('MT5_CHECK_ORDER_BOOK', 'true').lower() == 'true':
+        book = _read_order_book(symbol, order_type, price, volume, deviation, point)
+    if book["available"]:
+        enough = book["volume_within_deviation"] >= float(volume)
+        checks.append(_check(
+            "order_book_liquidity", enough,
+            f"{book['volume_within_deviation']} lots within {deviation} pts of {price} on the {book['side']} side "
+            f"(need {float(volume)})" if enough
+            else f"insufficient liquidity: only {book['volume_within_deviation']} lots within {deviation} pts of "
+                 f"{price} on the {book['side']} side (need {float(volume)})"))
+    else:
+        checks.append(_check("order_book_liquidity", True, f"skipped: {book['reason']}", enforced=False))
+
+    market = {
+        "bid": tick.bid,
+        "ask": tick.ask,
+        "tick_time": tick_time,
+        "tick_age_s": round(tick_age, 1),
+        "spread_points": round(spread_points, 1),
+        "point": point,
+        "trade_mode": trade_mode,
+        "volume_min": symbol_info.volume_min,
+        "volume_max": symbol_info.volume_max,
+        "volume_step": symbol_info.volume_step,
+        "stops_level": symbol_info.trade_stops_level,
+        "order_book": book,
+    }
+    return checks, market
+
+
 def validate_order(symbol, order_type, volume, sl=None, tp=None,
                     deviation=20, magic=0, type_filling=None):
     """
@@ -340,15 +537,27 @@ def validate_order(symbol, order_type, volume, sl=None, tp=None,
 
     result_dict = check_result._asdict()
     retcode = result_dict.get("retcode")
-    ok = retcode == mt5.TRADE_RETCODE_DONE
-
+    # order_check() reports success as retcode 0 (10009/DONE is only for order_send).
+    order_ok = retcode in (0, mt5.TRADE_RETCODE_DONE)
     readable_comment = _RETCODE_MESSAGES.get(retcode, result_dict.get("comment"))
+
+    checks, market = _market_checks(symbol, symbol_info, tick, resolved_type, price, volume, deviation)
+    failed = [c for c in checks if c["enforced"] and not c["ok"]]
+
+    comment = readable_comment
+    if failed:
+        failure_text = "; ".join(c["detail"] for c in failed)
+        comment = failure_text if order_ok else f"{readable_comment} {failure_text}"
+
     outcome = {
-        "ok": ok,
+        "ok": order_ok and not failed,
         "retcode": retcode,
-        "comment": readable_comment,
+        "comment": comment,
         "margin_required": result_dict.get("margin"),
         "free_margin_after": result_dict.get("margin_free"),
+        "checks": checks,
+        "failed_checks": [c["name"] for c in failed],
+        "market": market,
         "raw_result": result_dict,
     }
 
