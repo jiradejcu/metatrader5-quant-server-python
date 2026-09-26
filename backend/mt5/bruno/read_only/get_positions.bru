@@ -1,0 +1,17 @@
+meta {
+  name: Get positions
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/get_positions
+  body: none
+  auth: none
+}
+
+tests {
+  test("returns 200", function () {
+    expect(res.status).to.equal(200);
+  });
+}
