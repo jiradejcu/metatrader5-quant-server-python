@@ -27,19 +27,33 @@ empty_df = pd.DataFrame(columns=[
     'price_current', 'swap', 'profit', 'symbol', 'comment', 'external_id'
 ])
 
+class PositionsUnavailable(Exception):
+    """MT5 positions could not be fetched. Raised by get_positions(strict=True)
+    so a failed fetch is never mistaken for "no open positions" (a flat hedge)."""
+
+
 def _add_signed_volume(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df['signed_volume'] = df['volume'] * df['type'].apply(lambda x: -1 if x == 1 else 1)
     return df
 
-def get_positions() -> pd.DataFrame:
+def get_positions(strict: bool = False) -> pd.DataFrame:
+    """Fetch all open MT5 positions.
+
+    By default any failure returns an empty DataFrame. With strict=True a failure
+    raises PositionsUnavailable instead — use it wherever an empty result would be
+    read as a flat position and acted on (hedge sizing).
+    """
+    url = f"{BASE_URL}/get_positions"
     try:
-        url = f"{BASE_URL}/get_positions"
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
 
-        df = pd.DataFrame(data if isinstance(data, list) else [])
+        if not isinstance(data, list):
+            raise ValueError(f"unexpected positions payload: {data!r}")
+
+        df = pd.DataFrame(data)
 
         if df.empty:
             return empty_df
@@ -49,14 +63,18 @@ def get_positions() -> pd.DataFrame:
 
         return df
     
-    except requests.exceptions.Timeout:
+    except requests.exceptions.Timeout as e:
         error_msg = f"Timeout fetching positions from {url}"
         logger.error(error_msg)
+        if strict:
+            raise PositionsUnavailable(error_msg) from e
         return empty_df
     
     except Exception as e:
         error_msg = f"Exception fetching positions: {e}\n{traceback.format_exc()}"
         logger.error(error_msg)
+        if strict:
+            raise PositionsUnavailable(f"Exception fetching positions: {e}") from e
         return empty_df
 
 def get_position_by_symbol(symbol: str) -> Dict:
@@ -72,7 +90,9 @@ def get_position_by_symbol(symbol: str) -> Dict:
             'unRealizedProfit': data.get('unRealizedProfit', '0'),
         }
 
-    positions_df = get_positions()
+    # Strict: this feeds hedge sizing, where an empty result would read as a
+    # flat hedge and trigger a full-size hedge order.
+    positions_df = get_positions(strict=True)
     symbol_positions = positions_df[positions_df['symbol'] == symbol]
     latest_update = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
@@ -99,7 +119,7 @@ def get_net_position(symbol: str) -> Dict:
     currently-open legs. Used to seed the position-group baseline at startup so
     it starts in sync with the exchange rather than assuming a flat position.
     """
-    positions_df = get_positions()
+    positions_df = get_positions(strict=True)
     sym = positions_df[positions_df['symbol'] == symbol]
     if sym.empty:
         return {'volume': 0.0, 'entryPrice': 0.0}
@@ -119,7 +139,9 @@ async def subscribe_hedge_position(symbol: str):
     redis_conn = get_redis_connection()
     while True:
         try:
-            positions = get_positions()
+            # Strict: on a failed fetch keep the last cached value (it expires in
+            # 10s) rather than overwriting it with a fake flat position.
+            positions = get_positions(strict=True)
             positions = positions[positions['symbol'] == symbol]
             redis_key = f"position:mt5:{symbol}"
 

@@ -88,7 +88,7 @@ def entry_algorithm():
                         logger.error({'error_msg': error_msg, 'sl_including_commission': sl_including_commission, 'tick_info': tick_info})
                         continue
                 
-                order = send_market_order(
+                order, _ = send_market_order(
                     symbol=pair,
                     volume=order_volume_lots,
                     order_type=order_type,

@@ -38,8 +38,15 @@ if "app.connectors.binance.api" not in sys.modules:
 for _name in [
     "app.utils.redis_client",
     "app.utils.api.order",
+    "app.utils.api.positions",
     "app.connectors.binance.api.order",
     "app.connectors.binance.api.ticker",
     "app.connectors.binance.api.position",
 ]:
     sys.modules.setdefault(_name, MagicMock())
+
+# position_sync catches PositionsUnavailable by name; `except <MagicMock>` would
+# raise TypeError, so give the stub module a real exception class.
+sys.modules["app.utils.api.positions"].PositionsUnavailable = type(
+    "PositionsUnavailable", (Exception,), {}
+)

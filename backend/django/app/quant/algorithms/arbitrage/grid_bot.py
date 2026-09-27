@@ -10,6 +10,7 @@ from app.connectors.binance.api.order import get_open_orders, cancel_all_open_or
 from app.connectors.binance.api.position import get_position
 from app.connectors.binance.api.user_data_stream import watch_user_data_stream
 from app.utils.api.order import validate_order as validate_mt5_order
+from app.utils.api.positions import get_position_by_symbol as get_hedge_position
 from .price_diff import PRICE_DIFF_MAX_AGE_MS
 from . import state
 from ..trading_sessions import is_within_trading_session
@@ -23,6 +24,7 @@ latest_price_ts = None
 latest_atr = 0.0
 _prev_ask_diff_for_atr = None
 _prev_bid_diff_for_atr = None
+_was_in_recovery = False
 
 # Asymmetric EMA: a short period reacts fast when volatility rises (TR > ATR),
 # a long period lets ATR decay slowly back down once it falls (TR < ATR), so
@@ -56,6 +58,15 @@ def _determine_zone(ask_diff, bid_diff, short_upper, short_lower, long_upper, lo
     return 'NEUTRAL'
 
 
+def _trunc(val):
+    """Truncate a primary amount to a placeable size: the nearest 1/contract_size
+    lot in MOCK_ENTRY_POSITION_AMT mode, otherwise the nearest integer."""
+    if os.getenv('MOCK_ENTRY_POSITION_AMT', 'false').lower() == 'true':
+        contract_size = config.PAIRS[int(os.getenv('PAIR_INDEX', '0'))]['contract_size']
+        return math.trunc(val * contract_size) / contract_size
+    return math.trunc(val)
+
+
 def _compute_target(zone, position_amt, order_size, max_pos, net_pending=0):
     """Return desired position amount, or None to do nothing.
 
@@ -75,12 +86,6 @@ def _compute_target(zone, position_amt, order_size, max_pos, net_pending=0):
                  reduces abs(position), so capacity is not truly exhausted.
                  remaining_capacity < 0: over-committed — cancel excess order.
     """
-    def _trunc(val):
-        if os.getenv('MOCK_ENTRY_POSITION_AMT', 'false').lower() == 'true':
-            contract_size = config.PAIRS[int(os.getenv('PAIR_INDEX', '0'))]['contract_size']
-            return math.trunc(val * contract_size) / contract_size
-        return math.trunc(val)
-
     # +order_size for BUY, -order_size for SELL, None for NEUTRAL.
     zone_delta = {'BUY': order_size, 'SELL': -order_size}.get(zone)
 
@@ -145,8 +150,12 @@ def _check_hedge_leg(primary_side, primary_size):
     return result.get('ok', False)
 
 
-def _reconcile(primary_symbol, target, position_amt, open_orders, sync_pending=False):
-    """Take the minimal action to reach the target position."""
+def _reconcile(primary_symbol, target, position_amt, open_orders, sync_pending=False, check_hedge=True):
+    """Take the minimal action to reach the target position.
+
+    check_hedge=False skips the MT5 hedge-leg dry-run — used in recovery mode,
+    where the primary order is itself the fix and will not be hedged.
+    """
     if target is None:
         logger.debug("[Reconcile] do nothing")
         return
@@ -168,7 +177,7 @@ def _reconcile(primary_symbol, target, position_amt, open_orders, sync_pending=F
         if sync_pending:
             logger.info(f"[Reconcile] Sync pending — holding off on new {side} order")
             return
-        if not _check_hedge_leg(side, size):
+        if check_hedge and not _check_hedge_leg(side, size):
             return
         logger.info(f"[Reconcile] No open order → placing {side}, size={size}")
         chase_order(primary_symbol, float(size), side, order_id=None)
@@ -258,6 +267,67 @@ def _process_tick(primary_symbol, short_upper, short_lower, long_upper, long_low
     _reconcile(primary_symbol, target, position_amt, open_orders, sync_pending=bool(sync_pending))
 
 
+def _recovery_target(hedge_volume):
+    """Primary amount that exactly offsets the hedge (mirror of position_sync's
+    discrepancy = position_amt + hedge_volume * contract_size)."""
+    if os.getenv('MOCK_ENTRY_POSITION_AMT', 'false').lower() == 'true':
+        # position_sync scales the primary by contract_size in mock mode, so a
+        # primary amount of 1 offsets 1 hedge lot.
+        return _trunc(-hedge_volume)
+    contract_size = config.PAIRS[int(os.getenv('PAIR_INDEX', '0'))]['contract_size']
+    return _trunc(-hedge_volume * contract_size)
+
+
+def _process_recovery_tick(primary_symbol, hedge_symbol, entering=False):
+    """Recovery mode (set by position_sync when the hedge market can't take
+    orders): stop grid trading and move the primary position to match the hedge
+    so the pair is flat again, instead of waiting for the hedge to catch up.
+
+    On entry every open (grid) order is cancelled. After that the only order the
+    bot keeps is the one reconciling the primary to the hedge; it is cancelled
+    and re-placed whenever it no longer fits the required adjustment.
+    """
+    with state.state_lock:
+        force = state.force_fetch
+        if force:
+            state.force_fetch = False
+
+    open_orders = get_open_orders(primary_symbol, force=force)
+
+    if entering:
+        if open_orders:
+            logger.warning(f"[Recovery] Entering recovery — cancelling {len(open_orders)} open order(s)")
+            cancel_all_open_orders(primary_symbol)
+        else:
+            logger.warning("[Recovery] Entering recovery — no open orders")
+        return
+
+    positions = get_position(primary_symbol, force=force)
+    position_amt = float((positions or {}).get('positionAmt', '0'))
+    hedge_volume = float(get_hedge_position(hedge_symbol).get('volume', 0) or 0)
+    target = _recovery_target(hedge_volume)
+    diff = round(target - position_amt, 10)
+
+    logger.debug(
+        f"[Recovery] position={position_amt} hedge_volume={hedge_volume} target={target} "
+        f"open_orders={len(open_orders or [])}"
+    )
+
+    if open_orders:
+        first = open_orders[0]
+        expected_side = 'BUY' if diff > 0 else 'SELL'
+        order_too_big = float(getattr(first, 'orig_qty', 0)) > abs(diff)
+        if len(open_orders) > 1 or (diff != 0 and (getattr(first, 'side', None) != expected_side or order_too_big)):
+            logger.info(
+                f"[Recovery] Open order(s) don't fit the required adjustment {diff} — cancelling, will re-place next tick"
+            )
+            cancel_all_open_orders(primary_symbol)
+            return
+
+    _reconcile(primary_symbol, target, position_amt, open_orders,
+               sync_pending=bool(get_sync_pending()), check_hedge=False)
+
+
 _COMPUTED_ACTIVE_FLAG = "grid_bot_computed_active_flag"
 # Set inline on every tick (ticks are event-driven off price-diff arrival, so
 # this doubles as a liveness heartbeat: if the price feed stalls, the flag
@@ -275,6 +345,10 @@ def get_position_sync_ok():
 
 def get_sync_pending():
     return get_redis_connection().get("sync_pending_flag")
+
+
+def get_recovery_mode():
+    return get_redis_connection().get("grid_bot_recovery_flag")
 
 
 def _set_computed_active(is_active):
@@ -312,6 +386,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key, hedge_symbol):
 
     # --- Tick worker: wakes only when a new price diff arrives ---
     def _tick_worker():
+        global _was_in_recovery
         while True:
             _new_price_event.wait()
             _new_price_event.clear()
@@ -319,6 +394,7 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key, hedge_symbol):
                 enable = get_enable_status()
                 sync_ok = get_position_sync_ok()
                 in_session = is_within_trading_session(primary_symbol, hedge_symbol)
+                recovery = get_recovery_mode()
                 allow_place_orders = (
                     latest_grid_settings is not None
                     and latest_ask_diff is not None
@@ -327,14 +403,38 @@ def handle_grid_flow(pubsub, price_diff_key, grid_range_key, hedge_symbol):
                     and sync_ok
                     and in_session
                 )
-                _set_computed_active(allow_place_orders)
+                # Recovery needs no grid settings or price diff — only the same
+                # safety gates (enabled, position_sync alive, in session so it
+                # can't collide with prediction_bot's out-of-session trading).
+                allow_recovery = bool(recovery and enable and sync_ok and in_session)
+                # While the recovery flag is set, only recovery can run — normal
+                # trading is skipped even if its own gates pass.
+                _set_computed_active(allow_recovery if recovery else allow_place_orders)
                 logger.debug(
                     f"[Grid] Enable flag: {bool(enable)} "
                     f"has_settings={latest_grid_settings is not None} "
                     f"has_price_diff={latest_ask_diff is not None and latest_bid_diff is not None} "
                     f"position_sync_ok={bool(sync_ok)} "
-                    f"in_trading_session={in_session} -> {'run' if allow_place_orders else 'skip'}"
+                    f"in_trading_session={in_session} "
+                    f"recovery={bool(recovery)} -> "
+                    f"{'recovery' if allow_recovery else 'run' if allow_place_orders and not recovery else 'skip'}"
                 )
+
+                if recovery:
+                    if allow_recovery:
+                        _process_recovery_tick(primary_symbol, hedge_symbol, entering=not _was_in_recovery)
+                        _was_in_recovery = True
+                    else:
+                        # A failed gate drops the bot to idle, same as outside
+                        # recovery. Once the gates pass again (e.g. re-enabled)
+                        # it re-enters recovery from the start, cancelling any
+                        # orders placed in between.
+                        _was_in_recovery = False
+                    continue
+
+                if _was_in_recovery:
+                    logger.info("[Recovery] Recovery mode cleared — resuming grid trading")
+                    _was_in_recovery = False
 
                 if allow_place_orders:
                     short_upper = latest_grid_settings['short_upper']

@@ -42,6 +42,7 @@ export const ControlSection = (arg: ICardSection) => {
         pausePositionSync,
         gridBotEnabled,
         gridBotActive,
+        gridBotRecovery,
         predictionBotEnabled,
         predictionBotActive,
     } = useGetSummaryStreamData(apiUrl)
@@ -78,7 +79,11 @@ export const ControlSection = (arg: ICardSection) => {
 
             <div className="flex items-center justify-between mb-2">
               <PauseGridBotBtn url={apiUrl} gridBotEnabled={gridBotEnabled} />
-              <LedIndicator active={gridBotActive === 'Active'} label="Active" />
+              <LedIndicator
+                active={gridBotActive === 'Active'}
+                warning={gridBotRecovery === 'Active'}
+                label={gridBotRecovery === 'Active' ? 'Recovery' : 'Active'}
+              />
             </div>
 
             <div className="flex items-center justify-between mb-2">

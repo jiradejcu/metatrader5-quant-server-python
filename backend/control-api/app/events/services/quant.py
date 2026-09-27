@@ -35,6 +35,10 @@ def get_arbitrage_summary():
         # enabled AND currently passing all other gating (trading session,
         # position sync, settings loaded) — not just the raw enable flag.
         grid_bot_active_key = "grid_bot_computed_active_flag"
+        # Set by position_sync when the hedge market rejects orders (thin
+        # liquidity etc.): grid_bot stops grid trading and matches the primary
+        # to the hedge until a probe order fills.
+        grid_bot_recovery_key = "grid_bot_recovery_flag"
         prediction_bot_active_key = "prediction_bot_computed_active_flag"
 
         redis_conn = get_redis_connection()
@@ -48,6 +52,7 @@ def get_arbitrage_summary():
         pause_position = 'Active'
         grid_bot_enabled = 'Inactive'
         grid_bot_active = 'Inactive'
+        grid_bot_recovery = 'Inactive'
         prediction_bot_enabled = 'Inactive'
         prediction_bot_active = 'Inactive'
         pairStatus = 'Warning'
@@ -64,6 +69,9 @@ def get_arbitrage_summary():
 
         if redis_conn.get(grid_bot_active_key):
             grid_bot_active = 'Active'
+
+        if redis_conn.get(grid_bot_recovery_key):
+            grid_bot_recovery = 'Active'
 
         if redis_conn.get(prediction_bot_enabled_key):
             prediction_bot_enabled = 'Active'
@@ -98,6 +106,7 @@ def get_arbitrage_summary():
             'pausePositionSync': pause_position,
             'gridBotEnabled': grid_bot_enabled,
             'gridBotActive': grid_bot_active,
+            'gridBotRecovery': grid_bot_recovery,
             'predictionBotEnabled': prediction_bot_enabled,
             'predictionBotActive': prediction_bot_active,
             'time_update_hedge': now,

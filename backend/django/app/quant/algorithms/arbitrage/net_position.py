@@ -31,7 +31,7 @@ def check_position_loop():
                     sell_ticket = sell_pos['ticket']
 
                     logger.info(f"Executing CloseBy for {hedge_symbol}: BUY #{buy_ticket} and SELL #{sell_ticket}")
-                    result = close_by(hedge_symbol, buy_ticket, sell_ticket)
+                    result, _ = close_by(hedge_symbol, buy_ticket, sell_ticket)
                     
                     if result:
                         logger.info(f"CloseBy order successful for tickets {buy_ticket} and {sell_ticket}")

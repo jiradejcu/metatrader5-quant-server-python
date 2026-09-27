@@ -43,7 +43,7 @@ class SendMarketOrderView(views.APIView):
         magic = data.get('magic', 0)
         type_filling = data.get('type_filling', '2')
 
-        order_response = send_market_order(
+        order_response, _ = send_market_order(
             symbol=symbol,
             volume=volume,
             order_type=order_type,

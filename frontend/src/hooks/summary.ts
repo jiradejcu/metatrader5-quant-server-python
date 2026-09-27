@@ -23,6 +23,7 @@ interface IArbitrageSummary {
   price_diff_percent?: number;
   gridBotEnabled?: string;
   gridBotActive?: string;
+  gridBotRecovery?: string;
   predictionBotEnabled?: string;
   predictionBotActive?: string;
   ask_diff?: number;
@@ -41,6 +42,7 @@ export const useGetSummaryStreamData = (url: string) => {
         pausePositionSync = 'Unknown',
         gridBotEnabled = 'Inactive',
         gridBotActive = 'Inactive',
+        gridBotRecovery = 'Inactive',
         predictionBotEnabled = 'Inactive',
         predictionBotActive = 'Inactive',
         spread = 0,
@@ -70,6 +72,7 @@ export const useGetSummaryStreamData = (url: string) => {
         pausePositionSync,
         gridBotEnabled,
         gridBotActive,
+        gridBotRecovery,
         predictionBotEnabled,
         predictionBotActive,
         spread,

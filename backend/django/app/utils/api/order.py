@@ -1,7 +1,7 @@
 import os
 import requests
 import traceback
-from typing import List, Dict
+from typing import List, Dict, Optional, Tuple
 import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
@@ -17,7 +17,19 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = os.getenv('MT5_API_URL')
 
-def send_market_order(symbol: str, volume: float = None, order_type: str = None, sl: float = None, tp: float = None, position: int = None, position_by: int = None, comment: str = '') -> Dict:
+def send_market_order(symbol: str, volume: float = None, order_type: str = None, sl: float = None, tp: float = None, position: int = None, position_by: int = None, comment: str = '') -> Tuple[Optional[Dict], Optional[Dict]]:
+    """Send a market (or close-by) order to MT5. Returns (order, error).
+
+    On success: (order, None). On failure: (None, error) where error is
+    {retcode, comment, http_status}. retcode is the MT5 TRADE_RETCODE_* value
+    when the MT5 server actually rejected the order, or None when the failure
+    happened before reaching the broker (bad request, MT5 unavailable, timeout,
+    transport error) — callers use it to tell market-condition rejections apart
+    from everything else.
+    """
+    def _error(comment, retcode=None, http_status=None):
+        return None, {"retcode": retcode, "comment": comment, "http_status": http_status}
+
     try:
         request = {
             "symbol": symbol,
@@ -32,15 +44,16 @@ def send_market_order(symbol: str, volume: float = None, order_type: str = None,
             request["volume"] = 0
         else:
             if order_type is None or volume is None:
-                logger.error("order_type and volume are required for market orders")
-                return None
+                error_msg = "order_type and volume are required for market orders"
+                logger.error(error_msg)
+                return _error(error_msg)
 
             order_type_str = order_type if isinstance(order_type, str) else order_type.name
 
             if order_type_str not in ['BUY', 'SELL']:
                 error_msg = f"Invalid order type: {order_type_str}. Must be 'BUY' or 'SELL'"
                 logger.error(error_msg)
-                return None
+                return _error(error_msg)
 
             request["volume"] = float(volume)
             request["type"] = 0 if order_type_str == 'BUY' else 1
@@ -65,7 +78,8 @@ def send_market_order(symbol: str, volume: float = None, order_type: str = None,
         if response_data.get('error'):
             error_msg = response_data.get('error', 'Unknown error')
             logger.error(f"Order failed: {error_msg}")
-            return None
+            retcode = (response_data.get('result') or {}).get('retcode')
+            return _error(error_msg, retcode=retcode, http_status=response.status_code)
             
         order = response_data['result']
         logger.info(f"Order successful: {order}")
@@ -75,21 +89,31 @@ def send_market_order(symbol: str, volume: float = None, order_type: str = None,
         if not order.get('price') and isinstance(order.get('request'), list):
             order['price'] = order['request'][5]
 
-        return order
+        return order, None
         
     except requests.exceptions.HTTPError as e:
         error_msg = f"HTTP error sending order for {symbol}: {e.response.text}"
         logger.error(error_msg)
+        # The MT5 /order endpoint answers a broker rejection with HTTP 400 and
+        # {"error", "mt5_error", "result": {"retcode", ...}}.
+        retcode = None
+        try:
+            retcode = (e.response.json().get('result') or {}).get('retcode')
+        except Exception:
+            pass
+        return _error(error_msg, retcode=retcode, http_status=e.response.status_code)
 
     except requests.exceptions.Timeout:
         error_msg = f"Timeout sending order for {symbol}"
         logger.error(error_msg)
+        return _error(error_msg)
     
     except Exception as e:
         error_msg = f"Exception sending order for {symbol}: {str(e)}\n{traceback.format_exc()}"
         logger.error(error_msg)
+        return _error(error_msg)
 
-def close_by(symbol: str, ticket: int, ticket_by: int) -> Dict:
+def close_by(symbol: str, ticket: int, ticket_by: int) -> Tuple[Optional[Dict], Optional[Dict]]:
     return send_market_order(symbol=symbol, position=ticket, position_by=ticket_by)
 
 def validate_order(symbol: str, order_type: str, volume: float, sl: float = None, tp: float = None) -> Dict:

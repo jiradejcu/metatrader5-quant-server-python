@@ -136,6 +136,7 @@ def reset_globals():
     _gb.latest_atr = 0.0
     _gb._prev_ask_diff_for_atr = None
     _gb._prev_bid_diff_for_atr = None
+    _gb._was_in_recovery = False
     _state_mod.force_fetch = False
     yield
 
@@ -1191,6 +1192,7 @@ def _run_handle_grid_flow_active(messages):
     with patch.dict("os.environ", {"PAIR_INDEX": "0"}), \
          patch.object(_gb, "get_redis_connection", return_value=redis_mock), \
          patch.object(_gb, "get_enable_status", return_value=b"1"), \
+         patch.object(_gb, "get_recovery_mode", return_value=None), \
          patch.object(_gb, "_process_tick", side_effect=mock_process_tick):
         try:
             _gb.handle_grid_flow(pubsub, price_key, grid_key, "XAUUSD")
@@ -1477,3 +1479,180 @@ class TestOnMessage:
         on_msg(None, _order_event(111, status, orig_qty=1.0, executed_qty=executed))
         with _state_mod.state_lock:
             assert _state_mod.placing_order_state["is_clean"] is True
+
+
+# ---------------------------------------------------------------------------
+# Recovery mode (position_sync set grid_bot_recovery_flag after the hedge
+# market rejected an order): cancel grid orders, match primary to hedge.
+# ---------------------------------------------------------------------------
+
+def _hedge(volume):
+    return {"volume": volume}
+
+
+class TestRecoveryTarget:
+
+    def test_short_hedge_means_long_primary(self):
+        with patch.dict("os.environ", {"PAIR_INDEX": "0", "MOCK_ENTRY_POSITION_AMT": "false"}):
+            assert _gb._recovery_target(-0.05) == 5  # contract_size=100
+
+    def test_long_hedge_means_short_primary(self):
+        with patch.dict("os.environ", {"PAIR_INDEX": "0", "MOCK_ENTRY_POSITION_AMT": "false"}):
+            assert _gb._recovery_target(0.03) == -3
+
+    def test_flat_hedge_means_flat_primary(self):
+        with patch.dict("os.environ", {"PAIR_INDEX": "0", "MOCK_ENTRY_POSITION_AMT": "false"}):
+            assert _gb._recovery_target(0.0) == 0
+
+    def test_mock_mode_uses_hedge_lots_directly(self):
+        with patch.dict("os.environ", {"PAIR_INDEX": "0", "MOCK_ENTRY_POSITION_AMT": "true"}):
+            assert _gb._recovery_target(-0.05) == pytest.approx(0.05)
+
+
+class TestProcessRecoveryTick:
+
+    def _run(self, open_orders, position_amt, hedge_volume, entering=False, sync_pending=None):
+        with patch.dict("os.environ", {"PAIR_INDEX": "0", "MOCK_ENTRY_POSITION_AMT": "false"}), \
+             patch.object(_gb, "get_open_orders", return_value=open_orders), \
+             patch.object(_gb, "get_position", return_value=_position(position_amt)), \
+             patch.object(_gb, "get_hedge_position", return_value=_hedge(hedge_volume)), \
+             patch.object(_gb, "get_sync_pending", return_value=sync_pending), \
+             patch.object(_gb, "cancel_all_open_orders") as mock_cancel, \
+             patch.object(_gb, "chase_order") as mock_chase:
+            _gb._process_recovery_tick(SYMBOL, "XAUUSD", entering=entering)
+        return mock_cancel, mock_chase
+
+    def test_entering_cancels_open_grid_orders(self):
+        cancel, chase = self._run([_open_order("BUY", orig_qty=1.0, order_id=1)], 0.0, -0.05, entering=True)
+        cancel.assert_called_once_with(SYMBOL)
+        chase.assert_not_called()
+
+    def test_entering_without_open_orders_places_nothing_yet(self):
+        cancel, chase = self._run([], 0.0, -0.05, entering=True)
+        cancel.assert_not_called()
+        chase.assert_not_called()
+
+    def test_places_order_to_match_hedge(self):
+        # Hedge filled only 0.03 of an expected 0.05 → primary 5 must drop to 3.
+        cancel, chase = self._run([], 5.0, -0.03)
+        chase.assert_called_once_with(SYMBOL, 2.0, "SELL", order_id=None)
+        cancel.assert_not_called()
+
+    def test_skips_mt5_hedge_check(self, mock_hedge_check):
+        self._run([], 5.0, -0.03)
+        mock_hedge_check.assert_not_called()
+
+    def test_chases_fitting_recovery_order(self):
+        cancel, chase = self._run([_open_order("SELL", orig_qty=2.0, order_id=7)], 5.0, -0.03)
+        chase.assert_called_once_with(SYMBOL, 2.0, "SELL", order_id=7)
+        cancel.assert_not_called()
+
+    def test_cancels_order_larger_than_required(self):
+        cancel, chase = self._run([_open_order("SELL", orig_qty=3.0, order_id=7)], 5.0, -0.03)
+        cancel.assert_called_once_with(SYMBOL)
+        chase.assert_not_called()
+
+    def test_cancels_wrong_side_order(self):
+        cancel, chase = self._run([_open_order("BUY", orig_qty=1.0, order_id=7)], 5.0, -0.03)
+        cancel.assert_called_once_with(SYMBOL)
+        chase.assert_not_called()
+
+    def test_cancels_multiple_orders(self):
+        orders = [_open_order("SELL", orig_qty=1.0, order_id=7), _open_order("SELL", orig_qty=1.0, order_id=8)]
+        cancel, chase = self._run(orders, 5.0, -0.03)
+        cancel.assert_called_once_with(SYMBOL)
+        chase.assert_not_called()
+
+    def test_matched_cancels_leftover_order(self):
+        cancel, chase = self._run([_open_order("SELL", orig_qty=1.0, order_id=7)], 3.0, -0.03)
+        cancel.assert_called_once_with(SYMBOL)
+        chase.assert_not_called()
+
+    def test_matched_no_orders_does_nothing(self):
+        cancel, chase = self._run([], 3.0, -0.03)
+        cancel.assert_not_called()
+        chase.assert_not_called()
+
+    def test_holds_while_sync_pending(self):
+        cancel, chase = self._run([], 5.0, -0.03, sync_pending=b"1")
+        chase.assert_not_called()
+
+
+def _run_tick_worker(recovery, in_session=True, sync_ok=b"1", enable=b"1"):
+    """Drive handle_grid_flow for one price tick; return (process_tick, recovery_tick) mocks."""
+    price_key = "spread:binance:XAUUSDT"
+    grid_key = "setting_grid_channel:XAUUSDT:XAUUSD"
+    call_count = [0]
+
+    def listen_side_effect():
+        call_count[0] += 1
+        if call_count[0] > 1:
+            raise _StopLoop("done")
+        return iter([make_price_message(PRICE_CH, 3.0, 3.1)])
+
+    pubsub = MagicMock()
+    pubsub.listen.side_effect = listen_side_effect
+    redis_mock = MagicMock()
+    redis_mock.get.return_value = json.dumps({
+        "short_upper_limit": 10.0, "short_lower_limit": 5.0,
+        "long_upper_limit": -5.0, "long_lower_limit": -10.0,
+        "max_position_size": 5.0, "order_size": 1.0,
+    }).encode()
+
+    with patch.dict("os.environ", {"PAIR_INDEX": "0"}), \
+         patch.object(_gb, "get_redis_connection", return_value=redis_mock), \
+         patch.object(_gb, "get_enable_status", return_value=enable), \
+         patch.object(_gb, "get_position_sync_ok", return_value=sync_ok), \
+         patch.object(_gb, "is_within_trading_session", return_value=in_session), \
+         patch.object(_gb, "get_recovery_mode", return_value=recovery), \
+         patch.object(_gb, "_process_tick") as mock_tick, \
+         patch.object(_gb, "_process_recovery_tick") as mock_recovery:
+        try:
+            _gb.handle_grid_flow(pubsub, price_key, grid_key, "XAUUSD")
+        except _StopLoop:
+            time.sleep(0.25)
+    return mock_tick, mock_recovery
+
+
+class TestTickWorkerRecoveryRouting:
+
+    def test_recovery_flag_routes_to_recovery_tick(self):
+        tick, recovery = _run_tick_worker(recovery=b"{}")
+        recovery.assert_called_once_with("PAXGUSDT", "XAUUSD", entering=True)
+        tick.assert_not_called()
+
+    def test_second_recovery_tick_is_not_entering(self):
+        _gb._was_in_recovery = True
+        tick, recovery = _run_tick_worker(recovery=b"{}")
+        recovery.assert_called_once_with("PAXGUSDT", "XAUUSD", entering=False)
+
+    def test_no_recovery_flag_runs_normal_tick(self):
+        tick, recovery = _run_tick_worker(recovery=None)
+        tick.assert_called_once()
+        recovery.assert_not_called()
+
+    def test_recovery_cleared_resumes_grid(self):
+        _gb._was_in_recovery = True
+        tick, recovery = _run_tick_worker(recovery=None)
+        tick.assert_called_once()
+        assert _gb._was_in_recovery is False
+
+    @pytest.mark.parametrize("kwargs", [
+        {"in_session": False}, {"sync_ok": None}, {"enable": None},
+    ])
+    def test_recovery_respects_safety_gates(self, kwargs):
+        tick, recovery = _run_tick_worker(recovery=b"{}", **kwargs)
+        recovery.assert_not_called()
+        tick.assert_not_called()
+
+    @pytest.mark.parametrize("kwargs", [
+        {"in_session": False}, {"sync_ok": None}, {"enable": None},
+    ])
+    def test_failed_gate_mid_recovery_restarts_at_entering(self, kwargs):
+        # Mid-recovery, a gate fails → idle and forget recovery progress...
+        _gb._was_in_recovery = True
+        _run_tick_worker(recovery=b"{}", **kwargs)
+        assert _gb._was_in_recovery is False
+        # ...so once the gates pass again it cancels open orders first.
+        _, recovery = _run_tick_worker(recovery=b"{}")
+        recovery.assert_called_once_with("PAXGUSDT", "XAUUSD", entering=True)

@@ -30,6 +30,7 @@ export const GridSettingModal = (
         bid_diff,
         gridBotEnabled,
         gridBotActive,
+        gridBotRecovery,
         time_update_primary: time_update,
         primarySymbol
     } = useGetSummaryStreamData(url)
@@ -135,7 +136,11 @@ export const GridSettingModal = (
                             <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Grid Bot Settings</h2>
                             <div className="flex items-center justify-between mt-4 mb-1">
                                 <PauseGridBotBtn url={url} gridBotEnabled={gridBotEnabled} label="Enable" />
-                                <LedIndicator active={gridBotActive?.toLowerCase() === 'active'} label="Active" />
+                                <LedIndicator
+                                    active={gridBotActive?.toLowerCase() === 'active'}
+                                    warning={gridBotRecovery?.toLowerCase() === 'active'}
+                                    label={gridBotRecovery?.toLowerCase() === 'active' ? 'Recovery' : 'Active'}
+                                />
                             </div>
                             {isLoading ? (
                                 <p className="text-xs text-blue-600 animate-pulse mt-1 font-bold">Syncing data...</p>
