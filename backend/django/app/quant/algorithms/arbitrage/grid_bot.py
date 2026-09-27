@@ -129,7 +129,12 @@ def _check_hedge_leg(primary_side, primary_size):
     contract_size = pair['contract_size']
 
     hedge_side = 'SELL' if primary_side == 'BUY' else 'BUY'
-    hedge_volume = float(primary_size) / float(contract_size)
+    # Mirror position_sync: in MOCK_ENTRY_POSITION_AMT mode the primary amount is
+    # scaled up by contract_size before hedging, so hedge lots == primary size.
+    if os.getenv('MOCK_ENTRY_POSITION_AMT', 'false').lower() == 'true':
+        hedge_volume = float(primary_size)
+    else:
+        hedge_volume = float(primary_size) / float(contract_size)
 
     result = validate_mt5_order(symbol=hedge_symbol, order_type=hedge_side, volume=hedge_volume)
     if not result.get('ok'):

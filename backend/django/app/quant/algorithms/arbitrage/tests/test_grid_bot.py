@@ -616,6 +616,27 @@ class TestProcessTickMockEntryPosition:
 
 
 # ---------------------------------------------------------------------------
+# _check_hedge_leg — hedge volume sizing
+# ---------------------------------------------------------------------------
+
+class TestCheckHedgeLegVolume:
+    """Dry-run hedge volume must match what position_sync will actually send."""
+
+    def test_normal_mode_divides_by_contract_size(self, mock_hedge_check):
+        with patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "false", "PAIR_INDEX": "0"}):
+            _gb._check_hedge_leg("BUY", 1.0)
+        assert mock_hedge_check.call_args.kwargs["volume"] == pytest.approx(0.01)
+        assert mock_hedge_check.call_args.kwargs["order_type"] == "SELL"
+
+    def test_mock_mode_uses_primary_size_as_lots(self, mock_hedge_check):
+        # position_sync scales 0.01 × contract_size(100) = 1 → hedges 0.01 lot.
+        with patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "true", "PAIR_INDEX": "0"}):
+            _gb._check_hedge_leg("SELL", 0.01)
+        assert mock_hedge_check.call_args.kwargs["volume"] == pytest.approx(0.01)
+        assert mock_hedge_check.call_args.kwargs["order_type"] == "BUY"
+
+
+# ---------------------------------------------------------------------------
 # _reconcile
 # ---------------------------------------------------------------------------
 
@@ -698,7 +719,8 @@ class TestReconcile:
     def test_hedge_check_passes_opposite_side_and_converted_volume(self, mock_hedge_check):
         """The hedge check must use the opposite side and volume/contract_size lots."""
         pair = _real_config.PAIRS[int(os.getenv('PAIR_INDEX', '0'))]
-        with patch.object(_gb, "chase_order"):
+        with patch.object(_gb, "chase_order"), \
+             patch.dict("os.environ", {"MOCK_ENTRY_POSITION_AMT": "false"}):
             _gb._reconcile(SYMBOL, 1.0, 0.0, [])  # primary BUY, size 1.0
         mock_hedge_check.assert_called_once_with(
             symbol=pair['hedge']['symbol'],
