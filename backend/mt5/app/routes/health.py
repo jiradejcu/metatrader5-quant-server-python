@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify
 import MetaTrader5 as mt5
 from flasgger import swag_from
+import state
 
 health_bp = Blueprint('health', __name__)
 
@@ -9,14 +10,22 @@ health_bp = Blueprint('health', __name__)
     'tags': ['Health'],
     'responses': {
         200: {
-            'description': 'Health check successful',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'status': {'type': 'string'},
-                    'mt5_connected': {'type': 'boolean'},
-                    'mt5_initialized': {'type': 'boolean'}
-                }
+            'description': 'MT5 connected and background poll is fresh',
+            'schema': {'$ref': '#/definitions/HealthStatus'}
+        },
+        503: {
+            'description': 'MT5 disconnected, or background poll older than the watchdog timeout',
+            'schema': {'$ref': '#/definitions/HealthStatus'}
+        }
+    },
+    'definitions': {
+        'HealthStatus': {
+            'type': 'object',
+            'properties': {
+                'status': {'type': 'string', 'enum': ['healthy', 'unhealthy']},
+                'mt5_connected': {'type': 'boolean'},
+                'mt5_initialized': {'type': 'boolean'},
+                'poll_age_sec': {'type': 'number', 'description': 'Seconds since the last successful background poll'}
             }
         }
     }
@@ -28,14 +37,19 @@ def health_check():
     description: Check the health status of the application and MT5 connection.
     responses:
       200:
-        description: Health check successful
+        description: MT5 connected and background poll is fresh
+      503:
+        description: MT5 disconnected or background poll is stale
     """
     initialized = mt5.terminal_info() is not None
+    poll_age_sec = state.poll_age()
+    healthy = initialized and poll_age_sec <= state.WATCHDOG_TIMEOUT
     return jsonify({
-        "status": "healthy",
+        "status": "healthy" if healthy else "unhealthy",
         "mt5_connected": initialized,
-        "mt5_initialized": initialized
-    }), 200
+        "mt5_initialized": initialized,
+        "poll_age_sec": round(poll_age_sec, 3)
+    }), 200 if healthy else 503
 
 @health_bp.route('/account_info')
 @swag_from({
@@ -50,6 +64,9 @@ def health_check():
                     'name': {'type': 'string'},
                     'server': {'type': 'string'},
                     'status': {'type': 'string'},
+                    'margin_mode': {'type': 'integer', 'description': 'ACCOUNT_MARGIN_MODE: 0 retail netting, 1 exchange, 2 retail hedging'},
+                    'currency': {'type': 'string'},
+                    'leverage': {'type': 'integer'},
                 }
             }
         }
@@ -82,6 +99,11 @@ def get_account_info():
             'equity': account_info['equity'],
             'balance': account_info['balance'],
             'credit': account_info['credit'],
+            # margin_mode: ACCOUNT_MARGIN_MODE_RETAIL_NETTING=0, _EXCHANGE=1,
+            # _RETAIL_HEDGING=2. Clients that hold opposing positions need 2.
+            'margin_mode': account_info['margin_mode'],
+            'currency': account_info['currency'],
+            'leverage': account_info['leverage'],
         }), 200
     except Exception as e:
         return jsonify({
