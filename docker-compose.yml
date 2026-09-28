@@ -240,6 +240,9 @@ services:
     image: redis:6
     container_name: redis
     restart: unless-stopped
+    volumes:
+      # Named, so the bots' flags and settings survive `docker compose down`.
+      - redis-data:/data
     cpus: 0.5
     mem_limit: 512m
     depends_on:
@@ -551,6 +554,7 @@ volumes:
   grafana-data: {}
   prometheus-data: {}
   postgres-data: {}
+  redis-data: {}
   static_volume: {}
   n8n_storage:
 
