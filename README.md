@@ -79,7 +79,10 @@ This project provides a Docker-based setup to run MetaTrader 5 (MT5) using Wine 
 
    ```bash
    docker network create traefik-public
+   docker network create mt5-bridge
    ```
+
+   `mt5-bridge` connects the `mt5` container to the ylgbot hedge bot. Create it even if you don't run ylgbot, because `docker-compose.yml` expects it to exist. `./start.sh` creates both networks if they are missing.
 
 4. **Build and Start the Services**
 

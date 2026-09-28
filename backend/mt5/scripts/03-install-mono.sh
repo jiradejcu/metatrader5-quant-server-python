@@ -23,5 +23,6 @@ else
     log_message "INFO" "Mono is already installed."
 fi
 
-# Initialize Wine configuration
-winecfg
+# Initialize the Wine prefix without a GUI. winecfg opens a dialog and blocks
+# until someone closes it over VNC, so the MT5 API never starts after a restart.
+wineboot --init
