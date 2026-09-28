@@ -54,7 +54,27 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 # MT5 connection helper
 # ---------------------------------------------------------------------------
 
-POLL_INTERVAL = 0.5  # seconds between background polls
+DEFAULT_POLL_INTERVAL = 0.5
+
+
+def _read_poll_interval() -> float:
+    """Seconds between background polls, from MT5_POLL_INTERVAL (default 0.5)."""
+    raw = os.getenv("MT5_POLL_INTERVAL")
+    if raw is None or raw.strip() == "":
+        return DEFAULT_POLL_INTERVAL
+    try:
+        value = float(raw)
+    except ValueError:
+        value = None
+    if value is None or not value > 0 or value == float("inf"):
+        logger.warning(
+            f"Invalid MT5_POLL_INTERVAL={raw!r}; using {DEFAULT_POLL_INTERVAL}s."
+        )
+        return DEFAULT_POLL_INTERVAL
+    return value
+
+
+POLL_INTERVAL = _read_poll_interval()  # seconds between background polls
 
 
 def _ensure_connected() -> bool:
