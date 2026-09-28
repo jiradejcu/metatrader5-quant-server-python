@@ -87,7 +87,7 @@ This project provides a Docker-based setup to run MetaTrader 5 (MT5) using Wine 
 4. **Build and Start the Services**
 
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 This command builds the Docker images and starts the services in detached mode.
@@ -129,19 +129,19 @@ This command builds the Docker images and starts the services in detached mode.
    - **Start Services:**
 
      ```bash
-     docker-compose up -d
+     docker compose up -d
      ```
 
    - **Stop Services:**
 
      ```bash
-     docker-compose down
+     docker compose down
      ```
 
    - **View Logs:**
 
      ```bash
-     docker-compose logs -f
+     docker compose logs -f
      ```
 
 ## Logging
