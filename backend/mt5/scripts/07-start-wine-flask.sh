@@ -20,13 +20,15 @@ while true; do
     sleep 5
 done &
 
-# Give the server some time to start
-sleep 5
+# Wait up to 120 seconds for the server to listen. It needs longer than a few
+# seconds, because app.py connects to the MT5 terminal before it binds the port.
+for _ in $(seq 1 60); do
+    if ss -tln | grep -q ':5001'; then
+        log_message "INFO" "Flask server started successfully."
+        exit 0
+    fi
+    sleep 2
+done
 
-# Check if the Flask server is running
-if ss -tlnp | grep -q ':5001'; then
-    log_message "INFO" "Flask server started successfully."
-else
-    log_message "ERROR" "Failed to start Flask server."
-    exit 1
-fi
+log_message "ERROR" "Failed to start Flask server."
+exit 1

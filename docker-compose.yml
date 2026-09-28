@@ -79,6 +79,9 @@ services:
     networks:
       - traefik-public
       - default
+      # Shared with ylgbot-api only, so the hedge bot can reach http://mt5:5001.
+      # Nothing else may join it: the MT5 API has no authentication.
+      - mt5-bridge
     env_file:
       - .env
     restart: unless-stopped
@@ -556,3 +559,6 @@ networks:
     driver: bridge
   traefik-public:
     external: true
+  mt5-bridge:
+    external: true
+    name: mt5-bridge
