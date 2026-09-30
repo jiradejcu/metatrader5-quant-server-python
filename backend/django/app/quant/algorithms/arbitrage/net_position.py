@@ -3,17 +3,36 @@ import os
 import logging
 import threading
 from . import config
+from app.utils.redis_client import get_redis_connection
 from app.utils.api.positions import get_position_list_by_symbol
 from app.utils.api.order import close_by
 
 logger = logging.getLogger(__name__)
 
+_POSITION_SYNC_OK_FLAG = "position_sync_ok_flag"
+
+
+def is_position_sync_ok():
+    return bool(get_redis_connection().get(_POSITION_SYNC_OK_FLAG))
+
 def check_position_loop():
     PAIR_INDEX = int(os.getenv('PAIR_INDEX'))
     hedge_symbol = config.PAIRS[PAIR_INDEX]['hedge']['symbol']
+    paused = False
 
     while True:
         try:
+            # Only net out hedge positions while position_sync is alive and healthy
+            if not is_position_sync_ok():
+                if not paused:
+                    logger.warning(f"Position sync flag is off, pausing net position check for {hedge_symbol}")
+                    paused = True
+                time.sleep(1)
+                continue
+            if paused:
+                logger.info(f"Position sync flag is back on, resuming net position check for {hedge_symbol}")
+                paused = False
+
             positions = get_position_list_by_symbol(hedge_symbol)
             if positions:
                 logger.info(f"Checking for opposite positions for {hedge_symbol}. Total: {len(positions)}")
